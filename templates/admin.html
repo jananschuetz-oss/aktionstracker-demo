@@ -1,0 +1,875 @@
+{% extends 'base.html' %}
+{% block title %}Administration – Aktions Tracker {{ company_short }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1><i class="bi bi-gear me-2"></i>Administration</h1>
+  <p>Stammdaten verwalten – Mitarbeiter, Verkaufsstellen und Produkte</p>
+</div>
+
+<div class="row g-4">
+
+  <!-- Mitarbeiter -->
+  <div class="col-lg-4">
+    <div class="card h-100">
+      <div class="card-header"><i class="bi bi-people me-2"></i>Mitarbeiter</div>
+      <div class="card-body p-0">
+        <table class="table table-sm table-striped mb-0">
+          <thead>
+            <tr><th>Name</th><th>Kürzel</th><th>Rolle</th><th>E-Mail</th><th>VS</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for m in mitarbeiter %}
+            {% set ma_zuordnung = zuordnungen.get(m.id) or [] %}
+            <tr>
+              <td>{{ m.name }}</td>
+              <td><span class="badge" style="background:#1a3a5c">{{ m.kuerzel }}</span></td>
+              <td>
+                {% if m.rolle == 'admin' %}
+                  <span class="badge bg-danger">Admin</span>
+                {% elif m.rolle == 'verkaufsleiter' %}
+                  <span class="badge bg-primary">VKL</span>
+                {% else %}
+                  <span class="badge bg-secondary">Rep</span>
+                {% endif %}
+              </td>
+              <td>
+                <button class="btn btn-sm py-0 px-1 {% if m.email %}btn-outline-success{% else %}btn-outline-warning{% endif %}"
+                        data-bs-toggle="modal"
+                        data-bs-target="#modalEmail_{{ m.id }}"
+                        title="{% if m.email %}{{ m.email }}{% else %}Noch keine E-Mail hinterlegt{% endif %}">
+                  <i class="bi bi-envelope{% if not m.email %}-exclamation{% endif %}"></i>
+                </button>
+              </td>
+              <td class="text-center">
+                {% if m.rolle in ('rep', 'verkaufsleiter') %}
+                  <button class="btn btn-outline-primary btn-sm py-0 px-2"
+                          data-bs-toggle="modal"
+                          data-bs-target="#modalZuordnung_{{ m.id }}"
+                          title="Verkaufsstellen zuordnen">
+                    <i class="bi bi-shop me-1"></i>
+                    <span class="badge" style="background:#2e6da4;font-size:.7rem">
+                      {{ ma_zuordnung|length if ma_zuordnung else 'Alle' }}
+                    </span>
+                  </button>
+                {% endif %}
+              </td>
+              <td class="text-center">
+                <button class="btn btn-outline-secondary btn-sm py-0 px-1"
+                        data-bs-toggle="modal"
+                        data-bs-target="#modalPw_{{ m.id }}"
+                        title="Passwort setzen">
+                  <i class="bi bi-key"></i>
+                </button>
+                {% if m.rolle != 'admin' and m.id != session.user_id %}
+                <form method="POST"
+                      action="{{ url_for('admin_mitarbeiter_loeschen', ma_id=m.id) }}"
+                      style="display:inline"
+                      onsubmit="return confirm('Mitarbeiter „{{ m.name }}" wirklich löschen?\n\nNur möglich wenn keine Aktivitäten vorhanden.')">
+                  <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"
+                          title="Löschen">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="card-footer bg-white">
+        <button class="btn btn-primary btn-sm w-100" data-bs-toggle="modal" data-bs-target="#modalMitarbeiter">
+          <i class="bi bi-person-plus me-1"></i>Mitarbeiter hinzufügen
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Verkaufsstellen -->
+  <div class="col-lg-5">
+    <div class="card h-100">
+      <div class="card-header secondary"><i class="bi bi-shop me-2"></i>Verkaufsstellen</div>
+      <div class="card-body p-0">
+        <div style="max-height:400px;overflow-y:auto">
+          <table class="table table-sm table-striped mb-0">
+            <thead>
+              <tr><th>Name</th><th>Ort</th><th>Typ</th><th></th></tr>
+            </thead>
+            <tbody>
+              {% for vs in verkaufsstellen %}
+              <tr {% if not vs.aktiv %}style="opacity:.45"{% endif %}>
+                <td>
+                  {{ vs.name }}
+                  {% if not vs.aktiv %}
+                    <span class="badge bg-secondary ms-1" style="font-size:.65rem">Inaktiv</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <small class="text-muted">
+                    {% if vs.strasse %}{{ vs.strasse }}, {% endif %}{{ vs.ort or '–' }}
+                    {% if vs.ansprechpartner %}
+                    <br><i class="bi bi-person me-1"></i>{{ vs.ansprechpartner }}
+                    {% endif %}
+                  </small>
+                </td>
+                <td>
+                  {% if vs.typ == 'Gastronomie' %}
+                    <span class="badge" style="background:#145a32">{{ vs.typ }}</span>
+                  {% elif vs.typ == 'Einzelhandel' %}
+                    <span class="badge" style="background:#4a235a">{{ vs.typ }}</span>
+                  {% elif vs.typ == 'Getränkehandel' %}
+                    <span class="badge" style="background:#c8860a">{{ vs.typ }}</span>
+                  {% else %}
+                    <span class="badge bg-secondary">{{ vs.typ or '–' }}</span>
+                  {% endif %}
+                </td>
+                <td class="text-center" style="white-space:nowrap">
+                  {% if vs.aktiv %}
+                  <form method="POST"
+                        action="{{ url_for('admin_vs_loeschen', vs_id=vs.id) }}"
+                        style="display:inline"
+                        onsubmit="return confirm('Verkaufsstelle „{{ vs.name }}" löschen?\n\nHat sie Aktivitäten, wird sie nur deaktiviert.')">
+                    <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"
+                            title="Löschen / Deaktivieren">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </form>
+                  {% else %}
+                  <form method="POST"
+                        action="{{ url_for('admin_vs_reaktivieren', vs_id=vs.id) }}"
+                        style="display:inline">
+                    <button type="submit" class="btn btn-outline-success btn-sm py-0 px-1"
+                            title="Reaktivieren">
+                      <i class="bi bi-arrow-counterclockwise"></i>
+                    </button>
+                  </form>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card-footer bg-white">
+        <button class="btn btn-sm w-100" style="background:#2e6da4;color:white"
+                data-bs-toggle="modal" data-bs-target="#modalVS">
+          <i class="bi bi-shop me-1"></i>Verkaufsstelle hinzufügen
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Produkte -->
+  <div class="col-lg-3">
+    <div class="card h-100">
+      <div class="card-header gold"><i class="bi bi-box-seam me-2"></i>Produkte</div>
+      <div class="card-body p-0">
+        <table class="table table-sm table-striped mb-0">
+          <thead>
+            <tr><th>Produkt</th><th>Einheit</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for b in biersorten %}
+            <tr {% if not b.aktiv %}style="opacity:.45"{% endif %}>
+              <td>
+                <i class="bi bi-box-seam me-1" style="color:#c8860a"></i>{{ b.name }}
+                {% if not b.aktiv %}
+                  <span class="badge bg-secondary ms-1" style="font-size:.6rem">Inaktiv</span>
+                {% endif %}
+              </td>
+              <td><small class="text-muted">{{ b.einheit }}</small></td>
+              <td class="text-center">
+                {% if b.aktiv %}
+                <form method="POST"
+                      action="{{ url_for('admin_bier_loeschen', b_id=b.id) }}"
+                      style="display:inline"
+                      onsubmit="return confirm('Produkt „{{ b.name }}" löschen?\n\nHat es Bestellungen, wird es nur deaktiviert.')">
+                  <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"
+                          title="Löschen / Deaktivieren">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+                {% else %}
+                <form method="POST"
+                      action="{{ url_for('admin_bier_reaktivieren', b_id=b.id) }}"
+                      style="display:inline">
+                  <button type="submit" class="btn btn-outline-success btn-sm py-0 px-1"
+                          title="Reaktivieren">
+                    <i class="bi bi-arrow-counterclockwise"></i>
+                  </button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="card-footer bg-white">
+        <button class="btn btn-sm w-100" style="background:#c8860a;color:white"
+                data-bs-toggle="modal" data-bs-target="#modalBier">
+          <i class="bi bi-plus-circle me-1"></i>Produkt hinzufügen
+        </button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Displaysorten (zweite Zeile) -->
+<div class="row g-4 mt-0">
+  <div class="col-lg-4">
+    <div class="card h-100">
+      <div class="card-header" style="background:linear-gradient(135deg,#1a3a5c,#2e6da4)">
+        <i class="bi bi-display me-2"></i>Display-Typen
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm table-striped mb-0">
+          <thead>
+            <tr><th>Bezeichnung</th><th class="text-center">Status</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for d in displaysorte %}
+            <tr>
+              <td>
+                <i class="bi bi-display me-1" style="color:#2e6da4"></i>
+                {{ d.name }}
+              </td>
+              <td class="text-center">
+                {% if d.aktiv %}
+                  <span class="badge bg-success">Aktiv</span>
+                {% else %}
+                  <span class="badge bg-secondary">Inaktiv</span>
+                {% endif %}
+              </td>
+              <td class="text-center">
+                {% if d.aktiv %}
+                <form method="POST" action="{{ url_for('admin_display_loeschen', ds_id=d.id) }}"
+                      style="display:inline"
+                      onsubmit="return confirm('Display-Typ „{{ d.name }}" deaktivieren?')">
+                  <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"
+                          title="Deaktivieren">
+                    <i class="bi bi-x"></i>
+                  </button>
+                </form>
+                {% else %}
+                <form method="POST" action="{{ url_for('admin_display_reaktivieren', ds_id=d.id) }}"
+                      style="display:inline">
+                  <button type="submit" class="btn btn-outline-success btn-sm py-0 px-1"
+                          title="Reaktivieren">
+                    <i class="bi bi-arrow-counterclockwise"></i>
+                  </button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="text-center text-muted py-3">Noch keine Typen angelegt</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="card-footer bg-white">
+        <button class="btn btn-primary btn-sm w-100"
+                data-bs-toggle="modal" data-bs-target="#modalDisplay">
+          <i class="bi bi-plus-circle me-1"></i>Display-Typ hinzufügen
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Excel-Import -->
+<div class="row g-4 mt-2">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header" style="background:linear-gradient(135deg,#1a3a5c,#2e6da4)">
+        <i class="bi bi-file-earmark-excel me-2"></i>Stammdaten-Import aus Excel
+      </div>
+      <div class="card-body">
+        <div class="row align-items-center g-3">
+          <div class="col-md-6">
+            <p class="small text-muted mb-2">
+              <i class="bi bi-info-circle me-1"></i>
+              Excel-Datei mit zwei Blättern hochladen: <strong>Mitarbeiter</strong> und <strong>Verkaufsstellen</strong>.
+              Bestehende Einträge werden <strong>nicht</strong> überschrieben – nur neue Datensätze werden hinzugefügt.
+            </p>
+            <form method="POST" action="{{ url_for('admin_import_excel') }}" enctype="multipart/form-data"
+                  onsubmit="return confirm('Excel-Datei importieren? Bestehende Einträge bleiben unverändert.')">
+              <div class="input-group">
+                <input type="file" name="datei" class="form-control form-control-sm"
+                       accept=".xlsx,.xls" required>
+                <button type="submit" class="btn btn-primary btn-sm">
+                  <i class="bi bi-upload me-1"></i>Importieren
+                </button>
+              </div>
+            </form>
+          </div>
+          <div class="col-md-6">
+            <div class="bg-light rounded p-3" style="font-size:.82rem">
+              <div class="fw-bold text-primary mb-2"><i class="bi bi-table me-1"></i>Erwartete Spalten:</div>
+              <div class="row g-1">
+                <div class="col-6">
+                  <span class="text-muted">Blatt <strong>Mitarbeiter</strong>:</span><br>
+                  Name · Kuerzel · Rolle · Passwort · Email
+                </div>
+                <div class="col-6">
+                  <span class="text-muted">Blatt <strong>Verkaufsstellen</strong>:</span><br>
+                  Name · Ort · Strasse · Typ · Ansprechpartner · Mitarbeiter
+                </div>
+              </div>
+              <div class="mt-2">
+                <a href="{{ url_for('admin_import_vorlage') }}" class="btn btn-outline-secondary btn-sm">
+                  <i class="bi bi-download me-1"></i>Vorlage herunterladen
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Vertretungsregelungen -->
+<div class="row g-4 mt-2">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header" style="background:linear-gradient(135deg,#4a235a,#7d3c98);color:white">
+        <i class="bi bi-person-lines-fill me-2"></i>Vertretungsregelungen
+      </div>
+      <div class="card-body">
+        <div class="row g-4">
+          <!-- Neue Vertretung -->
+          <div class="col-md-5">
+            <p class="small text-muted mb-3">
+              <i class="bi bi-info-circle me-1"></i>
+              Während des Zeitraums kann der Vertreter die Verkaufsstellen des Abwesenden beim Erfassen von Aktivitäten auswählen.
+            </p>
+            <form method="POST" action="{{ url_for('admin_vertretung_neu') }}">
+              <div class="mb-2">
+                <label class="form-label small fw-bold">Abwesender Mitarbeiter</label>
+                <select name="abwesender_id" class="form-select form-select-sm" required>
+                  <option value="">– Bitte auswählen –</option>
+                  {% for ma in alle_ad %}
+                  <option value="{{ ma.id }}">{{ ma.name }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="mb-2">
+                <label class="form-label small fw-bold">Vertreter</label>
+                <select name="vertreter_id" class="form-select form-select-sm" required>
+                  <option value="">– Bitte auswählen –</option>
+                  {% for ma in alle_ad %}
+                  <option value="{{ ma.id }}">{{ ma.name }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="row g-2 mb-3">
+                <div class="col">
+                  <label class="form-label small fw-bold">Von</label>
+                  <input type="date" name="von" class="form-control form-control-sm" required>
+                </div>
+                <div class="col">
+                  <label class="form-label small fw-bold">Bis</label>
+                  <input type="date" name="bis" class="form-control form-control-sm" required>
+                </div>
+              </div>
+              <button type="submit" class="btn btn-sm btn-primary w-100">
+                <i class="bi bi-plus-circle me-1"></i>Vertretung anlegen
+              </button>
+            </form>
+          </div>
+          <!-- Bestehende Vertretungen -->
+          <div class="col-md-7">
+            {% if vertretungen %}
+            <table class="table table-sm table-striped mb-0">
+              <thead>
+                <tr><th>Abwesend</th><th>Vertreter</th><th>Von</th><th>Bis</th><th></th></tr>
+              </thead>
+              <tbody>
+                {% for vtr in vertretungen %}
+                {% set heute = now.date().isoformat() %}
+                <tr {% if vtr.von <= heute <= vtr.bis %}style="background:#f0faf0"{% endif %}>
+                  <td>{{ vtr.abwesender }}</td>
+                  <td>{{ vtr.vertreter }}</td>
+                  <td><small>{{ vtr.von }}</small></td>
+                  <td><small>{{ vtr.bis }}</small></td>
+                  <td class="text-center">
+                    {% if vtr.von <= heute <= vtr.bis %}
+                      <span class="badge bg-success" style="font-size:.62rem">Aktiv</span>
+                    {% endif %}
+                    <form method="POST"
+                          action="{{ url_for('admin_vertretung_loeschen', vtr_id=vtr.id) }}"
+                          style="display:inline"
+                          onsubmit="return confirm('Vertretungsregelung löschen?')">
+                      <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1 ms-1"
+                              title="Löschen"><i class="bi bi-trash"></i></button>
+                    </form>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% else %}
+            <p class="text-muted small text-center py-4 mb-0">
+              <i class="bi bi-calendar-x me-1"></i>Keine Vertretungsregelungen vorhanden
+            </p>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- System / Backup / E-Mail -->
+<div class="row g-4 mt-2">
+
+  <!-- Datenbank-Backup -->
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header" style="background:linear-gradient(135deg,#145a32,#27ae60)">
+        <i class="bi bi-database-down me-2"></i>Datenbank-Backup
+      </div>
+      <div class="card-body">
+        <p class="small text-muted mb-3">
+          <i class="bi bi-info-circle me-1"></i>
+          Täglich wird automatisch ein Backup erstellt (7 Tage rollierend).
+          Laden Sie die aktuelle Datenbank direkt herunter:
+        </p>
+        <a href="{{ url_for('admin_backup_herunterladen') }}"
+           class="btn btn-success w-100">
+          <i class="bi bi-download me-2"></i>Datenbank jetzt herunterladen
+        </a>
+        <div class="form-text mt-2">
+          <i class="bi bi-shield-check me-1"></i>
+          Datei: <code>brewery_backup_[datum].db</code> &middot; SQLite-Format
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- E-Mail / Passwort-Reset -->
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header" style="background:linear-gradient(135deg,#4a235a,#8e44ad)">
+        <i class="bi bi-envelope me-2"></i>E-Mail-Konfiguration
+      </div>
+      <div class="card-body">
+        {% if mail_konfiguriert %}
+        <div class="alert alert-success py-2 mb-3">
+          <i class="bi bi-check-circle me-1"></i>
+          E-Mail ist konfiguriert. Passwort-Reset per E-Mail ist aktiv.
+        </div>
+        {% else %}
+        <div class="alert alert-warning py-2 mb-3">
+          <i class="bi bi-exclamation-triangle me-1"></i>
+          <strong>E-Mail nicht konfiguriert.</strong> Passwort-Reset per E-Mail ist deaktiviert.
+        </div>
+        {% endif %}
+        <p class="small text-muted mb-2">
+          Konfiguration erfolgt über Umgebungsvariablen auf Railway:
+        </p>
+        <table class="table table-sm table-bordered mb-0" style="font-size:.78rem">
+          <tbody>
+            <tr><td><code>MAIL_SERVER</code></td><td class="text-muted">z.B. <code>smtp.gmail.com</code></td></tr>
+            <tr><td><code>MAIL_PORT</code></td><td class="text-muted">587 (TLS)</td></tr>
+            <tr><td><code>MAIL_USERNAME</code></td><td class="text-muted">E-Mail-Adresse</td></tr>
+            <tr><td><code>MAIL_PASSWORD</code></td><td class="text-muted">App-Passwort</td></tr>
+            <tr><td><code>MAIL_FROM</code></td><td class="text-muted">Absender-Adresse</td></tr>
+            <tr><td><code>APP_BASE_URL</code></td><td class="text-muted">z.B. https://ihre-domain.de</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Rechtliche Dokumente -->
+<div class="card mt-4">
+  <div class="card-header" style="background:linear-gradient(135deg,#2c3e50,#4a6fa5)">
+    <i class="bi bi-file-earmark-text me-2"></i>Rechtliche Dokumente
+  </div>
+  <div class="card-body">
+    <p class="small text-muted mb-3">
+      Alle Rechtsdokumente müssen vor dem produktiven Einsatz mit echten Firmendaten befüllt werden.
+      Die <strong>gelb markierten Platzhalter</strong> durch Ihre tatsächlichen Angaben ersetzen.
+    </p>
+    <div class="d-flex flex-wrap gap-2">
+      <a href="{{ url_for('impressum') }}" target="_blank" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-building me-1"></i>Impressum
+      </a>
+      <a href="{{ url_for('datenschutz') }}" target="_blank" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-shield-lock me-1"></i>Datenschutz&shy;erklärung
+      </a>
+      <a href="{{ url_for('agb') }}" target="_blank" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-file-text me-1"></i>AGB
+      </a>
+      <a href="{{ url_for('avv') }}" target="_blank" class="btn btn-primary btn-sm">
+        <i class="bi bi-pen me-1"></i>AVV-Vorlage (pro Kunde ausdrucken &amp; unterzeichnen)
+      </a>
+    </div>
+  </div>
+</div>
+
+<!-- Info Box -->
+<div class="alert mt-4" style="background:#eef4fb;border:1px solid #2e6da4;border-radius:.75rem">
+  <h6 class="fw-bold" style="color:#1a3a5c"><i class="bi bi-info-circle me-2"></i>Zugangsdaten &amp; Passwörter</h6>
+  <p class="mb-1 small">
+    Außendienstmitarbeiter melden sich mit ihrem <strong>Kürzel</strong> und ihrem Passwort an.
+    Standard-Passwort für neue Mitarbeiter: <code>demo123</code> (bitte nach erstem Login ändern).<br>
+    Mitarbeiter können ihr Passwort über <strong>„Passwort vergessen?"</strong> auf der Login-Seite
+    zurücksetzen, sofern eine E-Mail-Adresse hinterlegt und E-Mail konfiguriert ist.
+  </p>
+  <p class="mb-0 small text-muted">
+    E-Mail-Adressen für Mitarbeiter können aktuell direkt in der Datenbank oder über den DB-Export
+    eingetragen werden. Ein komfortabler Bearbeitungsdialog ist in Planung.
+  </p>
+</div>
+
+
+<!-- Modal: Mitarbeiter -->
+<div class="modal fade" id="modalMitarbeiter" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('admin_mitarbeiter_neu') }}">
+        <div class="modal-header" style="background:#1a3a5c;color:white">
+          <h5 class="modal-title"><i class="bi bi-person-plus me-2"></i>Neuer Mitarbeiter</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Vollständiger Name <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control" placeholder="Max Mustermann" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Kürzel <span class="text-danger">*</span></label>
+            <input type="text" name="kuerzel" class="form-control" placeholder="MM" maxlength="5" required>
+            <div class="form-text">2–4 Buchstaben, eindeutig (wird automatisch zu Großbuchstaben)</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">E-Mail Adresse <span class="text-danger">*</span></label>
+            <input type="email" name="email" class="form-control" placeholder="max@beispiel.de" required>
+            <div class="form-text">Wird für die Anmeldung benötigt</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Passwort</label>
+            <input type="text" name="passwort" class="form-control" value="demo123">
+            <div class="form-text">Standard: demo123</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-check me-1"></i>Anlegen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Verkaufsstelle -->
+<div class="modal fade" id="modalVS" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('admin_vs_neu') }}">
+        <div class="modal-header" style="background:#2e6da4;color:white">
+          <h5 class="modal-title"><i class="bi bi-shop me-2"></i>Neue Verkaufsstelle</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Name <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control" placeholder="z.B. REWE Markt" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Straße &amp; Hausnummer</label>
+            <input type="text" name="strasse" class="form-control" placeholder="z.B. Hauptstr. 12">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Ort</label>
+            <input type="text" name="ort" class="form-control" placeholder="z.B. München">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Typ</label>
+            <select name="typ" class="form-select">
+              <option value="Einzelhandel" selected>Einzelhandel</option>
+              <option value="Gastronomie">Gastronomie</option>
+              <option value="Getränkehandel">Getränkehandel</option>
+              <option value="Hotel">Hotel</option>
+              <option value="Verein">Verein</option>
+              <option value="Sonstiges">Sonstiges</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Ansprechpartner <span class="text-muted fw-normal">(optional)</span></label>
+            <input type="text" name="ansprechpartner" class="form-control" placeholder="z.B. Maria Müller">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-check me-1"></i>Anlegen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Display-Typ -->
+<div class="modal fade" id="modalDisplay" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('admin_display_neu') }}">
+        <div class="modal-header" style="background:#1a3a5c;color:white">
+          <h5 class="modal-title"><i class="bi bi-display me-2"></i>Neuer Display-Typ</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Bezeichnung <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control"
+                   placeholder="z.B. Kühlschrank-Display" required autofocus>
+            <div class="form-text">
+              Beispiele: Kühlschrank-Display, Regal-Aufsteller, Eingangs-Display, Counter-Display, Außenwerbung
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-check me-1"></i>Anlegen
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Produkt -->
+<div class="modal fade" id="modalBier" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('admin_bier_neu') }}">
+        <div class="modal-header" style="background:#c8860a;color:white">
+          <h5 class="modal-title"><i class="bi bi-box-seam me-2"></i>Neues Produkt</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Bezeichnung <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control" placeholder="z.B. Produkt G" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Einheit</label>
+            <select name="einheit" class="form-select">
+              <option value="Karton (12 Stück)">Karton (12 Stück)</option>
+              <option value="Karton (24 Stück)">Karton (24 Stück)</option>
+              <option value="Palette (100 Stück)">Palette (100 Stück)</option>
+              <option value="Palette (50 Stück)">Palette (50 Stück)</option>
+              <option value="Stück">Stück</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-check me-1"></i>Anlegen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modals: Verkaufsstellen-Zuordnung (je Rep) -->
+{% for m in mitarbeiter %}
+{% if m.rolle in ('rep', 'verkaufsleiter') %}
+{% set ma_zuordnung = zuordnungen.get(m.id) or [] %}
+<div class="modal fade" id="modalZuordnung_{{ m.id }}" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('admin_mitarbeiter_zuordnung', ma_id=m.id) }}">
+        <div class="modal-header" style="background:#1a3a5c;color:white">
+          <h5 class="modal-title">
+            <i class="bi bi-shop me-2"></i>Verkaufsstellen für <strong>{{ m.name }}</strong>
+          </h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small mb-2">
+            <i class="bi bi-info-circle me-1"></i>
+            Wählen Sie die Verkaufsstellen aus, die <strong>{{ m.name }}</strong> besucht.
+            Ohne Zuordnung sieht der Rep <em>alle</em> Verkaufsstellen.
+          </p>
+
+          <!-- Suche + Schnellauswahl -->
+          <div class="d-flex gap-2 mb-3 align-items-center flex-wrap">
+            <input type="text"
+                   class="form-control form-control-sm"
+                   placeholder="Suchen..."
+                   style="max-width:220px"
+                   oninput="filterVS({{ m.id }}, this.value)">
+            <button type="button" class="btn btn-outline-primary btn-sm"
+                    onclick="selectAllVS({{ m.id }}, true)">
+              <i class="bi bi-check-all me-1"></i>Alle auswählen
+            </button>
+            <button type="button" class="btn btn-outline-secondary btn-sm"
+                    onclick="selectAllVS({{ m.id }}, false)">
+              <i class="bi bi-x-lg me-1"></i>Alle abwählen
+            </button>
+            <span class="text-muted small ms-auto" id="vsCount_{{ m.id }}">
+              {{ ma_zuordnung|length }} ausgewählt
+            </span>
+          </div>
+
+          <!-- Checkbox-Liste -->
+          <div id="vsListe_{{ m.id }}"
+               style="max-height:380px;overflow-y:auto;border:1px solid #dee2e6;border-radius:.5rem;padding:.5rem">
+            {% set aktive_vs = verkaufsstellen | selectattr('aktiv') | list %}
+            {% if aktive_vs %}
+              {% for vs in aktive_vs %}
+              <div class="vs-item-{{ m.id }} d-flex align-items-center gap-2 py-1 px-2 rounded"
+                   style="transition:background .1s"
+                   onmouseover="this.style.background='#f0f4f8'"
+                   onmouseout="this.style.background=''">
+                <input class="form-check-input vs-cb-{{ m.id }} flex-shrink-0"
+                       type="checkbox"
+                       name="vs_ids"
+                       value="{{ vs.id }}"
+                       id="vs_{{ m.id }}_{{ vs.id }}"
+                       {% if vs.id in ma_zuordnung %}checked{% endif %}
+                       onchange="updateVsCount({{ m.id }})">
+                <label class="form-check-label w-100 small" for="vs_{{ m.id }}_{{ vs.id }}"
+                       style="cursor:pointer">
+                  <span class="fw-semibold" style="color:#1a3a5c">{{ vs.name }}</span>
+                  {% if vs.ort %}
+                  <span class="text-muted"> – {{ vs.ort }}</span>
+                  {% endif %}
+                  {% if vs.typ %}
+                  <span class="badge ms-1"
+                        style="font-size:.65rem;
+                               background:{% if vs.typ=='Gastronomie' %}#145a32{% elif vs.typ=='Einzelhandel' %}#4a235a{% elif vs.typ=='Getränkehandel' %}#c8860a{% else %}#6c757d{% endif %}">
+                    {{ vs.typ }}
+                  </span>
+                  {% endif %}
+                  {% set besitzer = vs_besitzer.get(vs.id) %}
+                  {% if besitzer and vs.id not in ma_zuordnung %}
+                  <span class="badge ms-1" style="font-size:.62rem;background:#6c757d" title="Bereits zugeordnet">
+                    <i class="bi bi-person-fill me-1"></i>{{ besitzer }}
+                  </span>
+                  {% endif %}
+                </label>
+              </div>
+              {% endfor %}
+            {% else %}
+              <p class="text-muted small text-center py-3 mb-0">
+                <i class="bi bi-inbox me-1"></i>Noch keine aktiven Verkaufsstellen vorhanden
+              </p>
+            {% endif %}
+          </div>
+
+          <div class="alert alert-info py-2 mt-3 mb-0" style="font-size:.82rem">
+            <i class="bi bi-lightbulb me-1"></i>
+            <strong>Tipp:</strong> Wenn keine Verkaufsstelle ausgewählt ist, sieht der Rep beim
+            Erfassen automatisch <em>alle</em> Verkaufsstellen.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-check-circle me-1"></i>Zuordnung speichern
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endfor %}
+
+<!-- E-Mail-Modals für jeden Mitarbeiter -->
+{% for m in mitarbeiter %}
+<div class="modal fade" id="modalEmail_{{ m.id }}" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('admin_mitarbeiter_email', ma_id=m.id) }}">
+        <div class="modal-header" style="background:#1a3a5c;color:white">
+          <h6 class="modal-title"><i class="bi bi-envelope me-2"></i>E-Mail – {{ m.name }}</h6>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <label class="form-label small fw-bold">E-Mail Adresse</label>
+          <input type="text" name="email" class="form-control"
+                 value="{{ m.email or '' }}"
+                 placeholder="mitarbeiter@beispiel.de">
+          <div class="form-text">Wird für die Anmeldung verwendet. Leer lassen zum Entfernen.</div>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-check me-1"></i>Speichern</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+<!-- Passwort-Modals für jeden Mitarbeiter -->
+{% for m in mitarbeiter %}
+<div class="modal fade" id="modalPw_{{ m.id }}" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('admin_mitarbeiter_passwort', ma_id=m.id) }}">
+        <div class="modal-header" style="background:#1a3a5c;color:white">
+          <h6 class="modal-title"><i class="bi bi-key me-2"></i>Passwort – {{ m.name }}</h6>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <label class="form-label small fw-bold">Neues Passwort</label>
+          <input type="text" name="passwort" class="form-control" required minlength="4"
+                 placeholder="Mindestens 4 Zeichen" autocomplete="new-password">
+          <div class="form-text">Das Passwort wird sofort geändert (kein E-Mail-Versand).</div>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-check me-1"></i>Setzen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// VS-Suche innerhalb eines Modals
+function filterVS(maId, term) {
+  const q = term.toLowerCase().trim();
+  document.querySelectorAll('.vs-item-' + maId).forEach(function(item) {
+    const text = item.textContent.toLowerCase();
+    item.style.display = (!q || text.includes(q)) ? '' : 'none';
+  });
+}
+
+// Alle VS auswählen / abwählen
+function selectAllVS(maId, checked) {
+  document.querySelectorAll('.vs-cb-' + maId).forEach(function(cb) {
+    // Only toggle visible items
+    if (cb.closest('.vs-item-' + maId).style.display !== 'none') {
+      cb.checked = checked;
+    }
+  });
+  updateVsCount(maId);
+}
+
+// Ausgewählte Anzahl anzeigen
+function updateVsCount(maId) {
+  const total = document.querySelectorAll('.vs-cb-' + maId + ':checked').length;
+  const el = document.getElementById('vsCount_' + maId);
+  if (el) el.textContent = total + ' ausgewählt';
+}
+</script>
+{% endblock %}

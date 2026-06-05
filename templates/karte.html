@@ -1,0 +1,499 @@
+{% extends 'base.html' %}
+
+{% block title %}Karte der Gebiete – {{ company_short }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1><i class="bi bi-map me-2"></i>
+    {% if is_manager %}Karte der Verkaufsgebiete{% else %}Mein Verkaufsgebiet{% endif %}
+  </h1>
+  <p>
+    {% if is_manager %}
+      Farbige Marker zeigen die zugeordneten Außendienst-Stationen je Mitarbeiter.
+      Klicken Sie auf einen Marker, um Details zu sehen und Zuordnungen zu ändern.
+    {% else %}
+      Ihre zugeordneten Außendienst-Stationen auf der Karte.
+    {% endif %}
+  </p>
+</div>
+
+<!-- Filter & Steuerung -->
+<div class="card mb-3">
+  <div class="card-body py-2 d-flex flex-wrap gap-2 align-items-center">
+
+    {% if karte_modus == 'heatmap' and is_manager %}
+    <!-- Ansicht-Toggle -->
+    <div class="btn-group" role="group">
+      <button id="btnViewGebiete" class="btn btn-sm btn-primary" title="Gebiete je Mitarbeiter">
+        <i class="bi bi-people-fill me-1"></i>Gebiete
+      </button>
+      <button id="btnViewHeatmap" class="btn btn-sm btn-outline-danger" title="Aktivitäten-Heatmap">
+        <i class="bi bi-fire me-1"></i>Aktivitäten
+      </button>
+    </div>
+    <!-- Jahresfilter Heatmap -->
+    <select id="heatmapJahr" class="form-select form-select-sm d-none" style="width:auto">
+      <option value="{{ now.year }}">{{ now.year }}</option>
+    </select>
+    <div class="vr"></div>
+    {% endif %}
+
+    {% if is_manager %}
+    <select id="repFilter" class="form-select form-select-sm" style="width:auto;min-width:180px">
+      <option value="">Alle Mitarbeiter</option>
+      {% for rep in reps %}
+      <option value="{{ rep.id }}">{{ rep.name }}</option>
+      {% endfor %}
+    </select>
+    <button id="btnGeocode" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-geo-alt me-1"></i>Koordinaten ermitteln
+    </button>
+    <span id="geocodeStatus" class="small text-muted"></span>
+    {% endif %}
+
+    <span class="ms-auto small text-muted">
+      <i class="bi bi-circle-fill me-1" style="color:#888"></i>Nicht zugeordnet &nbsp;
+      <span id="legendeInline"></span>
+    </span>
+  </div>
+</div>
+
+<!-- Karten-Container -->
+<div class="card mb-3">
+  <div class="card-body p-0" style="border-radius:.75rem;overflow:hidden">
+    <div id="map" style="height:560px"></div>
+  </div>
+</div>
+
+<!-- Hinweis: Stationen ohne Koordinaten -->
+<div id="ohneKoordinatenInfo" class="alert alert-warning d-none">
+  <i class="bi bi-exclamation-triangle me-2"></i>
+  <span id="ohneKoordinatenText"></span>
+  {% if is_manager %}
+  Klicken Sie auf <strong>„Koordinaten ermitteln"</strong>, um diese Stationen auf der Karte anzuzeigen.
+  {% endif %}
+</div>
+
+<!-- Station-Detail-Modal -->
+<div class="modal fade" id="modalStation" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header" style="background:#1a3a5c;color:white">
+        <h6 class="modal-title"><i class="bi bi-shop me-2"></i><span id="ms-name"></span></h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <!-- Stammdaten -->
+        <div class="mb-3">
+          <p id="ms-adresse" class="small text-muted mb-1"></p>
+          <span id="ms-typ" class="badge bg-secondary"></span>
+          <span id="ms-ansprechpartner" class="small text-muted ms-2"></span>
+        </div>
+
+        <!-- Aktuelle Zuordnung (Leseanzeige) -->
+        <div class="mb-3">
+          <div class="fw-bold small mb-1">Aktuell zugeordnet:</div>
+          <div id="ms-zuordnungen-anzeige" class="d-flex flex-wrap gap-1"></div>
+        </div>
+
+        {% if is_manager %}
+        <hr class="my-3">
+        <!-- Zuordnung bearbeiten -->
+        <div class="mb-3">
+          <div class="fw-bold small mb-2"><i class="bi bi-pencil me-1"></i>Zuordnung ändern:</div>
+          <div id="ms-zuordnung-checks">
+            {% for rep in reps %}
+            <div class="form-check">
+              <input class="form-check-input zuordnung-cb" type="checkbox"
+                     id="cb_rep_{{ rep.id }}" value="{{ rep.id }}"
+                     data-name="{{ rep.name }}">
+              <label class="form-check-label" for="cb_rep_{{ rep.id }}">
+                {{ rep.name }}
+                <span class="badge ms-1" id="cb_rep_farbe_{{ rep.id }}"
+                      style="font-size:.6rem">&nbsp;</span>
+              </label>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        <button id="btnSaveZuordnung" class="btn btn-primary btn-sm w-100">
+          <i class="bi bi-save me-1"></i>Zuordnung speichern
+        </button>
+        <div id="saveStatus" class="mt-2 small text-success d-none">
+          <i class="bi bi-check-circle me-1"></i>Gespeichert
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<!-- Leaflet CSS + JS (kein SRI-Check – verhindert Ladeprobleme bei unpkg CDN) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+/* ── Konfiguration ─────────────────────────────────────────────────────────── */
+const IS_MANAGER = {{ 'true' if is_manager else 'false' }};
+const FARBEN = [
+  '#e74c3c','#3498db','#27ae60','#f39c12','#9b59b6',
+  '#1abc9c','#e67e22','#16a085','#d35400','#8e44ad'
+];
+
+/* ── State ──────────────────────────────────────────────────────────────────── */
+let alleStellen = [];
+let alleReps    = [];
+let markers     = {};          // id → L.circleMarker
+let aktiverStelleId = null;
+let repFilter   = '';
+
+/* ── Karte ──────────────────────────────────────────────────────────────────── */
+const map = L.map('map', { zoomControl: true });
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a>'
+}).addTo(map);
+
+map.setView([48.14, 11.58], 9);   // Bayern-Mitte (München)
+
+/* ── Hilfsfunktionen ────────────────────────────────────────────────────────── */
+function repFarbe(repId) {
+  const idx = alleReps.findIndex(r => r.id === repId);
+  return idx >= 0 ? FARBEN[idx % FARBEN.length] : '#888';
+}
+
+function stelleFarbe(stelle) {
+  if (!stelle.zuordnungen || stelle.zuordnungen.length === 0) return '#888';
+  if (stelle.zuordnungen.length === 1) return repFarbe(stelle.zuordnungen[0].id);
+  // mehrfach zugeordnet → erste Farbe (leicht transparent → stärkerer Rand)
+  return repFarbe(stelle.zuordnungen[0].id);
+}
+
+function stelleIstSichtbar(stelle) {
+  if (!repFilter) return true;
+  return stelle.zuordnungen.some(r => String(r.id) === String(repFilter));
+}
+
+/* ── Marker rendern ─────────────────────────────────────────────────────────── */
+function renderMarkers() {
+  // Bestehende Marker entfernen
+  Object.values(markers).forEach(m => map.removeLayer(m));
+  markers = {};
+
+  const ohneKoord = [];
+  const bounds    = [];
+
+  alleStellen.forEach(s => {
+    if (!stelleIstSichtbar(s)) return;
+    if (s.lat == null || s.lng == null) {
+      ohneKoord.push(s.name);
+      return;
+    }
+
+    const farbe  = stelleFarbe(s);
+    const mehrfach = s.zuordnungen.length > 1;
+
+    const m = L.circleMarker([s.lat, s.lng], {
+      radius:      9,
+      fillColor:   farbe,
+      color:       mehrfach ? '#fff' : 'white',
+      weight:      mehrfach ? 3 : 2,
+      dashArray:   mehrfach ? '4,3' : null,
+      opacity:     1,
+      fillOpacity: 0.92,
+    }).addTo(map);
+
+    const namenListe = s.zuordnungen.map(r => r.name).join(', ') || '–';
+    m.bindTooltip(`<strong>${s.name}</strong><br><small>${s.ort} · ${s.typ}</small><br><small>${namenListe}</small>`,
+                  { direction: 'top', offset: [0, -8] });
+
+    m.on('click', () => openStationModal(s.id));
+    markers[s.id] = m;
+    bounds.push([s.lat, s.lng]);
+  });
+
+  if (bounds.length > 0) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 13 });
+
+  // Hinweis: Stationen ohne Koordinaten
+  const info    = document.getElementById('ohneKoordinatenInfo');
+  const infoTxt = document.getElementById('ohneKoordinatenText');
+  if (ohneKoord.length > 0) {
+    infoTxt.textContent = `${ohneKoord.length} Station(en) ohne Koordinaten werden nicht angezeigt. `;
+    info.classList.remove('d-none');
+  } else {
+    info.classList.add('d-none');
+  }
+}
+
+/* ── Legende ─────────────────────────────────────────────────────────────────── */
+function buildLegende() {
+  const el = document.getElementById('legendeInline');
+  if (!el) return;
+  el.innerHTML = alleReps.map((r, i) =>
+    `<span style="margin-right:.5rem"><i class="bi bi-circle-fill" style="color:${FARBEN[i % FARBEN.length]}"></i> ${r.name}</span>`
+  ).join('');
+
+  // Farb-Badges in den Modal-Checkboxen
+  alleReps.forEach((r, i) => {
+    const badge = document.getElementById(`cb_rep_farbe_${r.id}`);
+    if (badge) {
+      badge.style.background = FARBEN[i % FARBEN.length];
+      badge.textContent       = '●';
+    }
+  });
+}
+
+/* ── Daten laden ─────────────────────────────────────────────────────────────── */
+async function ladeKarteDaten() {
+  try {
+    const resp = await fetch('/api/karte/daten');
+    const data = await resp.json();
+    alleStellen = data.stellen || [];
+    alleReps    = data.reps    || [];
+    buildLegende();
+    renderMarkers();
+  } catch (e) {
+    console.error('Karte laden fehlgeschlagen:', e);
+  }
+}
+
+/* ── Station-Modal öffnen ─────────────────────────────────────────────────────── */
+function openStationModal(stelleId) {
+  const s = alleStellen.find(x => x.id === stelleId);
+  if (!s) return;
+  aktiverStelleId = stelleId;
+
+  document.getElementById('ms-name').textContent = s.name;
+
+  const adresse = [s.strasse, s.ort].filter(Boolean).join(', ');
+  document.getElementById('ms-adresse').textContent = adresse || '–';
+  document.getElementById('ms-typ').textContent      = s.typ  || '';
+  const ansp = document.getElementById('ms-ansprechpartner');
+  ansp.textContent = s.ansprechpartner ? `Ansprechpartner: ${s.ansprechpartner}` : '';
+
+  // Zuordnungs-Badges
+  const zEl = document.getElementById('ms-zuordnungen-anzeige');
+  if (s.zuordnungen.length === 0) {
+    zEl.innerHTML = '<span class="text-muted small">Kein Mitarbeiter zugeordnet</span>';
+  } else {
+    zEl.innerHTML = s.zuordnungen.map(r => {
+      const farbe = repFarbe(r.id);
+      return `<span class="badge" style="background:${farbe}">${r.name}</span>`;
+    }).join(' ');
+  }
+
+  // Checkboxen setzen (nur Manager)
+  if (IS_MANAGER) {
+    const zugewiesene = new Set(s.zuordnungen.map(r => r.id));
+    document.querySelectorAll('.zuordnung-cb').forEach(cb => {
+      cb.checked = zugewiesene.has(parseInt(cb.value));
+    });
+    const status = document.getElementById('saveStatus');
+    if (status) status.classList.add('d-none');
+  }
+
+  new bootstrap.Modal(document.getElementById('modalStation')).show();
+}
+
+/* ── Zuordnung speichern ────────────────────────────────────────────────────────── */
+{% if is_manager %}
+document.getElementById('btnSaveZuordnung').addEventListener('click', async function () {
+  const btn = this;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Speichern…';
+
+  const repIds = Array.from(document.querySelectorAll('.zuordnung-cb:checked'))
+                      .map(cb => parseInt(cb.value));
+  try {
+    const resp = await fetch('/api/karte/zuordnung-aendern', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ stelle_id: aktiverStelleId, rep_ids: repIds }),
+    });
+    const result = await resp.json();
+    if (result.ok) {
+      // Daten lokal aktualisieren
+      const stelle = alleStellen.find(x => x.id === aktiverStelleId);
+      if (stelle) {
+        stelle.zuordnungen = alleReps
+          .filter(r => repIds.includes(r.id))
+          .map(r => ({ id: r.id, name: r.name, kuerzel: r.kuerzel }));
+      }
+
+      // Modal-Anzeige aktualisieren
+      const zEl = document.getElementById('ms-zuordnungen-anzeige');
+      if (repIds.length === 0) {
+        zEl.innerHTML = '<span class="text-muted small">Kein Mitarbeiter zugeordnet</span>';
+      } else {
+        zEl.innerHTML = alleReps
+          .filter(r => repIds.includes(r.id))
+          .map(r => `<span class="badge" style="background:${repFarbe(r.id)}">${r.name}</span>`)
+          .join(' ');
+      }
+
+      // Marker-Farbe aktualisieren
+      if (markers[aktiverStelleId]) {
+        const stelle2 = alleStellen.find(x => x.id === aktiverStelleId);
+        const nFarbe  = stelleFarbe(stelle2);
+        markers[aktiverStelleId].setStyle({ fillColor: nFarbe, dashArray: repIds.length > 1 ? '4,3' : null });
+        markers[aktiverStelleId].setTooltipContent(
+          `<strong>${stelle2.name}</strong><br><small>${stelle2.ort} · ${stelle2.typ}</small><br><small>${stelle2.zuordnungen.map(r=>r.name).join(', ')||'–'}</small>`
+        );
+      }
+
+      // Status-Meldung
+      const status = document.getElementById('saveStatus');
+      if (status) status.classList.remove('d-none');
+    }
+  } catch (e) {
+    console.error('Zuordnung speichern fehlgeschlagen:', e);
+    alert('Fehler beim Speichern der Zuordnung.');
+  }
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-save me-1"></i>Zuordnung speichern';
+});
+{% endif %}
+
+/* ── Rep-Filter ──────────────────────────────────────────────────────────────── */
+{% if is_manager %}
+document.getElementById('repFilter').addEventListener('change', function () {
+  repFilter = this.value;
+  renderMarkers();
+});
+{% endif %}
+
+/* ── Geocodierung ────────────────────────────────────────────────────────────── */
+{% if is_manager %}
+document.getElementById('btnGeocode').addEventListener('click', async function () {
+  const btn    = this;
+  const status = document.getElementById('geocodeStatus');
+  btn.disabled = true;
+  status.textContent = 'Geocodierung wird gestartet…';
+
+  try {
+    const resp = await fetch('/api/karte/geocode', { method: 'POST' });
+    const data = await resp.json();
+
+    if (data.total === 0) {
+      status.textContent = data.msg;
+      await ladeKarteDaten();
+      btn.disabled = false;
+      return;
+    }
+
+    const warte = data.warte || 35;
+    let sekunden = warte;
+    status.textContent = `Läuft im Hintergrund… Karte wird in ${sekunden} Sek. aktualisiert.`;
+    const interval = setInterval(() => {
+      sekunden--;
+      if (sekunden <= 0) {
+        clearInterval(interval);
+        status.textContent = 'Aktualisiere Karte…';
+        ladeKarteDaten().then(() => {
+          status.textContent = 'Fertig – Karte aktualisiert.';
+          btn.disabled = false;
+        });
+      } else {
+        status.textContent = `Läuft im Hintergrund… Karte wird in ${sekunden} Sek. aktualisiert.`;
+      }
+    }, 1000);
+
+  } catch (e) {
+    status.textContent = 'Fehler beim Starten der Geocodierung.';
+    console.error(e);
+    btn.disabled = false;
+  }
+});
+{% endif %}
+
+/* ── Heatmap (nur KARTE_MODUS = 'heatmap') ──────────────────────────────────── */
+{% if karte_modus == 'heatmap' and is_manager %}
+
+let heatmapLayer = L.layerGroup();
+let heatmapAktiv = false;
+
+async function ladeHeatmap(jahr) {
+  heatmapLayer.clearLayers();
+  let data;
+  try {
+    const resp = await fetch(`/api/karte/heatmap?jahr=${jahr}`);
+    data = await resp.json();
+  } catch (e) { console.error('Heatmap laden fehlgeschlagen:', e); return; }
+
+  const stellen   = data.stellen || [];
+  const maxAnzahl = Math.max(...stellen.map(s => s.anzahl), 1);
+
+  stellen.forEach(s => {
+    if (s.lat == null || s.lng == null) return;
+    const norm   = s.anzahl / maxAnzahl;
+    const radius = Math.round(8 + norm * 34);   // 8–42 px
+    const opac   = 0.25 + norm * 0.55;          // 0.25–0.80
+
+    L.circleMarker([s.lat, s.lng], {
+      radius,
+      fillColor: '#e74c3c',
+      color:     '#c0392b',
+      weight:    1,
+      opacity:   0.5,
+      fillOpacity: opac,
+      pane: 'shadowPane',
+    })
+    .bindTooltip(
+      `<strong>${s.name}</strong><br><small>${s.ort}</small><br>` +
+      `<b style="color:#e74c3c">${s.anzahl} Aktivität${s.anzahl !== 1 ? 'en' : ''}</b> in ${jahr}`,
+      { direction: 'top', offset: [0, -6] }
+    )
+    .addTo(heatmapLayer);
+  });
+
+  // Jahres-Dropdown befüllen (einmalig)
+  const sel = document.getElementById('heatmapJahr');
+  if (sel && data.jahre && data.jahre.length > 0) {
+    const aktuell = sel.value || String(data.jahr);
+    sel.innerHTML = data.jahre
+      .map(j => `<option value="${j}"${j === aktuell ? ' selected' : ''}>${j}</option>`)
+      .join('');
+  }
+}
+
+function aktiviereHeatmap() {
+  heatmapAktiv = true;
+  Object.values(markers).forEach(m => m.setStyle({ fillOpacity: 0.18, opacity: 0.3 }));
+  heatmapLayer.addTo(map);
+  const jahr = document.getElementById('heatmapJahr').value || '{{ now.year }}';
+  ladeHeatmap(jahr);
+
+  document.getElementById('btnViewGebiete').classList.replace('btn-primary',      'btn-outline-primary');
+  document.getElementById('btnViewHeatmap').classList.replace('btn-outline-danger','btn-danger');
+  document.getElementById('heatmapJahr').classList.remove('d-none');
+  const leg = document.getElementById('legendeInline');
+  if (leg) leg.innerHTML =
+    '<span class="ms-2"><i class="bi bi-circle-fill" style="color:#e74c3c;opacity:.7"></i> ' +
+    'Kreisfläche = Anzahl Aktivitäten</span>';
+}
+
+function deaktiviereHeatmap() {
+  heatmapAktiv = false;
+  map.removeLayer(heatmapLayer);
+  Object.values(markers).forEach(m => m.setStyle({ fillOpacity: 0.92, opacity: 1 }));
+
+  document.getElementById('btnViewGebiete').classList.replace('btn-outline-primary','btn-primary');
+  document.getElementById('btnViewHeatmap').classList.replace('btn-danger','btn-outline-danger');
+  document.getElementById('heatmapJahr').classList.add('d-none');
+  buildLegende();
+}
+
+document.getElementById('btnViewHeatmap').addEventListener('click', aktiviereHeatmap);
+document.getElementById('btnViewGebiete').addEventListener('click', deaktiviereHeatmap);
+document.getElementById('heatmapJahr').addEventListener('change', function () {
+  if (heatmapAktiv) ladeHeatmap(this.value);
+});
+
+{% endif %}
+
+/* ── Start ──────────────────────────────────────────────────────────────────── */
+ladeKarteDaten();
+</script>
+{% endblock %}

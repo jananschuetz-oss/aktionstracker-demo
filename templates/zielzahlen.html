@@ -1,0 +1,185 @@
+{% extends 'base.html' %}
+{% block title %}Zielzahlen – Aktions Tracker – {{ company_short }}{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div>
+    <h1><i class="bi bi-bullseye me-2"></i>Zielzahlen setzen</h1>
+    <p>Jahres-Targets für Displays und Kisten je Mitarbeiter – Jahr {{ jahr }}</p>
+  </div>
+  <a href="{{ url_for('vergleich', jahr=jahr) }}" class="btn btn-outline-light btn-sm">
+    <i class="bi bi-arrow-left me-1"></i>Zurück zum Vergleich
+  </a>
+</div>
+
+<form method="POST">
+  <input type="hidden" name="jahr" value="{{ jahr }}">
+
+  <!-- Jahr-Auswahl -->
+  <div class="card mb-4">
+    <div class="card-body py-2">
+      <div class="d-flex align-items-center gap-3 flex-wrap">
+        <span class="fw-bold" style="color:#1a3a5c"><i class="bi bi-calendar me-1"></i>Jahr:</span>
+        {% for j in alle_jahre %}
+        <a href="{{ url_for('zielzahlen', jahr=j) }}"
+           class="btn btn-sm {% if j==jahr %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+          {{ j }}
+        </a>
+        {% endfor %}
+        <span class="text-muted small ms-auto">
+          <i class="bi bi-info-circle me-1"></i>Ziele gelten pro Kalenderjahr
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mitarbeiter-Ziele -->
+  <div class="card mb-4">
+    <div class="card-header"><i class="bi bi-people me-2"></i>Zielzahlen pro Mitarbeiter – {{ jahr }}</div>
+    <div class="card-body p-0">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            <th style="width:35%">Mitarbeiter</th>
+            <th class="text-center" style="width:25%">
+              <i class="bi bi-display me-1" style="color:#2e6da4"></i>Displays-Ziel
+            </th>
+            <th class="text-center" style="width:25%">
+              <i class="bi bi-box-seam me-1" style="color:#c8860a"></i>Kisten-Ziel
+            </th>
+            <th class="text-center" style="width:15%">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for rep in reps %}
+          {% set z = ziele.get(rep.id, {}) %}
+          <tr>
+            <td class="align-middle">
+              <span class="badge rounded-pill me-2" style="background:#1a3a5c">{{ rep.kuerzel }}</span>
+              <span class="fw-semibold">{{ rep.name }}</span>
+            </td>
+            <td class="text-center">
+              <div class="input-group input-group-sm justify-content-center" style="max-width:160px;margin:0 auto">
+                <span class="input-group-text" style="background:#eef4fb;border-color:#2e6da4">
+                  <i class="bi bi-display" style="color:#2e6da4"></i>
+                </span>
+                <input type="number"
+                       name="disp_{{ rep.id }}"
+                       class="form-control text-center"
+                       value="{{ z.get('displays_ziel', '') or '' }}"
+                       min="0" max="9999" placeholder="z.B. 50">
+              </div>
+            </td>
+            <td class="text-center">
+              <div class="input-group input-group-sm justify-content-center" style="max-width:160px;margin:0 auto">
+                <span class="input-group-text" style="background:#fffbf0;border-color:#c8860a">
+                  <i class="bi bi-box-seam" style="color:#c8860a"></i>
+                </span>
+                <input type="number"
+                       name="kist_{{ rep.id }}"
+                       class="form-control text-center"
+                       value="{{ z.get('kisten_ziel', '') or '' }}"
+                       min="0" max="99999" placeholder="z.B. 400">
+              </div>
+            </td>
+            <td class="text-center">
+              {% if z %}
+                <span class="badge bg-success"><i class="bi bi-check2 me-1"></i>Gesetzt</span>
+              {% else %}
+                <span class="badge bg-secondary">Noch leer</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Teamziel -->
+  <div class="card mb-4" style="border:2px solid #2e6da4">
+    <div class="card-header" style="background:#2e6da4">
+      <i class="bi bi-trophy me-2"></i>Teamziel gesamt – {{ jahr }}
+      <small class="opacity-75 ms-2">(Summe über alle Mitarbeiter)</small>
+    </div>
+    <div class="card-body">
+      <div class="row g-4 align-items-center">
+        <div class="col-md-4">
+          <label class="form-label fw-bold" style="color:#1a3a5c">
+            <i class="bi bi-display me-1"></i>Displays-Teamziel
+          </label>
+          <div class="input-group">
+            <span class="input-group-text" style="background:#eef4fb;border-color:#2e6da4">
+              <i class="bi bi-display" style="color:#2e6da4"></i>
+            </span>
+            <input type="number" name="team_disp" class="form-control form-control-lg text-center fw-bold"
+                   value="{{ teamziel.displays_ziel if teamziel else '' }}"
+                   min="0" placeholder="z.B. 1000">
+          </div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label fw-bold" style="color:#c8860a">
+            <i class="bi bi-box-seam me-1"></i>Kisten-Teamziel
+          </label>
+          <div class="input-group">
+            <span class="input-group-text" style="background:#fffbf0;border-color:#c8860a">
+              <i class="bi bi-box-seam" style="color:#c8860a"></i>
+            </span>
+            <input type="number" name="team_kist" class="form-control form-control-lg text-center fw-bold"
+                   value="{{ teamziel.kisten_ziel if teamziel else '' }}"
+                   min="0" placeholder="z.B. 8000">
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="p-3 rounded-3" style="background:#eef4fb;border:1px solid #2e6da4">
+            <p class="mb-1 small text-muted">Summe Einzelziele</p>
+            <div class="d-flex gap-4">
+              <div>
+                <i class="bi bi-display me-1" style="color:#2e6da4"></i>
+                <strong id="sumDisp">–</strong>
+              </div>
+              <div>
+                <i class="bi bi-box-seam me-1" style="color:#c8860a"></i>
+                <strong id="sumKist">–</strong>
+              </div>
+            </div>
+            <p class="mb-0 mt-1 small text-muted">Live-Summe der Einzelziele oben</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Speichern -->
+  <div class="d-flex justify-content-between align-items-center">
+    <div class="text-muted small">
+      <i class="bi bi-info-circle me-1"></i>
+      Leere Felder werden als "kein Ziel" gespeichert und im Vergleich als "–" angezeigt.
+    </div>
+    <div class="d-flex gap-2">
+      <a href="{{ url_for('vergleich', jahr=jahr) }}" class="btn btn-outline-secondary btn-lg">
+        <i class="bi bi-x-circle me-1"></i>Abbrechen
+      </a>
+      <button type="submit" class="btn btn-primary btn-lg px-5">
+        <i class="bi bi-check-circle me-2"></i>Zielzahlen speichern
+      </button>
+    </div>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function updateSums() {
+  let sd = 0, sk = 0;
+  document.querySelectorAll('[name^="disp_"]').forEach(el => { sd += parseInt(el.value) || 0; });
+  document.querySelectorAll('[name^="kist_"]').forEach(el => { sk += parseInt(el.value) || 0; });
+  document.getElementById('sumDisp').textContent = sd;
+  document.getElementById('sumKist').textContent = sk;
+}
+document.querySelectorAll('input[type=number]').forEach(el => {
+  el.addEventListener('input', updateSums);
+});
+updateSums();
+</script>
+{% endblock %}

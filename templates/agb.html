@@ -1,0 +1,203 @@
+﻿<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AGB – Aktions Tracker</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    body {
+      background: linear-gradient(135deg, #1a3a5c 0%, #2e6da4 60%, #4a8fc4 100%);
+      min-height: 100vh; padding: 2rem 1rem;
+    }
+    .legal-card {
+      background: #fff; border-radius: 1.25rem;
+      box-shadow: 0 20px 60px rgba(0,0,0,.35);
+      padding: 2.5rem; max-width: 860px; margin: 0 auto;
+    }
+    h1 { color: #1a3a5c; font-size: 1.6rem; font-weight: 800; }
+    h2 { color: #2e6da4; font-size: 1.05rem; font-weight: 700; margin-top: 1.75rem; margin-bottom: .5rem;
+         border-bottom: 2px solid #eef4fb; padding-bottom: .3rem; }
+    p, li { font-size: .88rem; color: #444; line-height: 1.75; }
+    .placeholder { background: #fff3cd; border: 1px dashed #c8860a; border-radius: .3rem; padding: .1rem .4rem; color: #856404; font-weight: 600; font-style: normal; }
+    .back-link { color: rgba(255,255,255,.8); text-decoration: none; font-size: .85rem; display: inline-block; margin-bottom: 1rem; }
+    .back-link:hover { color: #fff; }
+    .info-box { background: #eef4fb; border-left: 4px solid #2e6da4; border-radius: .4rem; padding: .75rem 1rem; margin: .75rem 0; font-size: .85rem; color: #1a3a5c; }
+  </style>
+</head>
+<body>
+<div style="max-width:860px;margin:0 auto">
+  <a href="{{ url_for('login') }}" class="back-link">
+    <i class="bi bi-arrow-left me-1"></i>Zurück zur Anmeldung
+  </a>
+</div>
+
+<div class="legal-card">
+  <div class="mb-4 d-flex align-items-center gap-3">
+    <span style="font-size:2.5rem">📋</span>
+    <div>
+      <h1 class="mb-0">Nutzungsbedingungen (AGB)</h1>
+      <p class="text-muted mb-0" style="font-size:.85rem">für den Aktions Tracker</p>
+    </div>
+  </div>
+
+  <div class="info-box">
+    <i class="bi bi-info-circle me-1"></i>
+    Diese Nutzungsbedingungen regeln den Einsatz des Aktions Trackers zwischen dem Anbieter
+    und dem Unternehmen als Nutzer (B2B-Nutzung durch Betrieb und dessen Mitarbeiter).
+    Bitte ersetzen Sie alle gelb markierten Platzhalter vor dem produktiven Einsatz.
+  </div>
+
+  <!-- § 1 Geltungsbereich -->
+  <h2>§ 1 Geltungsbereich und Vertragspartner</h2>
+  <p>
+    Diese Allgemeinen Nutzungsbedingungen (AGB) gelten für die Nutzung des Software-as-a-Service-Tools
+    „Aktions Tracker" (nachfolgend „Tool") durch das nutzende Unternehmen (nachfolgend „Nutzer").
+    Anbieter ist:
+  </p>
+  <p>
+    Jan Anschütz<br>
+    Fasanenstr. 21<br>
+    41751 Viersen<br>
+    E-Mail: anschuetz.info@gmail.com
+  </p>
+  <p>
+    Abweichende oder entgegenstehende Bedingungen des Nutzers finden keine Anwendung.
+  </p>
+
+  <!-- § 2 Leistungsbeschreibung -->
+  <h2>§ 2 Leistungsbeschreibung</h2>
+  <p>Das Tool umfasst folgende Funktionen:</p>
+  <ul>
+    <li>Erfassung und Verwaltung von Außendienst-Aktivitäten (Besuche, Bestellungen, Display-Aufstellungen)</li>
+    <li>Fotodokumentation von Aktivitäten (Speicherung bis zu 4 Wochen; zuvor automatischer Export)</li>
+    <li>Dashboard mit KPI-Übersichten und Vergleichswerten</li>
+    <li>Jahres- und Wochenzielvergleiche (IST/SOLL)</li>
+    <li>Excel-Export der Aktivitätsdaten</li>
+    <li>Benutzerverwaltung für Mitarbeiter, Verkaufsleiter und Administratoren</li>
+    <li>Datenbankbackup (täglich, 7 Tage rollierend)</li>
+    <li>Automatischer Datenexport alle 4 Wochen per E-Mail (Excel-Jahresauswertung + Foto-Archiv als ZIP)</li>
+  </ul>
+  <p>
+    Der Anbieter behält sich vor, den Funktionsumfang im Rahmen der Weiterentwicklung
+    anzupassen. Wesentliche Einschränkungen des bestehenden Funktionsumfangs werden dem
+    Nutzer rechtzeitig mitgeteilt.
+  </p>
+
+  <!-- § 3 Zugangsdaten und Sicherheit -->
+  <h2>§ 3 Zugangsdaten und Verantwortlichkeit</h2>
+  <p>
+    Der Nutzer ist für die sichere Verwahrung der Zugangsdaten verantwortlich. Eine Weitergabe
+    von Zugangsdaten an unbefugte Dritte ist untersagt. Der Nutzer verpflichtet sich, den Anbieter
+    unverzüglich zu informieren, sofern Anhaltspunkte für einen Missbrauch der Zugangsdaten bestehen.
+    Der Anbieter ist berechtigt, Konten bei begründetem Verdacht auf Missbrauch vorübergehend zu sperren.
+  </p>
+
+  <!-- § 4 Nutzungspflichten -->
+  <h2>§ 4 Pflichten des Nutzers</h2>
+  <p>Der Nutzer verpflichtet sich,</p>
+  <ul>
+    <li>das Tool ausschließlich für interne betriebliche Zwecke zu verwenden;</li>
+    <li>keine rechtswidrigen, irreführenden oder beleidigenden Inhalte einzustellen;</li>
+    <li>hochgeladene Fotos nur im Zusammenhang mit tatsächlichen Außendienst-Aktivitäten zu verwenden;</li>
+    <li>die datenschutzrechtlichen Anforderungen bei der Verarbeitung personenbezogener Daten von Mitarbeitern einzuhalten;</li>
+    <li>das Tool nicht durch automatisierte Zugriffe (Bots, Scraping) zu belasten.</li>
+  </ul>
+
+  <!-- § 5 Datenspeicherung und Datensicherheit -->
+  <h2>§ 5 Datenspeicherung und Datensicherung</h2>
+  <p>
+    Der Anbieter erstellt täglich automatische Datenbankbackups, die für 7 Tage aufbewahrt werden.
+    Fotos werden nach Ablauf von <strong>4 Wochen</strong> automatisch gelöscht; sie werden zuvor
+    automatisch per E-Mail an die hinterlegte Empfängeradresse als ZIP-Archiv zugestellt.
+    Alle 4 Wochen wird automatisch eine vollständige Excel-Auswertung per E-Mail versendet.
+    Der Nutzer ist für die weitere Aufbewahrung der zugesandten Daten selbst verantwortlich.
+    Der Anbieter übernimmt keine Gewähr für die vollständige Wiederherstellung von Daten
+    im Falle technischer Fehler.
+  </p>
+
+  <!-- § 6 Verfügbarkeit -->
+  <h2>§ 6 Verfügbarkeit und Wartung</h2>
+  <p>
+    Der Anbieter bemüht sich um eine hohe Verfügbarkeit des Tools (angestrebt: &ge; 98 % pro Monat),
+    kann diese jedoch nicht garantieren. Wartungsarbeiten, Updates und Infrastrukturausfälle beim
+    Hosting-Anbieter (Railway.app) können zu vorübergehenden Unterbrechungen führen.
+    Geplante Wartungsfenster werden soweit möglich vorab kommuniziert.
+  </p>
+
+  <!-- § 7 Haftung -->
+  <h2>§ 7 Haftungsbeschränkung</h2>
+  <p>
+    Der Anbieter haftet unbeschränkt bei Vorsatz und grober Fahrlässigkeit sowie bei Schäden
+    aus der Verletzung des Lebens, des Körpers oder der Gesundheit. Im Übrigen ist die Haftung
+    des Anbieters für leicht fahrlässige Pflichtverletzungen auf den vertragstypischen,
+    vorhersehbaren Schaden begrenzt. Eine Haftung für mittelbare Schäden, entgangene Gewinne
+    oder Datenverlust ist – soweit gesetzlich zulässig – ausgeschlossen.
+  </p>
+
+  <!-- § 8 Entgelt -->
+  <h2>§ 8 Entgelt und Zahlungsbedingungen</h2>
+  <p>
+    Das Entgelt richtet sich nach der individuellen Vereinbarung zwischen Anbieter und Nutzer.
+    Sofern nicht anders vereinbart, gilt:
+  </p>
+  <ul>
+    <li>Abrechnung: monatlich</li>
+    <li>Fälligkeit: 7 Tage nach Rechnungsstellung</li>
+    <li>Preisanpassungen werden dem Nutzer 4 Wochen vor Inkrafttreten mitgeteilt</li>
+  </ul>
+
+  <!-- § 9 Laufzeit und Kündigung -->
+  <h2>§ 9 Vertragslaufzeit und Kündigung</h2>
+  <p>
+    Der Vertrag läuft auf unbestimmte Zeit und kann von beiden Seiten mit einer Frist von
+    4 Wochen zum Ende eines Kalendermonats in Textform (E-Mail genügt) gekündigt werden.
+    Das Recht zur außerordentlichen Kündigung aus wichtigem Grund bleibt unberührt.
+    Nach Vertragsende werden alle Daten des Nutzers innerhalb von 30 Tagen gelöscht,
+    sofern keine gesetzlichen Aufbewahrungspflichten entgegenstehen.
+  </p>
+  <p>
+    Wurde die Pauschale als <strong>Jahresbetrag</strong> im Voraus entrichtet, verlängert sich
+    der Vertrag automatisch um ein weiteres Jahr, sofern er nicht spätestens
+    <strong>4 Wochen vor Ablauf des jeweiligen Vertragsjahres</strong> in Textform gekündigt wird.
+    Eine vorzeitige Kündigung durch den Nutzer berechtigt nicht zur anteiligen Rückerstattung
+    des Jahresbetrags.
+  </p>
+
+  <!-- § 10 Auftragsverarbeitung -->
+  <h2>§ 10 Auftragsverarbeitung (AVV)</h2>
+  <p>
+    Soweit der Nutzer personenbezogene Daten (z.B. Mitarbeiterstammdaten) im Tool verarbeitet,
+    ist zwischen Anbieter und Nutzer ein Auftragsverarbeitungsvertrag (AVV) gemäß Art. 28 DSGVO
+    abzuschließen. Ein entsprechendes AVV-Dokument wird auf Anfrage bereitgestellt.
+  </p>
+
+  <!-- § 11 Schlussbestimmungen -->
+  <h2>§ 11 Schlussbestimmungen</h2>
+  <p>
+    Es gilt das Recht der Bundesrepublik Deutschland. Gerichtsstand für Streitigkeiten aus
+    diesem Vertrag ist – soweit gesetzlich zulässig – Viersen.
+    Sollten einzelne Bestimmungen dieser AGB unwirksam sein, bleibt die Wirksamkeit der
+    übrigen Bestimmungen unberührt.
+  </p>
+
+  <hr class="mt-4 mb-3">
+  <p class="text-muted" style="font-size:.78rem">
+    Stand: Juni 2026 &middot;
+    <i class="bi bi-clock me-1"></i>
+    Bitte ersetzen Sie alle <span style="background:#fff3cd;padding:.1rem .3rem;border-radius:.2rem;font-weight:600">gelb markierten Platzhalter</span>
+    vor dem produktiven Einsatz. Diese AGB wurden als Vorlage erstellt und ersetzen keine
+    anwaltliche Rechtsberatung.
+  </p>
+</div>
+
+<div style="text-align:center;margin-top:1.25rem;font-size:.75rem;color:rgba(255,255,255,.6)">
+  Aktions Tracker &middot;
+  <a href="{{ url_for('impressum') }}" style="color:rgba(255,255,255,.75);text-decoration:none">Impressum</a> &middot;
+  <a href="{{ url_for('datenschutz') }}" style="color:rgba(255,255,255,.75);text-decoration:none">Datenschutz</a>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

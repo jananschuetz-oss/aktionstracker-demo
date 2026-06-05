@@ -1,0 +1,11 @@
+*.db
+*.db-shm
+*.db-wal
+__pycache__/
+*.pyc
+.env
+venv/
+node_modules/
+static/uploads/
+backups/
+*.zip

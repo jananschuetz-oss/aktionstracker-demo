@@ -1,0 +1,202 @@
+﻿<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Datenschutzerklärung – Aktions Tracker</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    body {
+      background: linear-gradient(135deg, #1a3a5c 0%, #2e6da4 60%, #4a8fc4 100%);
+      min-height: 100vh; padding: 2rem 1rem;
+    }
+    .legal-card {
+      background: #fff; border-radius: 1.25rem;
+      box-shadow: 0 20px 60px rgba(0,0,0,.35);
+      padding: 2.5rem; max-width: 860px; margin: 0 auto;
+    }
+    h1 { color: #1a3a5c; font-size: 1.6rem; font-weight: 800; }
+    h2 { color: #2e6da4; font-size: 1.05rem; font-weight: 700; margin-top: 1.75rem; margin-bottom: .5rem;
+         border-bottom: 2px solid #eef4fb; padding-bottom: .3rem; }
+    h3 { color: #1a3a5c; font-size: .95rem; font-weight: 700; margin-top: 1rem; margin-bottom: .25rem; }
+    p, li { font-size: .88rem; color: #444; line-height: 1.75; }
+    .placeholder { background: #fff3cd; border: 1px dashed #c8860a; border-radius: .3rem; padding: .1rem .4rem; color: #856404; font-weight: 600; font-style: normal; }
+    .back-link { color: rgba(255,255,255,.8); text-decoration: none; font-size: .85rem; display: inline-block; margin-bottom: 1rem; }
+    .back-link:hover { color: #fff; }
+    .info-box { background: #eef4fb; border-left: 4px solid #2e6da4; border-radius: .4rem; padding: .75rem 1rem; margin: .75rem 0; font-size: .85rem; color: #1a3a5c; }
+  </style>
+</head>
+<body>
+<div style="max-width:860px;margin:0 auto">
+  <a href="{{ url_for('login') }}" class="back-link">
+    <i class="bi bi-arrow-left me-1"></i>Zurück zur Anmeldung
+  </a>
+</div>
+
+<div class="legal-card">
+  <div class="mb-4 d-flex align-items-center gap-3">
+    <span style="font-size:2.5rem">🔒</span>
+    <div>
+      <h1 class="mb-0">Datenschutzerklärung</h1>
+      <p class="text-muted mb-0" style="font-size:.85rem">gemäß DSGVO (EU) 2016/679 &amp; BDSG</p>
+    </div>
+  </div>
+
+  <div class="info-box">
+    <i class="bi bi-info-circle me-1"></i>
+    Diese Datenschutzerklärung gilt für den internen Aktions Tracker und richtet sich
+    an die Mitarbeiterinnen und Mitarbeiter, die das Tool nutzen.
+  </div>
+
+  <!-- § 1 Verantwortlicher -->
+  <h2><i class="bi bi-building me-2"></i>§ 1 Verantwortlicher</h2>
+  <p>
+    Verantwortlicher im Sinne der DSGVO ist:<br><br>
+    Jan Anschütz<br>
+    Fasanenstr. 21<br>
+    41751 Viersen<br><br>
+    E-Mail: anschuetz.info@gmail.com<br>
+    Telefon: +49 151 54607420
+  </p>
+
+  <!-- § 2 Erhobene Daten -->
+  <h2><i class="bi bi-database me-2"></i>§ 2 Welche Daten werden verarbeitet?</h2>
+
+  <h3>2.1 Zugangsdaten der Mitarbeiter</h3>
+  <p>Beim Anlegen eines Nutzerkontos werden folgende Daten gespeichert:</p>
+  <ul>
+    <li>Vollständiger Name und Mitarbeiter-Kürzel</li>
+    <li>Passwort (Zugangsdaten)</li>
+    <li>E-Mail-Adresse (optional, nur für Passwort-Reset-Funktion)</li>
+    <li>Benutzerrolle (Rep / Verkaufsleiter / Admin)</li>
+  </ul>
+
+
+  <h3>2.2 Aktivitätsdaten (Kerndaten des Tools)</h3>
+  <p>Beim Eintragen einer Aktivität werden gespeichert:</p>
+  <ul>
+    <li>Datum des Besuchs</li>
+    <li>Verkaufsstelle (Name, Ort, Typ)</li>
+    <li>Anzahl aufgestellter Displays</li>
+    <li>Produktbestellungen (Produkt und Menge)</li>
+    <li>Notizen / Bemerkungen (freies Textfeld)</li>
+    <li>Fotos (optional, JPG/PNG/WebP/GIF, max. 16 MB je Datei)</li>
+    <li>Zuordnung zum eingetragenen Mitarbeiter</li>
+  </ul>
+
+  <h3>2.3 Technische Protokolldaten</h3>
+  <p>
+    Der Hosting-Anbieter (Railway.app) kann serverseitig technische Zugriffsprotokolle
+    (IP-Adresse, Zeitstempel, aufgerufene URL) speichern. Diese unterliegen der
+    Datenschutzrichtlinie von Railway (siehe railway.app/legal/privacy).
+  </p>
+
+  <!-- § 3 Zweck -->
+  <h2><i class="bi bi-bullseye me-2"></i>§ 3 Zweck der Datenverarbeitung</h2>
+  <p>
+    Die Daten werden ausschließlich zur internen Vertriebsdokumentation und -steuerung
+    des Unternehmens verwendet. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO
+    (Vertragserfüllung / berechtigtes Interesse des Arbeitgebers) sowie,
+    soweit betroffen, Art. 88 DSGVO i.V.m. § 26 BDSG (Beschäftigtendatenschutz).
+  </p>
+
+  <!-- § 4 Speicherdauer -->
+  <h2><i class="bi bi-clock-history me-2"></i>§ 4 Speicherdauer</h2>
+  <table class="table table-sm table-bordered" style="font-size:.85rem">
+    <thead class="table-dark">
+      <tr><th>Datenkategorie</th><th>Speicherdauer</th><th>Löschung</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Aktivitätsfotos</td>
+        <td><strong>4 Wochen</strong> nach Erfassung</td>
+        <td>Automatisch durch das System; zuvor per E-Mail-Export an den AG zugestellt</td>
+      </tr>
+      <tr>
+        <td>Aktivitätsdaten (ohne Foto)</td>
+        <td>Bis zur manuellen Löschung oder Vertragsende</td>
+        <td>Manuell durch Admin oder auf Anfrage</td>
+      </tr>
+      <tr>
+        <td>Mitarbeiterstammdaten</td>
+        <td>Bis zum Ausscheiden aus dem Unternehmen</td>
+        <td>Manuell durch Admin</td>
+      </tr>
+      <tr>
+        <td>Datenbankbackups</td>
+        <td><strong>7 Tage</strong> rollierend</td>
+        <td>Automatisch (älteste werden überschrieben)</td>
+      </tr>
+      <tr>
+        <td>Passwort-Reset-Tokens</td>
+        <td><strong>1 Stunde</strong></td>
+        <td>Automatisch nach Ablauf / Verwendung</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- § 5 Weitergabe -->
+  <h2><i class="bi bi-share me-2"></i>§ 5 Weitergabe an Dritte</h2>
+  <p>
+    Eine Weitergabe personenbezogener Daten an Dritte findet nicht statt, mit Ausnahme
+    der nachfolgenden technischen Auftragsverarbeiter gemäß Art. 28 DSGVO:
+    <strong>Railway Corp.</strong> (Hosting und Datenbankbetrieb, Serverstandort EU West / Amsterdam) sowie
+    <strong>Google LLC</strong> (E-Mail-Versand für Passwort-Reset über Gmail SMTP).
+    Mit beiden Anbietern bestehen Auftragsverarbeitungsverträge auf Basis der
+    EU-Standardvertragsklauseln (SCC) gemäß Art. 46 Abs. 2 lit. c DSGVO.
+  </p>
+
+  <!-- § 6 Betroffenenrechte -->
+  <h2><i class="bi bi-person-check me-2"></i>§ 6 Rechte der betroffenen Personen</h2>
+  <p>Sie haben gemäß DSGVO folgende Rechte:</p>
+  <ul>
+    <li><strong>Auskunft</strong> (Art. 15 DSGVO): Welche Daten von Ihnen gespeichert sind</li>
+    <li><strong>Berichtigung</strong> (Art. 16 DSGVO): Korrektur unrichtiger Daten</li>
+    <li><strong>Löschung</strong> (Art. 17 DSGVO): Löschung Ihrer Daten, sofern keine gesetzlichen Aufbewahrungspflichten entgegenstehen</li>
+    <li><strong>Einschränkung</strong> (Art. 18 DSGVO): Einschränkung der Verarbeitung</li>
+    <li><strong>Widerspruch</strong> (Art. 21 DSGVO): Widerspruch gegen die Verarbeitung</li>
+    <li><strong>Beschwerde</strong> (Art. 77 DSGVO): Beschwerde bei der zuständigen Aufsichtsbehörde</li>
+  </ul>
+  <p>
+    Zur Ausübung Ihrer Rechte wenden Sie sich an:
+    anschuetz.info@gmail.com
+  </p>
+
+  <!-- § 7 Datensicherheit -->
+  <h2><i class="bi bi-shield-lock me-2"></i>§ 7 Datensicherheit</h2>
+  <p>
+    Die Übertragung erfolgt per HTTPS (TLS-Verschlüsselung). Der Zugang ist durch
+    individuelle Anmeldedaten geschützt. Datenbankbackups werden täglich erstellt
+    und lokal für 7 Tage aufbewahrt. Fotos werden nach 4 Wochen automatisch gelöscht;
+    zuvor werden sie im Rahmen des automatischen Exports per E-Mail an den Auftraggeber übermittelt.
+    Alle 4 Wochen wird eine Excel-Jahresauswertung automatisch an die hinterlegte
+    Empfängeradresse versandt.
+  </p>
+
+  <!-- § 8 Änderungen -->
+  <h2><i class="bi bi-pencil-square me-2"></i>§ 8 Änderungen dieser Datenschutzerklärung</h2>
+  <p>
+    Wir behalten uns vor, diese Datenschutzerklärung bei Änderungen des Tools oder
+    der rechtlichen Anforderungen anzupassen. Die jeweils aktuelle Version ist im
+    Tool einsehbar.
+  </p>
+
+  <hr class="mt-4 mb-3">
+  <p class="text-muted" style="font-size:.78rem">
+    Stand: Juni 2026 &middot;
+    <i class="bi bi-clock me-1"></i>
+    Bitte ersetzen Sie alle <span style="background:#fff3cd;padding:.1rem .3rem;border-radius:.2rem;font-weight:600">gelb markierten Platzhalter</span>
+    vor dem produktiven Einsatz.
+  </p>
+</div>
+
+<div style="text-align:center;margin-top:1.25rem;font-size:.75rem;color:rgba(255,255,255,.6)">
+  Aktions Tracker &middot;
+  <a href="{{ url_for('impressum') }}" style="color:rgba(255,255,255,.75);text-decoration:none">Impressum</a> &middot;
+  <a href="{{ url_for('agb') }}" style="color:rgba(255,255,255,.75);text-decoration:none">AGB</a>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

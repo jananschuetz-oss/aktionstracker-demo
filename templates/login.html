@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Anmeldung – Aktions Tracker {{ company_short }}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    body {
+      background: linear-gradient(135deg, #1a3a5c 0%, #2e6da4 60%, #4a8fc4 100%);
+      min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column; padding: 1rem;
+    }
+    .login-card {
+      background: #fff; border-radius: 1.25rem;
+      box-shadow: 0 20px 60px rgba(0,0,0,.35);
+      padding: 2.5rem 2.25rem; width: 100%; max-width: 420px;
+    }
+    .brand-header { text-align: center; margin-bottom: 2rem; }
+    .brand-header img { height: 110px; width: auto; object-fit: contain; }
+    .brand-header h1 { font-size: 1.15rem; font-weight: 800; color: #1a3a5c; margin: .75rem 0 .25rem; line-height: 1.35; }
+    .brand-header p  { color: #666; font-size: .9rem; margin: 0; }
+    .form-label { font-weight: 600; color: #1a3a5c; font-size: .9rem; }
+    .form-select:focus, .form-control:focus {
+      border-color: #2e6da4; box-shadow: 0 0 0 .2rem rgba(46,109,164,.25);
+    }
+    .btn-login {
+      background: linear-gradient(135deg, #1a3a5c, #2e6da4);
+      border: none; color: white; font-weight: 700;
+      padding: .75rem; border-radius: .5rem; font-size: 1rem;
+      transition: opacity .2s;
+    }
+    .btn-login:hover { opacity: .9; color: white; }
+    .legal-links { text-align: center; margin-top: 1.25rem; font-size: .75rem; color: rgba(255,255,255,.7); }
+    .legal-links a { color: rgba(255,255,255,.85); text-decoration: none; margin: 0 .4rem; }
+    .legal-links a:hover { color: #fff; text-decoration: underline; }
+  </style>
+</head>
+<body>
+<div class="login-card">
+  <div class="brand-header">
+    <img src="{{ logo_url }}" alt="{{ company_short }}">
+    <h1>Aktions Tracker – {{ company_short }}</h1>
+    <p style="font-size:.85rem;color:#555;margin:.2rem 0 0">{{ company_name }}</p>
+    <p>Bitte anmelden, um fortzufahren</p>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ category }} py-2 mb-3" role="alert">
+        <i class="bi bi-{% if category=='success' %}check-circle{% elif category=='danger' %}exclamation-circle{% else %}info-circle{% endif %} me-1"></i>
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endwith %}
+
+  <form method="POST">
+    <div class="mb-3">
+      <label class="form-label"><i class="bi bi-envelope me-1"></i>E-Mail Adresse</label>
+      <input type="text" name="email" class="form-control form-control-lg"
+             placeholder="ihre@email.de" required autocomplete="email">
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label"><i class="bi bi-key me-1"></i>Passwort</label>
+      <input type="password" name="passwort" class="form-control form-control-lg"
+             placeholder="Passwort eingeben" required autocomplete="current-password">
+    </div>
+
+    <button type="submit" class="btn btn-login w-100 mb-3">
+      <i class="bi bi-box-arrow-in-right me-2"></i>Anmelden
+    </button>
+  </form>
+
+  <div class="text-center">
+    <a href="{{ url_for('passwort_vergessen') }}"
+       class="text-muted small" style="text-decoration:none">
+      <i class="bi bi-question-circle me-1"></i>Passwort vergessen?
+    </a>
+  </div>
+
+  <hr class="my-3">
+  <p class="text-center text-muted mb-0" style="font-size:.72rem">
+    Mit der Anmeldung akzeptieren Sie unsere
+    <a href="{{ url_for('agb') }}" target="_blank" class="text-muted">AGB</a> und die
+    <a href="{{ url_for('datenschutz') }}" target="_blank" class="text-muted">Datenschutzerklärung</a>.
+  </p>
+</div>
+
+<div class="legal-links">
+  <a href="{{ url_for('impressum') }}" target="_blank">Impressum</a>
+  <span style="opacity:.4">·</span>
+  <a href="{{ url_for('datenschutz') }}" target="_blank">Datenschutz</a>
+  <span style="opacity:.4">·</span>
+  <a href="{{ url_for('agb') }}" target="_blank">AGB</a>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

@@ -1,0 +1,1089 @@
+{% extends 'base.html' %}
+{% block title %}Mitarbeiter-Vergleich – Aktions Tracker – {{ company_short }}{% endblock %}
+
+{% block content %}
+<style>
+  /* Inactive Vergleich tab pills – override base.html !important nav-link color */
+  .vergleich-tabs .nav-link:not(.active) {
+    background: #fff !important;
+    color: #1a3a5c !important;
+    border: 1px solid #dee2e6;
+  }
+  .vergleich-tabs .nav-link { font-size: .85rem; }
+</style>
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div>
+    <h1>
+      {% if selected_rep %}
+        <i class="bi bi-bullseye me-2"></i>Zielkurs – {{ selected_rep.name }}
+      {% else %}
+        <i class="bi bi-people me-2"></i>Mitarbeiter-Vergleich
+      {% endif %}
+    </h1>
+    <p>IST-Werte vs. Zielzahlen – Jahr {{ jahr }}</p>
+  </div>
+  <div class="d-flex gap-2 align-items-center flex-wrap">
+    <form class="d-flex gap-2" method="GET">
+      <select name="jahr" class="form-select form-select-sm" onchange="this.form.submit()" style="width:auto;background:#fff">
+        {% for j in alle_jahre %}
+        <option value="{{ j }}" {% if j==jahr %}selected{% endif %}>{{ j }}</option>
+        {% endfor %}
+      </select>
+    </form>
+    <a href="{{ url_for('zielzahlen', jahr=jahr) }}" class="btn btn-sm" style="background:#c8860a;color:white">
+      <i class="bi bi-bullseye me-1"></i>Zielzahlen bearbeiten
+    </a>
+    <a href="{{ url_for('export_excel', jahr=jahr) }}" class="btn btn-success btn-sm">
+      <i class="bi bi-file-earmark-excel me-1"></i>Excel Export
+    </a>
+  </div>
+</div>
+
+{% if is_manager %}
+<!-- Tab-Navigation: Alle | je Rep -->
+<ul class="nav nav-pills vergleich-tabs flex-wrap gap-1 mb-4">
+  <li class="nav-item">
+    <a class="nav-link {% if not ma_filter %}active{% endif %}"
+       href="{{ url_for('vergleich', jahr=jahr) }}">
+      <i class="bi bi-people me-1"></i>Alle Mitarbeiter
+    </a>
+  </li>
+  {% for m in alle_ma %}
+  <li class="nav-item">
+    <a class="nav-link {% if ma_filter == m.id|string %}active{% endif %}"
+       href="{{ url_for('vergleich', jahr=jahr, ma=m.id) }}">
+      <span class="badge me-1" style="background:{% if ma_filter == m.id|string %}rgba(255,255,255,.35){% else %}#1a3a5c{% endif %}">{{ m.kuerzel }}</span>{{ m.name }}
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% if not ist %}
+<div class="text-center py-5">
+  <i class="bi bi-people" style="font-size:4rem;color:#ccc"></i>
+  <h4 class="mt-3 text-muted">Keine Außendienstmitarbeiter gefunden</h4>
+</div>
+
+{% elif selected_rep %}
+{# ══════════════════════════════════════════════════════════════════════
+   EINZELANSICHT – Zielkurs für einen Mitarbeiter
+   ══════════════════════════════════════════════════════════════════════ #}
+{% set rep_monate = monatsziele.get(selected_rep.id, []) %}
+{% set kurs       = zielkurs.get(selected_rep.id, {}) %}
+{% set rep_ziel   = ziele.get(selected_rep.id, {}) %}
+{% set d_jz       = rep_ziel.get('displays_ziel', 0) or 0 %}
+{% set k_jz       = rep_ziel.get('kisten_ziel',   0) or 0 %}
+{% set dk         = kurs.get('disp_kurs') %}
+{% set kk         = kurs.get('kist_kurs') %}
+{% set akt_mon    = rep_monate[aktueller_monat - 1] if rep_monate|length >= aktueller_monat else none %}
+{% set d_pct_j    = ((selected_rep.displays_ist / d_jz * 100)|round(0)|int) if d_jz else none %}
+{% set k_pct_j    = ((selected_rep.kisten_ist   / k_jz * 100)|round(0)|int) if k_jz else none %}
+
+<!-- Rep-Header -->
+<div class="card mb-4" style="border-top:4px solid #1a3a5c">
+  <div class="card-body py-3">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div>
+        <span class="badge px-3 py-2 fs-6" style="background:#1a3a5c">{{ selected_rep.kuerzel }}</span>
+        <span class="fw-bold fs-5 ms-2" style="color:#1a3a5c">{{ selected_rep.name }}</span>
+      </div>
+      <span class="text-muted small"><i class="bi bi-shop me-1"></i>{{ selected_rep.besuche }} Besuche {{ jahr }}</span>
+    </div>
+  </div>
+</div>
+
+<!-- Drei KPI-Boxen: Monatsziel / Jahresziel / Kumulierter Saisonkurs -->
+<div class="row g-3 mb-4">
+
+  <!-- Box 1: Monatsziel aktueller Monat -->
+  <div class="col-md-4">
+    <div class="card h-100" style="border-top:3px solid #2e6da4">
+      <div class="card-header" style="background:#2e6da4">
+        <i class="bi bi-calendar-check me-1"></i>Monatsziel – {{ m_namen[aktueller_monat-1] }} {{ jahr }}
+      </div>
+      <div class="card-body">
+        {% if akt_mon %}
+        <div class="mb-3">
+          <div class="d-flex justify-content-between mb-1">
+            <span class="small fw-semibold" style="color:#c8860a"><i class="bi bi-box-seam me-1"></i>Kisten</span>
+            <span class="small">
+              <strong style="color:#c8860a">{{ akt_mon.kisten_ist }}</strong> / {{ akt_mon.kisten_ziel }}
+              {% if akt_mon.kisten_pct is not none %}
+              <span class="badge ms-1 {% if akt_mon.kisten_pct >= 100 %}bg-success{% elif akt_mon.kisten_pct >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}">{{ akt_mon.kisten_pct }}%</span>
+              {% endif %}
+            </span>
+          </div>
+          {% if akt_mon.kisten_ziel %}<div class="progress" style="height:8px"><div class="progress-bar {% if (akt_mon.kisten_pct or 0) >= 100 %}bg-success{% elif (akt_mon.kisten_pct or 0) >= 70 %}bg-warning{% else %}bg-danger{% endif %}" style="width:{{ [akt_mon.kisten_pct or 0, 100]|min }}%"></div></div>{% endif %}
+        </div>
+        <div>
+          <div class="d-flex justify-content-between mb-1">
+            <span class="small fw-semibold" style="color:#1a3a5c"><i class="bi bi-display me-1"></i>Displays</span>
+            <span class="small">
+              <strong>{{ akt_mon.displays_ist }}</strong> / {{ akt_mon.displays_ziel }}
+              {% if akt_mon.displays_pct is not none %}
+              <span class="badge ms-1 {% if akt_mon.displays_pct >= 100 %}bg-success{% elif akt_mon.displays_pct >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}">{{ akt_mon.displays_pct }}%</span>
+              {% endif %}
+            </span>
+          </div>
+          {% if akt_mon.displays_ziel %}<div class="progress" style="height:8px"><div class="progress-bar {% if (akt_mon.displays_pct or 0) >= 100 %}bg-success{% elif (akt_mon.displays_pct or 0) >= 70 %}bg-warning{% else %}bg-danger{% endif %}" style="width:{{ [akt_mon.displays_pct or 0, 100]|min }}%"></div></div>{% endif %}
+        </div>
+        {% else %}
+        <p class="text-muted text-center py-3 mb-0">Keine Aktivitäten in {{ m_namen[aktueller_monat-1] }}</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Box 2: Jahresziel gesamt -->
+  <div class="col-md-4">
+    <div class="card h-100" style="border-top:3px solid #1a3a5c">
+      <div class="card-header">
+        <i class="bi bi-bullseye me-1"></i>Jahresziel {{ jahr }} gesamt
+      </div>
+      <div class="card-body">
+        <div class="mb-3">
+          <div class="d-flex justify-content-between mb-1">
+            <span class="small fw-semibold" style="color:#c8860a"><i class="bi bi-box-seam me-1"></i>Kisten</span>
+            <span class="small">
+              <strong style="color:#c8860a">{{ selected_rep.kisten_ist }}</strong> / {{ k_jz or '–' }}
+              {% if k_pct_j is not none %}<span class="badge ms-1 {% if k_pct_j >= 100 %}bg-success{% elif k_pct_j >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}">{{ k_pct_j }}%</span>{% endif %}
+            </span>
+          </div>
+          {% if k_jz %}<div class="progress" style="height:8px"><div class="progress-bar {% if (k_pct_j or 0) >= 100 %}bg-success{% elif (k_pct_j or 0) >= 70 %}bg-warning{% else %}bg-danger{% endif %}" style="width:{{ [k_pct_j or 0, 100]|min }}%"></div></div>{% endif %}
+        </div>
+        <div>
+          <div class="d-flex justify-content-between mb-1">
+            <span class="small fw-semibold" style="color:#1a3a5c"><i class="bi bi-display me-1"></i>Displays</span>
+            <span class="small">
+              <strong>{{ selected_rep.displays_ist }}</strong> / {{ d_jz or '–' }}
+              {% if d_pct_j is not none %}<span class="badge ms-1 {% if d_pct_j >= 100 %}bg-success{% elif d_pct_j >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}">{{ d_pct_j }}%</span>{% endif %}
+            </span>
+          </div>
+          {% if d_jz %}<div class="progress" style="height:8px"><div class="progress-bar {% if (d_pct_j or 0) >= 100 %}bg-success{% elif (d_pct_j or 0) >= 70 %}bg-warning{% else %}bg-danger{% endif %}" style="width:{{ [d_pct_j or 0, 100]|min }}%"></div></div>{% endif %}
+        </div>
+        {% if k_jz %}
+        <div class="text-muted mt-2" style="font-size:.72rem">
+          <i class="bi bi-info-circle me-1"></i>
+          Hochrechnung linear: ~{{ ((selected_rep.kisten_ist / aktueller_monat * 12)|round(0)|int) }} Kisten/Jahr
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Box 3: Kumulierter Saisonkurs -->
+  <div class="col-md-4">
+    <div class="card h-100" style="border-top:3px solid #c8860a">
+      <div class="card-header gold">
+        <i class="bi bi-sun me-1"></i>Saisonkurs Jan–{{ m_namen[aktueller_monat-1] }}
+      </div>
+      <div class="card-body">
+        <div class="mb-3">
+          <div class="d-flex justify-content-between mb-1">
+            <span class="small fw-semibold" style="color:#c8860a"><i class="bi bi-box-seam me-1"></i>Kisten</span>
+            <span class="small">
+              <strong style="color:#c8860a">{{ kurs.kum_k_ist }}</strong> / {{ kurs.kum_k_ziel }}
+              {% if kk is not none %}<span class="badge ms-1 {% if kk >= 100 %}bg-success{% elif kk >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}">{{ kk }}%</span>{% endif %}
+            </span>
+          </div>
+          {% if kurs.kum_k_ziel %}<div class="progress" style="height:8px"><div class="progress-bar {% if (kk or 0) >= 100 %}bg-success{% elif (kk or 0) >= 70 %}bg-warning{% else %}bg-danger{% endif %}" style="width:{{ [kk or 0, 100]|min }}%"></div></div>{% endif %}
+        </div>
+        <div>
+          <div class="d-flex justify-content-between mb-1">
+            <span class="small fw-semibold" style="color:#1a3a5c"><i class="bi bi-display me-1"></i>Displays</span>
+            <span class="small">
+              <strong>{{ kurs.kum_d_ist }}</strong> / {{ kurs.kum_d_ziel }}
+              {% if dk is not none %}<span class="badge ms-1 {% if dk >= 100 %}bg-success{% elif dk >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}">{{ dk }}%</span>{% endif %}
+            </span>
+          </div>
+          {% if kurs.kum_d_ziel %}<div class="progress" style="height:8px"><div class="progress-bar {% if (dk or 0) >= 100 %}bg-success{% elif (dk or 0) >= 70 %}bg-warning{% else %}bg-danger{% endif %}" style="width:{{ [dk or 0, 100]|min }}%"></div></div>{% endif %}
+        </div>
+        <div class="text-muted mt-2" style="font-size:.72rem">
+          <i class="bi bi-sun me-1" style="color:#c8860a"></i>Saisonal erwartet laut Sonnenschlüssel
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Monatliche Charts -->
+<div class="row g-3 mb-4">
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header secondary"><i class="bi bi-bar-chart me-2"></i>Kisten je Monat – IST vs. Monatsziel</div>
+      <div class="card-body"><div class="chart-container"><canvas id="monKistChart"></canvas></div></div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-display me-2"></i>Displays je Monat – IST vs. Monatsziel</div>
+      <div class="card-body"><div class="chart-container"><canvas id="monDispChart"></canvas></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Monatliche Heatmap (Einzelrep) – Kisten -->
+<div class="card mb-4">
+  <div class="card-header" style="background:linear-gradient(135deg,#c8860a,#f5a623)">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <span><i class="bi bi-calendar-month me-2"></i>Monats-Übersicht {{ jahr }} – Kisten mit Sonnenschlüssel</span>
+      <small class="opacity-85">IST / Monatsziel · Grün ≥ 100% · Gelb ≥ 70% · Rot &lt; 70%</small>
+    </div>
+    <!-- Monatsfilter -->
+    <div class="d-flex gap-1 flex-wrap align-items-center mt-2">
+      <span class="me-1" style="font-size:.7rem;opacity:.85;font-weight:700;letter-spacing:.04em">MONATE:</span>
+      {% for mn in m_namen %}
+      <button type="button" class="rep-month-toggle-btn"
+              data-idx="{{ loop.index0 }}"
+              onclick="toggleRepMonat({{ loop.index0 }})"
+              style="font-size:.7rem;padding:.15rem .45rem;border-radius:.3rem;
+                     cursor:pointer;border:1px solid rgba(255,255,255,.5);
+                     background:rgba(255,255,255,.25);color:#fff;font-weight:600">
+        {{ mn }}
+      </button>
+      {% endfor %}
+      <span style="border-left:1px solid rgba(255,255,255,.35);margin-left:.25rem;padding-left:.35rem">
+        <button type="button" onclick="alleRepMonateAn()"
+                style="font-size:.7rem;padding:.15rem .45rem;border-radius:.3rem;
+                       cursor:pointer;border:1px solid rgba(255,255,255,.5);
+                       background:rgba(255,255,255,.15);color:#fff">Alle</button>
+        <button type="button" onclick="alleRepMonateAus()"
+                style="font-size:.7rem;padding:.15rem .45rem;border-radius:.3rem;
+                       cursor:pointer;border:1px solid rgba(255,255,255,.5);
+                       background:rgba(255,255,255,.15);color:#fff">Keine</button>
+      </span>
+    </div>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm mb-0" style="font-size:.8rem" id="repHeatmapKist">
+        <thead>
+          <tr style="background:#1a3a5c;color:white">
+            {% for mn in m_namen %}
+            <th class="text-center px-1 hm-rep-col-{{ loop.index0 }}">{{ mn }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            {% for mon in rep_monate %}
+            <td class="text-center p-1 hm-rep-col-{{ loop.index0 }}">
+              {% if mon.vergangen %}
+                {% set pct = mon.kisten_pct %}
+                <div class="rounded text-center {% if pct is not none and pct >= 100 %}bg-success text-white{% elif pct is not none and pct >= 70 %}bg-warning text-dark{% elif pct is not none %}bg-danger text-white{% else %}bg-light text-muted{% endif %}"
+                     style="padding:4px 2px;font-size:.7rem;line-height:1.3"
+                     title="{{ mon.name }}: {{ mon.kisten_ist }} IST / {{ mon.kisten_ziel }} Ziel">
+                  <div class="fw-bold">{{ mon.kisten_ist }}</div>
+                  <div style="opacity:.8">{{ mon.kisten_ziel }}</div>
+                  {% if pct is not none %}<div style="font-size:.6rem">{{ pct }}%</div>{% endif %}
+                </div>
+              {% else %}
+                <div class="rounded text-center bg-light text-muted"
+                     style="padding:4px 2px;font-size:.7rem;line-height:1.3">
+                  <div>–</div>
+                  <div style="opacity:.6">{{ mon.kisten_ziel }}</div>
+                </div>
+              {% endif %}
+            </td>
+            {% endfor %}
+          </tr>
+          <tr style="background:#fffbf0">
+            {% for pct in sk_pct %}
+            <td class="text-center hm-rep-col-{{ loop.index0 }}"
+                style="font-size:.68rem;color:#c8860a;font-weight:600;padding:.3rem .25rem">{{ pct }}%</td>
+            {% endfor %}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Monatliche Heatmap (Einzelrep) – Displays -->
+<div class="card mb-4">
+  <div class="card-header" style="background:linear-gradient(135deg,#1a3a5c,#2e6da4)">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <span><i class="bi bi-display me-2"></i>Monats-Übersicht {{ jahr }} – Displays mit Sonnenschlüssel</span>
+      <small class="opacity-85">IST / Monatsziel · Grün ≥ 100% · Gelb ≥ 70% · Rot &lt; 70%
+        <span class="ms-2 opacity-75"><i class="bi bi-link-45deg"></i> Monatsfilter wie oben</span>
+      </small>
+    </div>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm mb-0" style="font-size:.8rem" id="repHeatmapDisp">
+        <thead>
+          <tr style="background:#1a3a5c;color:white">
+            {% for mn in m_namen %}
+            <th class="text-center px-1 hm-rep-col-{{ loop.index0 }}">{{ mn }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            {% for mon in rep_monate %}
+            <td class="text-center p-1 hm-rep-col-{{ loop.index0 }}">
+              {% if mon.vergangen %}
+                {% set pct = mon.displays_pct %}
+                <div class="rounded text-center {% if pct is not none and pct >= 100 %}bg-success text-white{% elif pct is not none and pct >= 70 %}bg-warning text-dark{% elif pct is not none %}bg-danger text-white{% else %}bg-light text-muted{% endif %}"
+                     style="padding:4px 2px;font-size:.7rem;line-height:1.3"
+                     title="{{ mon.name }}: {{ mon.displays_ist }} IST / {{ mon.displays_ziel }} Ziel">
+                  <div class="fw-bold">{{ mon.displays_ist }}</div>
+                  <div style="opacity:.8">{{ mon.displays_ziel }}</div>
+                  {% if pct is not none %}<div style="font-size:.6rem">{{ pct }}%</div>{% endif %}
+                </div>
+              {% else %}
+                <div class="rounded text-center bg-light text-muted"
+                     style="padding:4px 2px;font-size:.7rem;line-height:1.3">
+                  <div>–</div>
+                  <div style="opacity:.6">{{ mon.displays_ziel }}</div>
+                </div>
+              {% endif %}
+            </td>
+            {% endfor %}
+          </tr>
+          <tr style="background:#eef4fb">
+            {% for pct in sk_pct %}
+            <td class="text-center hm-rep-col-{{ loop.index0 }}"
+                style="font-size:.68rem;color:#1a3a5c;font-weight:600;padding:.3rem .25rem">{{ pct }}%</td>
+            {% endfor %}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% else %}
+{# ══════════════════════════════════════════════════════════════════════
+   TEAMÜBERSICHT – Alle Mitarbeiter
+   ══════════════════════════════════════════════════════════════════════ #}
+
+<!-- Teamziel Banner -->
+{% if teamziel %}
+<div class="card mb-4" style="border:2px solid #2e6da4">
+  <div class="card-body py-3">
+    <div class="row align-items-center g-3">
+      <div class="col-auto">
+        <span class="fw-bold" style="color:#1a3a5c;font-size:1.1rem">
+          <i class="bi bi-trophy me-2" style="color:#c8860a"></i>Teamziel {{ jahr }}
+        </span>
+      </div>
+      {% set t_disp_ist = ist | sum(attribute='displays_ist') %}
+      {% set t_kist_ist = ist | sum(attribute='kisten_ist') %}
+      {% set t_disp_pct = ((t_disp_ist / teamziel.displays_ziel * 100) | round(0) | int) if teamziel.displays_ziel else 0 %}
+      {% set t_kist_pct = ((t_kist_ist / teamziel.kisten_ziel * 100)  | round(0) | int) if teamziel.kisten_ziel  else 0 %}
+      <div class="col">
+        <div class="row g-4">
+          <div class="col-md-6">
+            <div class="d-flex justify-content-between mb-1">
+              <small class="fw-semibold" style="color:#1a3a5c"><i class="bi bi-display me-1"></i>Displays</small>
+              <small>{{ t_disp_ist }} / {{ teamziel.displays_ziel }}
+                <strong class="ms-1 {% if t_disp_pct >= 100 %}text-success{% elif t_disp_pct >= 70 %}text-warning{% else %}text-danger{% endif %}">
+                  {{ t_disp_pct }}%
+                </strong>
+              </small>
+            </div>
+            <div class="progress" style="height:12px">
+              <div class="progress-bar {% if t_disp_pct >= 100 %}bg-success{% elif t_disp_pct >= 70 %}bg-warning{% else %}bg-danger{% endif %}"
+                   style="width:{{ [t_disp_pct, 100]|min }}%"></div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="d-flex justify-content-between mb-1">
+              <small class="fw-semibold" style="color:#c8860a"><i class="bi bi-box-seam me-1"></i>Kisten</small>
+              <small>{{ t_kist_ist }} / {{ teamziel.kisten_ziel }}
+                <strong class="ms-1 {% if t_kist_pct >= 100 %}text-success{% elif t_kist_pct >= 70 %}text-warning{% else %}text-danger{% endif %}">
+                  {{ t_kist_pct }}%
+                </strong>
+              </small>
+            </div>
+            <div class="progress" style="height:12px">
+              <div class="progress-bar {% if t_kist_pct >= 100 %}bg-success{% elif t_kist_pct >= 70 %}bg-warning{% else %}bg-danger{% endif %}"
+                   style="width:{{ [t_kist_pct, 100]|min }}%"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% else %}
+<div class="alert alert-warning mb-4 py-2">
+  <i class="bi bi-exclamation-triangle me-2"></i>
+  Noch keine Zielzahlen für {{ jahr }} hinterlegt.
+  <a href="{{ url_for('zielzahlen', jahr=jahr) }}" class="alert-link ms-2">Jetzt setzen →</a>
+</div>
+{% endif %}
+
+<!-- Mitarbeiter-Karten -->
+<div class="row g-3 mb-4">
+  {% for rep in ist %}
+  {% set ziel = ziele.get(rep.id, {}) %}
+  {% set d_ziel = ziel.get('displays_ziel', 0) or 0 %}
+  {% set k_ziel = ziel.get('kisten_ziel', 0) or 0 %}
+  {% set d_pct = ((rep.displays_ist / d_ziel * 100) | round(0) | int) if d_ziel else none %}
+  {% set k_pct = ((rep.kisten_ist  / k_ziel * 100) | round(0) | int) if k_ziel else none %}
+
+  <div class="col-md-6 col-xl-4">
+    <div class="card h-100" style="border-top:4px solid #1a3a5c">
+      <div class="card-body">
+        <!-- Header -->
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <div>
+            <span class="badge rounded-pill px-3" style="background:#1a3a5c;font-size:.85rem">{{ rep.kuerzel }}</span>
+            <span class="fw-bold ms-2" style="color:#1a3a5c">{{ rep.name }}</span>
+          </div>
+          <span class="text-muted small"><i class="bi bi-shop me-1"></i>{{ rep.besuche }} Besuche</span>
+        </div>
+
+        <!-- Displays -->
+        <div class="mb-3">
+          <div class="d-flex justify-content-between align-items-end mb-1">
+            <span class="small fw-semibold" style="color:#1a3a5c">
+              <i class="bi bi-display me-1"></i>Displays
+            </span>
+            <span class="small">
+              <strong>{{ rep.displays_ist }}</strong>
+              {% if d_ziel %} / {{ d_ziel }}
+                <span class="badge ms-1 {% if d_pct >= 100 %}bg-success{% elif d_pct >= 70 %}bg-warning{% else %}bg-danger{% endif %}">
+                  {{ d_pct }}%
+                </span>
+              {% else %}
+                <span class="text-muted">– kein Ziel</span>
+              {% endif %}
+            </span>
+          </div>
+          {% if d_ziel %}
+          <div class="progress" style="height:10px">
+            <div class="progress-bar {% if d_pct >= 100 %}bg-success{% elif d_pct >= 70 %}bg-warning{% else %}bg-danger{% endif %}"
+                 style="width:{{ [d_pct, 100]|min }}%" title="{{ d_pct }}%"></div>
+          </div>
+          {% else %}
+          <div class="progress" style="height:10px">
+            <div class="progress-bar bg-secondary" style="width:100%;opacity:.2"></div>
+          </div>
+          {% endif %}
+        </div>
+
+        <!-- Kisten -->
+        <div class="mb-3">
+          <div class="d-flex justify-content-between align-items-end mb-1">
+            <span class="small fw-semibold" style="color:#c8860a">
+              <i class="bi bi-box-seam me-1"></i>Kisten
+            </span>
+            <span class="small">
+              <strong style="color:#c8860a">{{ rep.kisten_ist }}</strong>
+              {% if k_ziel %} / {{ k_ziel }}
+                <span class="badge ms-1 {% if k_pct >= 100 %}bg-success{% elif k_pct >= 70 %}bg-warning{% else %}bg-danger{% endif %}">
+                  {{ k_pct }}%
+                </span>
+              {% else %}
+                <span class="text-muted">– kein Ziel</span>
+              {% endif %}
+            </span>
+          </div>
+          {% if k_ziel %}
+          <div class="progress" style="height:10px">
+            <div class="progress-bar {% if k_pct >= 100 %}bg-success{% elif k_pct >= 70 %}bg-warning{% else %}bg-danger{% endif %}"
+                 style="width:{{ [k_pct, 100]|min }}%" title="{{ k_pct }}%"></div>
+          </div>
+          {% else %}
+          <div class="progress" style="height:10px">
+            <div class="progress-bar bg-secondary" style="width:100%;opacity:.2"></div>
+          </div>
+          {% endif %}
+        </div>
+
+        <!-- Saisonaler Zielkurs -->
+        {% set kurs = zielkurs.get(rep.id, {}) %}
+        {% set dk = kurs.get('disp_kurs') %}
+        {% set kk = kurs.get('kist_kurs') %}
+        {% if dk is not none or kk is not none %}
+        <div class="mb-2 p-2 rounded"
+             style="background:#f0f4f8;border-left:3px solid {% if (kk or 0) >= 100 or (dk or 0) >= 100 %}#27ae60{% elif (kk or 0) >= 70 or (dk or 0) >= 70 %}#f5a623{% else %}#e74c3c{% endif %}">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <small class="fw-semibold" style="color:#1a3a5c;font-size:.73rem">
+              <i class="bi bi-sun me-1" style="color:#c8860a"></i>Saisonkurs Jan–{{ m_namen[aktueller_monat-1] }}
+            </small>
+            <div class="d-flex gap-1">
+              {% if dk is not none %}
+              <span class="badge {% if dk >= 100 %}bg-success{% elif dk >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}" style="font-size:.68rem">
+                <i class="bi bi-display"></i> {{ dk }}%
+              </span>
+              {% endif %}
+              {% if kk is not none %}
+              <span class="badge {% if kk >= 100 %}bg-success{% elif kk >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}" style="font-size:.68rem">
+                <i class="bi bi-box-seam"></i> {{ kk }}%
+              </span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="d-flex justify-content-between" style="font-size:.68rem;color:#666">
+            <span>{{ kurs.kum_k_ist }} / {{ kurs.kum_k_ziel }} Kisten saisonal erwartet</span>
+          </div>
+          {% if kk is not none %}
+          <div class="progress mt-1" style="height:3px">
+            <div class="progress-bar {% if kk >= 100 %}bg-success{% elif kk >= 70 %}bg-warning{% else %}bg-danger{% endif %}"
+                 style="width:{{ [kk, 100]|min }}%"></div>
+          </div>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        <!-- Jahres-Status-Badge (basiert auf saisonalem Zielkurs) -->
+        <div class="text-center mt-2">
+          {% if not d_ziel and not k_ziel %}
+            <span class="badge bg-secondary px-3">Kein Ziel hinterlegt</span>
+          {% elif (d_pct or 0) >= 100 and (k_pct or 0) >= 100 %}
+            <span class="badge bg-success px-3"><i class="bi bi-check-circle me-1"></i>Ziel erreicht!</span>
+          {% elif (kk is not none and kk >= 95) or (dk is not none and dk >= 95) %}
+            <span class="badge bg-success px-3"><i class="bi bi-arrow-up-right me-1"></i>Auf Zielkurs</span>
+          {% elif (kk is not none and kk >= 80) or (dk is not none and dk >= 80) %}
+            <span class="badge bg-warning text-dark px-3"><i class="bi bi-dash-circle me-1"></i>Leicht hinter Plan</span>
+          {% else %}
+            <span class="badge bg-danger px-3"><i class="bi bi-exclamation-circle me-1"></i>Ziel gefährdet</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Tabelle: Detailvergleich -->
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between">
+    <span><i class="bi bi-table me-2"></i>Detailvergleich {{ jahr }}</span>
+    <small class="opacity-75">Grün ≥ 100% · Gelb ≥ 70% · Rot &lt; 70%</small>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Mitarbeiter</th>
+          <th class="text-center">Besuche</th>
+          <th class="text-center">Displays IST</th>
+          <th class="text-center">Displays SOLL</th>
+          <th class="text-center">Displays %</th>
+          <th class="text-center">Kisten IST</th>
+          <th class="text-center">Kisten SOLL</th>
+          <th class="text-center">Kisten %</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rep in ist %}
+        {% set ziel = ziele.get(rep.id, {}) %}
+        {% set d_ziel = ziel.get('displays_ziel', 0) or 0 %}
+        {% set k_ziel = ziel.get('kisten_ziel', 0)  or 0 %}
+        {% set d_pct  = ((rep.displays_ist / d_ziel * 100) | round(0) | int) if d_ziel else none %}
+        {% set k_pct  = ((rep.kisten_ist  / k_ziel * 100) | round(0) | int) if k_ziel else none %}
+        <tr>
+          <td>
+            <span class="badge" style="background:#1a3a5c">{{ rep.kuerzel }}</span>
+            {{ rep.name }}
+          </td>
+          <td class="text-center">{{ rep.besuche }}</td>
+          <td class="text-center fw-semibold">{{ rep.displays_ist }}</td>
+          <td class="text-center text-muted">{{ d_ziel or '–' }}</td>
+          <td class="text-center">
+            {% if d_pct is not none %}
+            <span class="badge {% if d_pct >= 100 %}bg-success{% elif d_pct >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+              {{ d_pct }}%
+            </span>
+            {% else %}<span class="text-muted">–</span>{% endif %}
+          </td>
+          <td class="text-center fw-bold" style="color:#c8860a">{{ rep.kisten_ist }}</td>
+          <td class="text-center text-muted">{{ k_ziel or '–' }}</td>
+          <td class="text-center">
+            {% if k_pct is not none %}
+            <span class="badge {% if k_pct >= 100 %}bg-success{% elif k_pct >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+              {{ k_pct }}%
+            </span>
+            {% else %}<span class="text-muted">–</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr style="background:#1a3a5c;color:white;font-weight:700">
+          <td>GESAMT</td>
+          <td class="text-center">{{ ist | sum(attribute='besuche') }}</td>
+          <td class="text-center">{{ ist | sum(attribute='displays_ist') }}</td>
+          <td class="text-center">{{ teamziel.displays_ziel if teamziel else '–' }}</td>
+          <td class="text-center">
+            {% if teamziel and teamziel.displays_ziel %}
+            {% set tp = ((ist|sum(attribute='displays_ist') / teamziel.displays_ziel * 100)|round(0)|int) %}
+            <span class="badge {% if tp >= 100 %}bg-success{% elif tp >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}">{{ tp }}%</span>
+            {% else %}–{% endif %}
+          </td>
+          <td class="text-center">{{ ist | sum(attribute='kisten_ist') }}</td>
+          <td class="text-center">{{ teamziel.kisten_ziel if teamziel else '–' }}</td>
+          <td class="text-center">
+            {% if teamziel and teamziel.kisten_ziel %}
+            {% set tp = ((ist|sum(attribute='kisten_ist') / teamziel.kisten_ziel * 100)|round(0)|int) %}
+            <span class="badge {% if tp >= 100 %}bg-success{% elif tp >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}">{{ tp }}%</span>
+            {% else %}–{% endif %}
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+<!-- Saisonaler Monatsverlauf – Heatmap Kisten -->
+<div class="card mb-4">
+  <div class="card-header" style="background:linear-gradient(135deg,#c8860a,#f5a623)">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <span><i class="bi bi-sun me-2"></i>Saisonaler Monatsverlauf {{ jahr }} – Kisten (Sonnenschlüssel)</span>
+      <small class="opacity-85">IST / Monatsziel · Grün ≥ 100% · Gelb ≥ 70% · Rot &lt; 70%</small>
+    </div>
+    <!-- Monatsfilter -->
+    <div class="d-flex gap-1 flex-wrap align-items-center mt-2">
+      <span class="me-1" style="font-size:.7rem;opacity:.85;font-weight:700;letter-spacing:.04em">MONATE:</span>
+      {% for mn in m_namen %}
+      <button type="button" class="month-toggle-btn"
+              data-idx="{{ loop.index0 }}"
+              onclick="toggleMonat({{ loop.index0 }})"
+              style="font-size:.7rem;padding:.15rem .45rem;border-radius:.3rem;
+                     cursor:pointer;border:1px solid rgba(255,255,255,.5);
+                     background:rgba(255,255,255,.25);color:#fff;font-weight:600">
+        {{ mn }}
+      </button>
+      {% endfor %}
+      <span style="border-left:1px solid rgba(255,255,255,.35);margin-left:.25rem;padding-left:.35rem">
+        <button type="button" onclick="alleMonateAn()"
+                style="font-size:.7rem;padding:.15rem .45rem;border-radius:.3rem;
+                       cursor:pointer;border:1px solid rgba(255,255,255,.5);
+                       background:rgba(255,255,255,.15);color:#fff">Alle</button>
+        <button type="button" onclick="alleMonateAus()"
+                style="font-size:.7rem;padding:.15rem .45rem;border-radius:.3rem;
+                       cursor:pointer;border:1px solid rgba(255,255,255,.5);
+                       background:rgba(255,255,255,.15);color:#fff">Keine</button>
+      </span>
+    </div>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm mb-0" style="font-size:.78rem" id="heatmapTable">
+        <thead>
+          <tr style="background:#1a3a5c;color:white">
+            <th style="min-width:130px;padding:.5rem .75rem">Mitarbeiter</th>
+            {% for mn in m_namen %}
+            <th class="text-center px-1 hm-col-{{ loop.index0 }}" style="min-width:54px">{{ mn }}</th>
+            {% endfor %}
+            <th class="text-center px-2">Saisonkurs</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for rep in ist %}
+          {% set monate = monatsziele.get(rep.id, []) %}
+          {% set kurs   = zielkurs.get(rep.id, {}) %}
+          {% set kk     = kurs.get('kist_kurs') %}
+          <tr>
+            <td class="fw-semibold" style="padding:.4rem .75rem">
+              <span class="badge" style="background:#1a3a5c;font-size:.65rem">{{ rep.kuerzel }}</span>
+              {{ rep.name }}
+            </td>
+            {% for mon in monate %}
+            <td class="text-center p-0 hm-col-{{ loop.index0 }}">
+              {% if mon.vergangen %}
+                {% set pct = mon.kisten_pct %}
+                <div class="m-1 rounded text-center
+                  {% if pct is not none and pct >= 100 %}bg-success text-white
+                  {% elif pct is not none and pct >= 70  %}bg-warning text-dark
+                  {% elif pct is not none                %}bg-danger text-white
+                  {% else                                %}bg-light text-muted{% endif %}"
+                  style="padding:3px 2px;font-size:.65rem;line-height:1.3;cursor:default"
+                  title="{{ mon.name }}: {{ mon.kisten_ist }} IST / {{ mon.kisten_ziel }} Ziel{% if pct is not none %} ({{ pct }}%){% endif %}">
+                  <div class="fw-bold">{{ mon.kisten_ist }}</div>
+                  <div style="opacity:.75">{{ mon.kisten_ziel }}</div>
+                </div>
+              {% else %}
+                <div class="m-1 rounded text-center bg-light text-muted"
+                     style="padding:3px 2px;font-size:.65rem;line-height:1.3"
+                     title="{{ mon.name }}: Ziel {{ mon.kisten_ziel }}">
+                  <div>–</div>
+                  <div style="opacity:.55">{{ mon.kisten_ziel }}</div>
+                </div>
+              {% endif %}
+            </td>
+            {% endfor %}
+            <td class="text-center">
+              {% if kk is not none %}
+              <span class="badge {% if kk >= 100 %}bg-success{% elif kk >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}" style="font-size:.75rem">
+                {{ kk }}%
+              </span>
+              <div style="font-size:.63rem;color:#888;margin-top:1px">{{ kurs.kum_k_ist }}/{{ kurs.kum_k_ziel }}</div>
+              {% else %}–{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr style="background:#fffbf0;border-top:2px solid #c8860a">
+            <td style="padding:.4rem .75rem;font-size:.72rem;color:#c8860a;font-weight:700">
+              <i class="bi bi-sun me-1"></i>Sonnenschlüssel
+            </td>
+            {% for pct in sk_pct %}
+            <td class="text-center hm-col-{{ loop.index0 }}" style="font-size:.7rem;color:#c8860a;font-weight:600">{{ pct }}%</td>
+            {% endfor %}
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Saisonaler Monatsverlauf – Heatmap Displays -->
+<div class="card mb-4">
+  <div class="card-header" style="background:linear-gradient(135deg,#1a3a5c,#2e6da4)">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <span><i class="bi bi-display me-2"></i>Saisonaler Monatsverlauf {{ jahr }} – Displays (Sonnenschlüssel)</span>
+      <small class="opacity-85">IST / Monatsziel · Grün ≥ 100% · Gelb ≥ 70% · Rot &lt; 70%
+        <span class="ms-2 opacity-75"><i class="bi bi-link-45deg"></i> Monatsfilter wie oben</span>
+      </small>
+    </div>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm mb-0" style="font-size:.78rem" id="heatmapTableDisp">
+        <thead>
+          <tr style="background:#1a3a5c;color:white">
+            <th style="min-width:130px;padding:.5rem .75rem">Mitarbeiter</th>
+            {% for mn in m_namen %}
+            <th class="text-center px-1 hm-col-{{ loop.index0 }}" style="min-width:54px">{{ mn }}</th>
+            {% endfor %}
+            <th class="text-center px-2">Saisonkurs</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for rep in ist %}
+          {% set monate = monatsziele.get(rep.id, []) %}
+          {% set kurs   = zielkurs.get(rep.id, {}) %}
+          {% set dk     = kurs.get('disp_kurs') %}
+          <tr>
+            <td class="fw-semibold" style="padding:.4rem .75rem">
+              <span class="badge" style="background:#1a3a5c;font-size:.65rem">{{ rep.kuerzel }}</span>
+              {{ rep.name }}
+            </td>
+            {% for mon in monate %}
+            <td class="text-center p-0 hm-col-{{ loop.index0 }}">
+              {% if mon.vergangen %}
+                {% set pct = mon.displays_pct %}
+                <div class="m-1 rounded text-center
+                  {% if pct is not none and pct >= 100 %}bg-success text-white
+                  {% elif pct is not none and pct >= 70  %}bg-warning text-dark
+                  {% elif pct is not none                %}bg-danger text-white
+                  {% else                                %}bg-light text-muted{% endif %}"
+                  style="padding:3px 2px;font-size:.65rem;line-height:1.3;cursor:default"
+                  title="{{ mon.name }}: {{ mon.displays_ist }} IST / {{ mon.displays_ziel }} Ziel{% if pct is not none %} ({{ pct }}%){% endif %}">
+                  <div class="fw-bold">{{ mon.displays_ist }}</div>
+                  <div style="opacity:.75">{{ mon.displays_ziel }}</div>
+                </div>
+              {% else %}
+                <div class="m-1 rounded text-center bg-light text-muted"
+                     style="padding:3px 2px;font-size:.65rem;line-height:1.3"
+                     title="{{ mon.name }}: Ziel {{ mon.displays_ziel }}">
+                  <div>–</div>
+                  <div style="opacity:.55">{{ mon.displays_ziel }}</div>
+                </div>
+              {% endif %}
+            </td>
+            {% endfor %}
+            <td class="text-center">
+              {% if dk is not none %}
+              <span class="badge {% if dk >= 100 %}bg-success{% elif dk >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}" style="font-size:.75rem">
+                {{ dk }}%
+              </span>
+              <div style="font-size:.63rem;color:#888;margin-top:1px">{{ kurs.kum_d_ist }}/{{ kurs.kum_d_ziel }}</div>
+              {% else %}–{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr style="background:#eef4fb;border-top:2px solid #2e6da4">
+            <td style="padding:.4rem .75rem;font-size:.72rem;color:#1a3a5c;font-weight:700">
+              <i class="bi bi-sun me-1"></i>Sonnenschlüssel
+            </td>
+            {% for pct in sk_pct %}
+            <td class="text-center hm-col-{{ loop.index0 }}" style="font-size:.7rem;color:#1a3a5c;font-weight:600">{{ pct }}%</td>
+            {% endfor %}
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Kumulativer Verlauf Chart -->
+<div class="card mb-4">
+  <div class="card-header secondary">
+    <i class="bi bi-graph-up me-2"></i>Kumulativer Kistenverlauf vs. Saisonaler Zielkurs {{ jahr }}
+  </div>
+  <div class="card-body">
+    <div class="chart-container" style="height:280px">
+      <canvas id="kumChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Charts IST vs. SOLL -->
+<div class="row g-4">
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header secondary"><i class="bi bi-bar-chart me-2"></i>Kisten IST vs. SOLL</div>
+      <div class="card-body"><div class="chart-container"><canvas id="kistenChart"></canvas></div></div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-display me-2"></i>Displays IST vs. SOLL</div>
+      <div class="card-body"><div class="chart-container"><canvas id="dispChart"></canvas></div></div>
+    </div>
+  </div>
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+const MON_DEFAULTS = {
+  responsive: true, maintainAspectRatio: false,
+  plugins: { legend: { position: 'top' } },
+  scales: { y: { beginAtZero: true } }
+};
+
+{% if selected_rep %}
+// ── Einzelansicht: Monatsfilter für Heatmaps ────────────────────────────
+const hmRepActive = new Array(12).fill(true);
+
+function toggleRepMonat(idx) {
+  hmRepActive[idx] = !hmRepActive[idx];
+  refreshRepHeatmapCols();
+}
+function alleRepMonateAn()  { hmRepActive.fill(true);  refreshRepHeatmapCols(); }
+function alleRepMonateAus() { hmRepActive.fill(false); refreshRepHeatmapCols(); }
+
+function refreshRepHeatmapCols() {
+  for (let i = 0; i < 12; i++) {
+    const cells = document.querySelectorAll(`.hm-rep-col-${i}`);
+    cells.forEach(c => { c.style.display = hmRepActive[i] ? '' : 'none'; });
+    const btn = document.querySelector(`.rep-month-toggle-btn[data-idx="${i}"]`);
+    if (btn) {
+      btn.style.background = hmRepActive[i] ? 'rgba(255,255,255,.9)' : 'rgba(255,255,255,.15)';
+      btn.style.color      = hmRepActive[i] ? '#c8860a'              : 'rgba(255,255,255,.55)';
+      btn.style.fontWeight = hmRepActive[i] ? '700'                  : '400';
+    }
+  }
+}
+
+// ── Einzelansicht: Monatliche Charts ────────────────────────────────────
+{% set rep_monate = monatsziele.get(selected_rep.id, []) %}
+const MON_LABELS    = {{ m_namen | tojson }};
+const MON_KIST_IST  = [{% for m in rep_monate %}{{ m.kisten_ist }},{% endfor %}];
+const MON_KIST_ZIEL = [{% for m in rep_monate %}{{ m.kisten_ziel }},{% endfor %}];
+const MON_DISP_IST  = [{% for m in rep_monate %}{{ m.displays_ist }},{% endfor %}];
+const MON_DISP_ZIEL = [{% for m in rep_monate %}{{ m.displays_ziel }},{% endfor %}];
+const VG_IDX = {{ aktueller_monat }};  // Monate mit Daten: Index 0..VG_IDX-1
+
+new Chart(document.getElementById('monKistChart'), {
+  type: 'bar',
+  data: {
+    labels: MON_LABELS,
+    datasets: [
+      {
+        label: 'Kisten IST',
+        data: MON_KIST_IST,
+        backgroundColor: MON_KIST_IST.map((v, i) =>
+          i < VG_IDX ? 'rgba(200,134,10,.85)' : 'rgba(200,134,10,.15)'),
+        borderColor: '#c8860a', borderWidth: 1,
+      },
+      {
+        label: 'Monatsziel (Sonnenschlüssel)',
+        data: MON_KIST_ZIEL,
+        type: 'line',
+        borderColor: '#1a3a5c', backgroundColor: 'transparent',
+        borderWidth: 2, borderDash: [5, 4], tension: 0.3, pointRadius: 3,
+        pointBackgroundColor: '#1a3a5c',
+      }
+    ]
+  },
+  options: MON_DEFAULTS
+});
+
+new Chart(document.getElementById('monDispChart'), {
+  type: 'bar',
+  data: {
+    labels: MON_LABELS,
+    datasets: [
+      {
+        label: 'Displays IST',
+        data: MON_DISP_IST,
+        backgroundColor: MON_DISP_IST.map((v, i) =>
+          i < VG_IDX ? 'rgba(26,58,92,.85)' : 'rgba(26,58,92,.15)'),
+        borderColor: '#1a3a5c', borderWidth: 1,
+      },
+      {
+        label: 'Monatsziel (Sonnenschlüssel)',
+        data: MON_DISP_ZIEL,
+        type: 'line',
+        borderColor: '#c8860a', backgroundColor: 'transparent',
+        borderWidth: 2, borderDash: [5, 4], tension: 0.3, pointRadius: 3,
+        pointBackgroundColor: '#c8860a',
+      }
+    ]
+  },
+  options: MON_DEFAULTS
+});
+
+{% else %}
+// ── Teamansicht: Kumulativer Verlauf + IST vs. SOLL ──────────────────────
+const KUM_IST   = {{ kum_ist_data|safe }};
+const KUM_ZIEL  = {{ kum_ziel_data|safe }};
+const KUM_LABEL = {{ m_namen|tojson }}.slice(0, {{ aktueller_monat }});
+const REP_COLORS = ['#1a3a5c','#2e6da4','#c8860a','#e74c3c','#27ae60'];
+
+const kumDatasets = [];
+const kumReps = Object.keys(KUM_IST);
+kumReps.forEach((kuerzel, idx) => {
+  const c = REP_COLORS[idx % REP_COLORS.length];
+  kumDatasets.push({
+    label: kuerzel + ' IST', data: KUM_IST[kuerzel],
+    borderColor: c, backgroundColor: 'transparent',
+    tension: 0.3, borderWidth: 2.5, pointRadius: 3,
+  });
+  kumDatasets.push({
+    label: kuerzel + ' Saisonziel', data: KUM_ZIEL[kuerzel],
+    borderColor: c, backgroundColor: 'transparent',
+    tension: 0.3, borderWidth: 1.5, borderDash: [5, 4], pointRadius: 2,
+  });
+});
+if (kumReps.length) {
+  new Chart(document.getElementById('kumChart'), {
+    type: 'line',
+    data: { labels: KUM_LABEL, datasets: kumDatasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'top', labels: { font: { size: 10 }, padding: 8 } },
+        tooltip: { mode: 'index', intersect: false }
+      },
+      scales: { y: { beginAtZero: true,
+        title: { display: true, text: 'Kisten kumuliert', color: '#1a3a5c', font: { size: 11 } }
+      }}
+    }
+  });
+}
+
+const REPS         = {{ reps_namen|safe }};
+const K_IST        = {{ kisten_ist|safe }};
+const K_SOLL       = {{ kisten_soll|safe }};
+const K_SAISON     = {{ kisten_saison_soll|safe }};
+const D_IST        = {{ disp_ist|safe }};
+const D_SOLL       = {{ disp_soll|safe }};
+const D_SAISON     = {{ disp_saison_soll|safe }};
+
+const CHART_OPTS_ANNOTATED = {
+  responsive: true, maintainAspectRatio: false,
+  plugins: {
+    legend: { position: 'top' },
+    tooltip: {
+      callbacks: {
+        afterLabel: function(ctx) {
+          if (ctx.dataset.label && ctx.dataset.label.startsWith('Saisonkurs')) {
+            return '(saisonal erwartet bis heute)';
+          }
+        }
+      }
+    }
+  },
+  scales: { y: { beginAtZero: true } }
+};
+
+if (REPS.length) {
+  new Chart(document.getElementById('kistenChart'), {
+    type: 'bar',
+    data: { labels: REPS, datasets: [
+      {
+        label: 'IST',
+        data: K_IST,
+        backgroundColor: 'rgba(200,134,10,.8)', borderColor:'#c8860a', borderWidth:1
+      },
+      {
+        label: 'Jahresziel SOLL',
+        data: K_SOLL,
+        type:'line', tension:.3, pointRadius:5,
+        borderColor:'#1a3a5c', backgroundColor:'transparent',
+        borderWidth:2, borderDash:[6,3], pointBackgroundColor:'#1a3a5c'
+      },
+      {
+        label: 'Saisonkurs bis heute',
+        data: K_SAISON,
+        type:'line', tension:0, pointRadius:6,
+        borderColor:'#27ae60', backgroundColor:'transparent',
+        borderWidth:2.5, borderDash:[3,2],
+        pointBackgroundColor:'#27ae60', pointStyle:'triangle'
+      }
+    ]},
+    options: CHART_OPTS_ANNOTATED
+  });
+
+  new Chart(document.getElementById('dispChart'), {
+    type: 'bar',
+    data: { labels: REPS, datasets: [
+      {
+        label: 'IST',
+        data: D_IST,
+        backgroundColor: 'rgba(26,58,92,.8)', borderColor:'#1a3a5c', borderWidth:1
+      },
+      {
+        label: 'Jahresziel SOLL',
+        data: D_SOLL,
+        type:'line', tension:.3, pointRadius:5,
+        borderColor:'#c8860a', backgroundColor:'transparent',
+        borderWidth:2, borderDash:[6,3], pointBackgroundColor:'#c8860a'
+      },
+      {
+        label: 'Saisonkurs bis heute',
+        data: D_SAISON,
+        type:'line', tension:0, pointRadius:6,
+        borderColor:'#27ae60', backgroundColor:'transparent',
+        borderWidth:2.5, borderDash:[3,2],
+        pointBackgroundColor:'#27ae60', pointStyle:'triangle'
+      }
+    ]},
+    options: CHART_OPTS_ANNOTATED
+  });
+}
+
+// ── Monatsfilter für Heatmap ─────────────────────────────────────────────────
+const hmActive = new Array(12).fill(true);
+
+function toggleMonat(idx) {
+  hmActive[idx] = !hmActive[idx];
+  refreshHeatmapCols();
+}
+function alleMonateAn()  { hmActive.fill(true);  refreshHeatmapCols(); }
+function alleMonateAus() { hmActive.fill(false); refreshHeatmapCols(); }
+
+function refreshHeatmapCols() {
+  for (let i = 0; i < 12; i++) {
+    const cells = document.querySelectorAll(`.hm-col-${i}`);
+    cells.forEach(c => { c.style.display = hmActive[i] ? '' : 'none'; });
+    const btn = document.querySelector(`.month-toggle-btn[data-idx="${i}"]`);
+    if (btn) {
+      btn.style.background  = hmActive[i] ? 'rgba(255,255,255,.9)' : 'rgba(255,255,255,.15)';
+      btn.style.color       = hmActive[i] ? '#c8860a'              : 'rgba(255,255,255,.55)';
+      btn.style.fontWeight  = hmActive[i] ? '700'                  : '400';
+    }
+  }
+}
+{% endif %}
+</script>
+{% endblock %}

@@ -1,0 +1,331 @@
+﻿<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auftragsverarbeitungsvertrag – Aktions Tracker</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    body {
+      background: linear-gradient(135deg, #1a3a5c 0%, #2e6da4 60%, #4a8fc4 100%);
+      min-height: 100vh; padding: 2rem 1rem;
+    }
+
+    /* ── Eingabefelder ── */
+    .avv-input {
+      border: none;
+      border-bottom: 2px solid #2e6da4;
+      border-radius: 0;
+      background: #eef4fb;
+      padding: .2rem .5rem;
+      font-size: .88rem;
+      color: #1a3a5c;
+      font-weight: 600;
+      width: 100%;
+      outline: none;
+      transition: background .15s;
+    }
+    .avv-input:focus {
+      background: #d6e8f7;
+      border-bottom-color: #c8860a;
+    }
+    .avv-input::placeholder { color: #aaa; font-weight: 400; font-style: italic; }
+    .field-wrap { margin-bottom: .5rem; }
+    .field-label { font-size: .75rem; color: #888; margin-bottom: .1rem; }
+
+    /* ── Druck ── */
+    @media print {
+      body { background: white; padding: 0; font-size: 11pt; }
+      .no-print { display: none !important; }
+      .legal-card { box-shadow: none; border-radius: 0; max-width: 100%; padding: .5cm 1cm; }
+      h2 { page-break-after: avoid; }
+      .avv-input {
+        border: none;
+        border-bottom: 1px solid #333;
+        background: transparent;
+        color: #000;
+        font-weight: 700;
+        padding: 0 2px;
+      }
+      .field-label { color: #555; }
+      table { page-break-inside: avoid; }
+      .sign-box { page-break-inside: avoid; }
+    }
+
+    .legal-card {
+      background: #fff; border-radius: 1.25rem;
+      box-shadow: 0 20px 60px rgba(0,0,0,.35);
+      padding: 2.5rem; max-width: 860px; margin: 0 auto;
+    }
+    h1 { color: #1a3a5c; font-size: 1.5rem; font-weight: 800; }
+    h2 { color: #2e6da4; font-size: 1.05rem; font-weight: 700; margin-top: 1.75rem;
+         margin-bottom: .5rem; border-bottom: 2px solid #eef4fb; padding-bottom: .3rem; }
+    h3 { color: #1a3a5c; font-size: .95rem; font-weight: 700; margin-top: 1rem; margin-bottom: .25rem; }
+    p, li { font-size: .88rem; color: #333; line-height: 1.75; }
+    .sign-box { border: 1px solid #ccc; border-radius: .5rem; padding: 1.25rem; margin-top: .75rem; background: #fafafa; }
+    .sign-line { border-bottom: 1px solid #333; min-width: 200px; display: inline-block; margin-bottom: .2rem; }
+    table.tom td { font-size: .83rem; padding: .4rem .6rem; vertical-align: top; }
+    .back-link { color: rgba(255,255,255,.8); text-decoration: none; font-size: .85rem; display: inline-block; margin-bottom: 1rem; }
+    .back-link:hover { color: #fff; }
+    .hint-box { background: #eef4fb; border-left: 4px solid #2e6da4; border-radius: .4rem; padding: .75rem 1rem; margin-bottom: 1.5rem; font-size: .85rem; color: #1a3a5c; }
+  </style>
+</head>
+<body>
+
+<div style="max-width:860px;margin:0 auto" class="no-print">
+  <a href="{{ url_for('login') }}" class="back-link">
+    <i class="bi bi-arrow-left me-1"></i>Zurück
+  </a>
+  &nbsp;
+  <button onclick="window.print()" class="btn btn-sm btn-light">
+    <i class="bi bi-printer me-1"></i>Drucken / Als PDF speichern
+  </button>
+</div>
+
+<div class="legal-card">
+
+  <div class="text-center mb-4">
+    <div style="font-size:2rem">📄</div>
+    <h1 class="mt-2">Auftragsverarbeitungsvertrag (AVV)</h1>
+    <p class="text-muted" style="font-size:.85rem">gemäß Art. 28 DSGVO (EU) 2016/679</p>
+  </div>
+
+  <div class="hint-box no-print">
+    <i class="bi bi-pencil me-1"></i>
+    <strong>So geht's:</strong> Füllen Sie die blauen Felder mit den Kundendaten aus →
+    dann oben auf <strong>„Drucken / Als PDF speichern"</strong> klicken →
+    in zweifacher Ausfertigung ausdrucken → beide unterschreiben.
+  </div>
+
+  <!-- § 1 Parteien -->
+  <h2>§ 1 Parteien und Gegenstand</h2>
+  <div class="row g-3 mb-3">
+
+    <!-- Auftraggeber (Kunde) – Eingabefelder -->
+    <div class="col-md-6">
+      <div class="sign-box">
+        <strong style="color:#1a3a5c;font-size:.85rem">AUFTRAGGEBER (Verantwortlicher)</strong><br>
+        <small class="text-muted">= Ihr Kunde / das nutzende Unternehmen</small>
+        <hr class="my-2">
+        <div class="field-wrap">
+          <div class="field-label">Firmenname</div>
+          <input class="avv-input" id="k_firma" type="text" placeholder="z.B. Musterfirma GmbH">
+        </div>
+        <div class="field-wrap">
+          <div class="field-label">Straße, PLZ, Ort</div>
+          <input class="avv-input" id="k_adresse" type="text" placeholder="z.B. Musterstr. 1, 80331 München">
+        </div>
+        <div class="field-wrap">
+          <div class="field-label">Vertreten durch (Geschäftsführer)</div>
+          <input class="avv-input" id="k_gf" type="text" placeholder="z.B. Hans Muster">
+        </div>
+        <div class="field-wrap">
+          <div class="field-label">E-Mail</div>
+          <input class="avv-input" id="k_email" type="text" placeholder="z.B. info@musterfirma.de">
+        </div>
+      </div>
+    </div>
+
+    <!-- Auftragnehmer (Jan Anschütz) – fest -->
+    <div class="col-md-6">
+      <div class="sign-box">
+        <strong style="color:#1a3a5c;font-size:.85rem">AUFTRAGNEHMER (Auftragsverarbeiter)</strong><br>
+        <small class="text-muted">= Tool-Anbieter</small>
+        <hr class="my-2">
+        <p class="mb-1" style="font-size:.88rem">
+          <strong>Jan Anschütz</strong><br>
+          Fasanenstr. 21<br>
+          41751 Viersen<br>
+          anschuetz.info@gmail.com
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <p>
+    Dieser Auftragsverarbeitungsvertrag (nachfolgend „AVV") ergänzt den zwischen den Parteien
+    geschlossenen Nutzungsvertrag über den Aktions Tracker (nachfolgend „Hauptvertrag")
+    und regelt die Verarbeitung personenbezogener Daten durch den Auftragnehmer im Auftrag
+    des Auftraggebers gemäß Art. 28 DSGVO.
+  </p>
+
+  <!-- § 2 Gegenstand -->
+  <h2>§ 2 Gegenstand, Dauer und Art der Verarbeitung</h2>
+  <p>
+    <strong>(1) Gegenstand:</strong> Der Auftragnehmer stellt dem Auftraggeber das cloudbasierte
+    Aktions Tracker als Software-as-a-Service bereit. Im Rahmen dieser Leistung verarbeitet
+    der Auftragnehmer personenbezogene Daten ausschließlich im Auftrag und nach Weisung des Auftraggebers.
+  </p>
+  <p>
+    <strong>(2) Dauer:</strong> Die Laufzeit dieses AVV entspricht der Laufzeit des Hauptvertrags.
+  </p>
+  <p>
+    <strong>(3) Art der Verarbeitung:</strong> Speicherung, Abfrage, Darstellung, Auswertung,
+    Übertragung und Löschung der in § 3 genannten Daten über eine verschlüsselte HTTPS-Verbindung.
+    Dazu zählt auch die automatisierte Übermittlung einer Excel-Jahresauswertung sowie eines
+    Foto-ZIP-Archivs alle 4 Wochen per E-Mail an die vom Auftraggeber hinterlegte Empfängeradresse.
+  </p>
+
+  <!-- § 3 Datenarten -->
+  <h2>§ 3 Art der Daten und Kategorien betroffener Personen</h2>
+  <h3>Betroffene Personen</h3>
+  <ul>
+    <li>Außendienstmitarbeiter des Auftraggebers</li>
+    <li>Verkaufsleiter / Führungskräfte des Auftraggebers</li>
+  </ul>
+  <h3>Verarbeitete Datenkategorien</h3>
+  <ul>
+    <li>Name und Mitarbeiter-Kürzel</li>
+    <li>Passwort (Zugangsdaten)</li>
+    <li>E-Mail-Adresse (optional, für Passwort-Reset)</li>
+    <li>Benutzerrolle (Rep, Verkaufsleiter, Admin)</li>
+    <li>Aktivitätsdaten: Datum, Verkaufsstellen, Bestellungen, Displays, Notizen</li>
+    <li>Fotos von Außendienst-Aktivitäten (freiwillig, automatisch nach 4 Wochen gelöscht; zuvor per E-Mail-Export an den Auftraggeber übermittelt)</li>
+  </ul>
+  <p class="text-muted small">Keine besonderen Kategorien gem. Art. 9 DSGVO.</p>
+
+  <!-- § 4 Zweck -->
+  <h2>§ 4 Zweck der Datenverarbeitung</h2>
+  <p>
+    Dokumentation und Auswertung von Außendienst-Aktivitäten zum Zweck der internen
+    Vertriebssteuerung des Auftraggebers.
+  </p>
+
+  <!-- § 5 Pflichten AN -->
+  <h2>§ 5 Pflichten des Auftragnehmers</h2>
+  <ul>
+    <li>Daten ausschließlich auf dokumentierte Weisung des Auftraggebers verarbeiten</li>
+    <li>Vertraulichkeit aller verarbeiteten Daten gewährleisten</li>
+    <li>Technische und organisatorische Maßnahmen gem. Art. 32 DSGVO umsetzen (Anlage 1)</li>
+    <li>Auftraggeber informieren, wenn eine Weisung gegen geltendes Datenschutzrecht verstößt</li>
+    <li>Bei Betroffenenrechten (Auskunft, Löschung, Berichtigung) unterstützen</li>
+    <li>Datenschutzverletzungen unverzüglich (innerhalb von 24 Stunden nach Kenntnisnahme) an den Auftraggeber melden, damit dieser die Meldefrist von 72 Stunden gegenüber der Aufsichtsbehörde (Art. 33 DSGVO) einhalten kann</li>
+  </ul>
+
+  <!-- § 6 Pflichten AG -->
+  <h2>§ 6 Pflichten des Auftraggebers</h2>
+  <ul>
+    <li>Weisungen zur Datenverarbeitung schriftlich erteilen (E-Mail genügt)</li>
+    <li>Mitarbeiter über die Datenverarbeitung gem. Art. 13 DSGVO informieren</li>
+    <li>Rechtmäßigkeit der Datenverarbeitung sicherstellen</li>
+    <li>Zugangsdaten vertraulich behandeln</li>
+  </ul>
+
+  <!-- § 7 Unterauftragnehmer -->
+  <h2>§ 7 Unterauftragnehmer</h2>
+  <table class="table table-sm table-bordered">
+    <thead class="table-dark">
+      <tr><th>Anbieter</th><th>Sitz</th><th>Zweck</th><th>Rechtsgrundlage</th></tr>
+    </thead>
+    <tbody style="font-size:.83rem">
+      <tr>
+        <td><strong>Railway Corp.</strong></td>
+        <td>USA · Server EU West (Amsterdam)</td>
+        <td>Hosting, Datenbankbetrieb</td>
+        <td>EU-Standardvertragsklauseln (SCC)</td>
+      </tr>
+      <tr>
+        <td><strong>Google LLC</strong></td>
+        <td>USA (EU-SCC)</td>
+        <td>E-Mail-Versand (SMTP / Gmail) für Passwort-Reset</td>
+        <td>EU-Standardvertragsklauseln (SCC)</td>
+      </tr>    </tbody>
+  </table>
+
+  <!-- § 8 Kontrollrecht -->
+  <h2>§ 8 Kontrollrechte des Auftraggebers</h2>
+  <p>
+    Der Auftraggeber kann die Einhaltung der Datenschutzvorschriften durch Einholung von
+    Auskünften oder durch Vorlage aktueller Nachweise kontrollieren.
+  </p>
+
+  <!-- § 9 Löschung -->
+  <h2>§ 9 Rückgabe und Löschung nach Vertragsende</h2>
+  <p>
+    Nach Vertragsende stellt der Auftragnehmer einen vollständigen Datenexport bereit.
+    Anschließend werden alle Daten innerhalb von 30 Tagen unwiderruflich gelöscht und
+    die Löschung schriftlich bestätigt.
+  </p>
+
+  <!-- § 10 Haftung -->
+  <h2>§ 10 Haftung</h2>
+  <p>
+    Die Haftung der Parteien richtet sich nach Art. 82 DSGVO sowie dem Hauptvertrag.
+  </p>
+
+  <!-- § 11 Schluss -->
+  <h2>§ 11 Schlussbestimmungen</h2>
+  <p>
+    Dieser AVV unterliegt deutschem Recht. Gerichtsstand: Viersen.
+    Änderungen bedürfen der Schriftform.
+  </p>
+
+  <!-- Anlage 1 TOMs -->
+  <hr class="my-4">
+  <h2><i class="bi bi-shield-lock me-2"></i>Anlage 1: Technische und Organisatorische Maßnahmen (TOMs)</h2>
+  <table class="table table-sm table-bordered tom">
+    <thead class="table-dark">
+      <tr><th style="width:38%">Maßnahme</th><th>Umsetzung</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Verschlüsselung der Übertragung</strong></td><td>HTTPS/TLS für alle Datenübertragungen</td></tr>
+      <tr><td><strong>Zugriffskontrolle</strong></td><td>Anmeldung mit Kürzel + Passwort; rollenbasiertes Berechtigungskonzept (Rep / VKL / Admin)</td></tr>
+      <tr><td><strong>Datensparsamkeit</strong></td><td>Nur betrieblich notwendige Daten; Fotos automatisch nach 8 Wochen gelöscht</td></tr>
+      <tr><td><strong>Datensicherung</strong></td><td>Tägliches automatisches Backup; 7 Tage rollierend aufbewahrt</td></tr>
+      <tr><td><strong>Verfügbarkeit</strong></td><td>Cloud-Hosting auf Railway (EU West / Amsterdam); ≥ 98 % angestrebt</td></tr>
+      <tr><td><strong>Incident Response</strong></td><td>Datenpannen unverzüglich (innerhalb von 24 Stunden nach Kenntnisnahme) an den Auftraggeber gemeldet; 72-Stunden-Meldepflicht ggü. der Aufsichtsbehörde liegt beim Auftraggeber (Art. 33 DSGVO)</td></tr>
+    </tbody>
+  </table>
+
+  <!-- Unterschriften -->
+  <hr class="my-4">
+  <h2><i class="bi bi-pen me-2"></i>Unterzeichnung</h2>
+  <p class="text-muted small">Zwei Ausfertigungen – je eine für Auftraggeber und Auftragnehmer.</p>
+
+  <div class="row g-4 mt-2">
+    <!-- Auftraggeber -->
+    <div class="col-md-6">
+      <div class="sign-box">
+        <strong>Auftraggeber</strong>
+        <p class="text-muted small mb-3" id="sign_kunde_label" style="font-size:.8rem">
+          (wird automatisch aus den Feldern oben übernommen)
+        </p>
+        <div class="mb-3">Datum: <span class="sign-line" style="width:130px">&nbsp;</span></div>
+        <div class="mb-3">Unterschrift: <span class="sign-line" style="width:160px">&nbsp;</span></div>
+        <div>Name / Funktion: <span class="sign-line" style="width:120px">&nbsp;</span></div>
+      </div>
+    </div>
+    <!-- Auftragnehmer -->
+    <div class="col-md-6">
+      <div class="sign-box">
+        <strong>Auftragnehmer</strong>
+        <p class="mb-3" style="font-size:.8rem;color:#555">Jan Anschütz, Viersen</p>
+        <div class="mb-3">Datum: <span class="sign-line" style="width:130px">&nbsp;</span></div>
+        <div class="mb-3">Unterschrift: <span class="sign-line" style="width:160px">&nbsp;</span></div>
+        <div>Name / Funktion: <span class="sign-line" style="width:120px">&nbsp;</span></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div style="text-align:center;margin-top:1.25rem;font-size:.75rem;color:rgba(255,255,255,.6)" class="no-print">
+  Aktions Tracker &middot;
+  <a href="{{ url_for('impressum') }}" style="color:rgba(255,255,255,.75);text-decoration:none">Impressum</a> &middot;
+  <a href="{{ url_for('datenschutz') }}" style="color:rgba(255,255,255,.75);text-decoration:none">Datenschutz</a> &middot;
+  <a href="{{ url_for('agb') }}" style="color:rgba(255,255,255,.75);text-decoration:none">AGB</a>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// Kundennamen live in die Unterschriftsbox übernehmen
+document.getElementById('k_firma').addEventListener('input', function() {
+  const label = document.getElementById('sign_kunde_label');
+  label.textContent = this.value || '(wird automatisch aus den Feldern oben übernommen)';
+  label.style.color = this.value ? '#1a3a5c' : '';
+  label.style.fontWeight = this.value ? '600' : '';
+});
+</script>
+</body>
+</html>

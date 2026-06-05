@@ -1,0 +1,416 @@
+{% extends 'base.html' %}
+{% block title %}Neue Aktivität – Aktions Tracker {{ company_short }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1><i class="bi bi-plus-circle me-2"></i>Neue Aktivität eintragen</h1>
+  <p>Erfassen Sie Datum, Verkaufsstelle, Displays und Bestellungen</p>
+</div>
+
+<form method="POST" id="aktivForm" enctype="multipart/form-data">
+
+  <!-- Obere Zeile: Datum + Verkaufsstelle -->
+  <div class="card mb-4">
+    <div class="card-header"><i class="bi bi-info-circle me-2"></i>Grunddaten</div>
+    <div class="card-body">
+      <div class="row g-3 align-items-end">
+        <div class="col-md-3">
+          <label class="form-label">Datum <span class="text-danger">*</span></label>
+          <input type="date" name="datum" class="form-control" value="{{ heute }}" required>
+        </div>
+        <div class="col-md-7">
+          <label class="form-label">Verkaufsstelle <span class="text-danger">*</span></label>
+          <select name="verkaufsstelle_id" class="form-select" required id="vsSelect">
+            <option value="">– Bitte auswählen –</option>
+            {% if vertretungs_gruppen %}<optgroup label="Mein Gebiet">{% endif %}
+            {% for vs in verkaufsstellen %}
+            <option value="{{ vs.id }}"
+              {% if preselect_vs == vs.id|string %}selected{% endif %}>
+              {{ vs.name }}{% if vs.ort %} – {{ vs.ort }}{% endif %}{% if vs.typ %} ({{ vs.typ }}){% endif %}
+            </option>
+            {% endfor %}
+            {% if vertretungs_gruppen %}</optgroup>{% endif %}
+            {% for gruppe in vertretungs_gruppen %}
+            <optgroup label="Vertretung: {{ gruppe.name }}">
+              {% for vs in gruppe.vs %}
+              <option value="{{ vs.id }}"
+                {% if preselect_vs == vs.id|string %}selected{% endif %}>
+                {{ vs.name }}{% if vs.ort %} – {{ vs.ort }}{% endif %}{% if vs.typ %} ({{ vs.typ }}){% endif %}
+              </option>
+              {% endfor %}
+            </optgroup>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2">
+          <button type="button" class="btn btn-outline-primary w-100"
+                  data-bs-toggle="modal" data-bs-target="#modalNeueVS">
+            <i class="bi bi-plus-circle me-1"></i>Neu anlegen
+          </button>
+        </div>
+      </div>
+
+      <div class="mt-3">
+        <label class="form-label"><i class="bi bi-chat-text me-1"></i>Notizen / Bemerkungen</label>
+        <textarea name="notizen" class="form-control" rows="2"
+                  placeholder="z.B. Sonderaktion vereinbart, Rückgabe alter Displays, Kundengespräch..."></textarea>
+      </div>
+
+      <!-- Foto-Upload -->
+      <div class="mt-3">
+        <label class="form-label"><i class="bi bi-camera me-1"></i>Foto (optional)</label>
+        <div class="d-flex gap-3 align-items-start flex-wrap">
+          <div class="flex-grow-1">
+            <label for="fotoInput" class="foto-upload-label d-flex align-items-center justify-content-center gap-2
+                         border rounded-3 text-muted" id="fotoLabel"
+                   style="min-height:80px;cursor:pointer;border-style:dashed !important;
+                          border-color:#2e6da4 !important;background:#f8fafd;transition:all .2s">
+              <span id="fotoLabelText">
+                <i class="bi bi-cloud-upload fs-4 d-block text-center mb-1" style="color:#2e6da4"></i>
+                <span class="small">Foto auswählen oder aufnehmen</span>
+              </span>
+            </label>
+            <input type="file" name="foto" id="fotoInput" accept="image/*"
+                   class="d-none" onchange="fotoPreview(this)">
+            <div class="form-text">JPG, PNG, WebP, GIF – max. 16 MB &nbsp;·&nbsp;
+              <i class="bi bi-clock-history"></i> Fotos werden nach <strong>8 Wochen</strong> automatisch gelöscht
+            </div>
+          </div>
+          <!-- Vorschau -->
+          <div id="fotoPreviewWrap" style="display:none">
+            <img id="fotoPreviewImg" src="" alt="Vorschau"
+                 style="height:120px;width:120px;object-fit:cover;border-radius:.5rem;
+                        border:2px solid #2e6da4;cursor:pointer"
+                 title="Klicken zum Vergrößern">
+            <div class="text-center mt-1">
+              <button type="button" class="btn btn-sm btn-outline-danger"
+                      onclick="fotoEntfernen()">
+                <i class="bi bi-x"></i> Entfernen
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hauptbereich: Displays | Kisten nebeneinander -->
+  <div class="row g-4">
+
+    <!-- LINKS: Displays nach Typ -->
+    <div class="col-lg-5">
+      <div class="card h-100">
+        <div class="card-header" style="background:linear-gradient(135deg,#1a3a5c,#2e6da4)">
+          <div class="d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-display me-2"></i>Displays aufgestellt</span>
+            <button type="button" class="btn btn-sm btn-outline-light" onclick="resetDisplays()">
+              <i class="bi bi-arrow-counterclockwise"></i> Zurücksetzen
+            </button>
+          </div>
+        </div>
+        <div class="card-body">
+          <p class="text-muted small mb-3">
+            <i class="bi bi-info-circle me-1"></i>
+            Anzahl je Display-Typ eintragen. Leer lassen = kein Display aufgestellt.
+          </p>
+
+          <div class="row g-2">
+            {% for ds in displaysorte %}
+            <div class="col-12">
+              <div class="disp-card rounded-3 p-2 border" id="dispCard_{{ ds.id }}"
+                   style="transition:all .2s">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                  <span class="fw-semibold" style="color:#1a3a5c;font-size:.9rem">
+                    <i class="bi bi-display me-1" style="color:#2e6da4"></i>{{ ds.name }}
+                  </span>
+                </div>
+                <div class="input-group input-group-sm">
+                  <button type="button" class="btn btn-outline-secondary"
+                          onclick="changeVal('disp_{{ ds.id }}', -1)">−</button>
+                  <input type="number"
+                         name="disp_{{ ds.id }}"
+                         id="disp_{{ ds.id }}"
+                         class="form-control text-center fw-bold disp-input"
+                         data-name="{{ ds.name }}"
+                         data-id="{{ ds.id }}"
+                         value="" min="0" max="999" placeholder="0"
+                         oninput="updateDispCard({{ ds.id }}, this.value)">
+                  <button type="button" class="btn btn-outline-secondary"
+                          onclick="changeVal('disp_{{ ds.id }}', 1)">+</button>
+                </div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+
+          <!-- Displays Gesamt -->
+          <div class="mt-3 p-3 rounded-3" style="background:#eef4fb;border:2px solid #2e6da4">
+            <div class="d-flex justify-content-between align-items-center">
+              <span class="fw-bold" style="color:#1a3a5c">
+                <i class="bi bi-display me-2"></i>Displays gesamt:
+              </span>
+              <span class="fw-bold fs-4" style="color:#1a3a5c" id="dispGesamt">0</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RECHTS: Bierbestellung -->
+    <div class="col-lg-7">
+      <div class="card h-100">
+        <div class="card-header" style="background:linear-gradient(135deg,#c8860a,#f5a623)">
+          <div class="d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-box-seam me-2"></i>Bestellung (Einheiten)</span>
+            <button type="button" class="btn btn-sm btn-outline-light" onclick="resetBier()">
+              <i class="bi bi-arrow-counterclockwise"></i> Alles zurücksetzen
+            </button>
+          </div>
+        </div>
+        <div class="card-body">
+          <p class="text-muted small mb-3">
+            <i class="bi bi-info-circle me-1"></i>
+            Tragen Sie die bestellte Menge je Produkt ein. Leer lassen = keine Bestellung.
+          </p>
+
+          <div class="row g-2">
+            {% for bier in biersorten %}
+            <div class="col-12">
+              <div class="bier-card rounded-3 p-2 border" id="bierCard_{{ bier.id }}"
+                   style="transition:all .2s">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                  <span class="fw-semibold" style="color:#1a3a5c;font-size:.9rem">
+                    <i class="bi bi-box-seam me-1" style="color:#c8860a"></i>{{ bier.name }}
+                  </span>
+                  <small class="text-muted" style="font-size:.75rem">{{ bier.einheit }}</small>
+                </div>
+                <div class="input-group input-group-sm">
+                  <button type="button" class="btn btn-outline-secondary"
+                          onclick="changeVal('bier_{{ bier.id }}', -1)">−</button>
+                  <input type="number"
+                         name="bier_{{ bier.id }}"
+                         id="bier_{{ bier.id }}"
+                         class="form-control text-center fw-bold bier-input"
+                         data-name="{{ bier.name }}"
+                         data-id="{{ bier.id }}"
+                         value="" min="0" max="9999" placeholder="0"
+                         oninput="updateCard({{ bier.id }}, this.value)">
+                  <button type="button" class="btn btn-outline-secondary"
+                          onclick="changeVal('bier_{{ bier.id }}', 1)">+</button>
+                </div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+
+          <!-- Kisten-Gesamt -->
+          <div class="mt-3 p-3 rounded-3" style="background:#fffbf0;border:2px solid #c8860a">
+            <div class="d-flex justify-content-between align-items-center">
+              <span class="fw-bold" style="color:#1a3a5c">
+                <i class="bi bi-box-seam me-2"></i>Kisten gesamt:
+              </span>
+              <span class="fw-bold fs-4" style="color:#c8860a" id="kistenGesamt">0</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Submit Desktop -->
+  <div class="d-flex gap-3 justify-content-end mt-4 desktop-save-btn">
+    <a href="{{ url_for('aktivitaeten_liste') }}" class="btn btn-outline-secondary btn-lg">
+      <i class="bi bi-x-circle me-1"></i>Abbrechen
+    </a>
+    <button type="submit" class="btn btn-primary btn-lg px-5">
+      <i class="bi bi-check-circle me-2"></i>Aktivität speichern
+    </button>
+  </div>
+
+  <!-- Submit Mobile (sticky am unteren Rand) -->
+  <div class="mobile-save-bar">
+    <div class="d-flex gap-2">
+      <a href="{{ url_for('aktivitaeten_liste') }}" class="btn btn-outline-secondary flex-shrink-0">
+        <i class="bi bi-x-circle"></i>
+      </a>
+      <button type="submit" class="btn btn-primary w-100 fw-bold">
+        <i class="bi bi-check-circle me-2"></i>Aktivität speichern
+        <span class="ms-2 opacity-75 small" id="mobileSummary"></span>
+      </button>
+    </div>
+  </div>
+
+</form>
+
+
+<!-- Modal: Neue Verkaufsstelle anlegen -->
+<div class="modal fade" id="modalNeueVS" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('vs_neu_rep') }}">
+        <div class="modal-header" style="background:#2e6da4;color:white">
+          <h5 class="modal-title">
+            <i class="bi bi-shop me-2"></i>Neue Verkaufsstelle anlegen
+          </h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Name der Verkaufsstelle <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control form-control-lg"
+                   placeholder="z.B. REWE Markt" required autofocus>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Straße &amp; Hausnummer</label>
+            <input type="text" name="strasse" class="form-control" placeholder="z.B. Hauptstr. 12">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Ort</label>
+            <input type="text" name="ort" class="form-control" placeholder="z.B. München">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Typ</label>
+            <select name="typ" class="form-select">
+              <option value="Einzelhandel" selected>Einzelhandel</option>
+              <option value="Gastronomie">Gastronomie</option>
+              <option value="Getränkehandel">Getränkehandel</option>
+              <option value="Hotel">Hotel</option>
+              <option value="Verein">Verein</option>
+              <option value="Sonstiges">Sonstiges</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Ansprechpartner <span class="text-muted fw-normal">(optional)</span></label>
+            <input type="text" name="ansprechpartner" class="form-control" placeholder="z.B. Maria Müller">
+          </div>
+          <div class="alert alert-info py-2 mb-0" style="font-size:.85rem">
+            <i class="bi bi-info-circle me-1"></i>
+            Nach dem Anlegen wird die neue Verkaufsstelle automatisch ausgewählt.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-check-circle me-1"></i>Anlegen &amp; auswählen
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function fotoPreview(input) {
+  if (input.files && input.files[0]) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      document.getElementById('fotoPreviewImg').src = e.target.result;
+      document.getElementById('fotoPreviewWrap').style.display = 'block';
+      document.getElementById('fotoLabel').style.display = 'none';
+    };
+    reader.readAsDataURL(input.files[0]);
+  }
+}
+
+function fotoEntfernen() {
+  document.getElementById('fotoInput').value = '';
+  document.getElementById('fotoPreviewWrap').style.display = 'none';
+  document.getElementById('fotoLabel').style.display = 'flex';
+}
+
+// ── Display-Funktionen ──────────────────────────────────────────────────────
+function updateDispCard(id, val) {
+  const card = document.getElementById('dispCard_' + id);
+  if (parseInt(val) > 0) {
+    card.style.borderColor = '#2e6da4';
+    card.style.background  = '#eef4fb';
+  } else {
+    card.style.borderColor = '';
+    card.style.background  = '';
+  }
+  updateDispGesamt();
+}
+
+function updateDispGesamt() {
+  let total = 0;
+  document.querySelectorAll('.disp-input').forEach(el => { total += parseInt(el.value) || 0; });
+  document.getElementById('dispGesamt').textContent = total;
+}
+
+function resetDisplays() {
+  document.querySelectorAll('.disp-input').forEach(el => {
+    el.value = '';
+    updateDispCard(el.dataset.id, 0);
+  });
+  updateDispGesamt();
+}
+
+document.querySelectorAll('.disp-input').forEach(el => {
+  el.addEventListener('input', function() {
+    updateDispCard(this.dataset.id, this.value);
+  });
+});
+
+// ── Bier-Funktionen ─────────────────────────────────────────────────────────
+function updateCard(id, val) {
+  const card = document.getElementById('bierCard_' + id);
+  if (parseInt(val) > 0) {
+    card.style.borderColor = '#c8860a';
+    card.style.background  = '#fffbf0';
+  } else {
+    card.style.borderColor = '';
+    card.style.background  = '';
+  }
+}
+
+function updateGesamt() {
+  let total = 0;
+  document.querySelectorAll('.bier-input').forEach(el => { total += parseInt(el.value) || 0; });
+  document.getElementById('kistenGesamt').textContent = total;
+}
+
+function resetBier() {
+  document.querySelectorAll('.bier-input').forEach(el => {
+    el.value = '';
+    updateCard(el.dataset.id, 0);
+  });
+  updateGesamt();
+}
+
+document.querySelectorAll('.bier-input').forEach(el => {
+  el.addEventListener('input', function() {
+    updateCard(this.dataset.id, this.value);
+    updateGesamt();
+  });
+});
+
+// ── Gemeinsame Funktionen ────────────────────────────────────────────────────
+function changeVal(id, delta) {
+  const el  = document.getElementById(id);
+  const cur = parseInt(el.value) || 0;
+  const neu = Math.max(0, cur + delta);
+  el.value  = neu === 0 ? '' : neu;
+  // Dispatch input event so card coloring updates
+  el.dispatchEvent(new Event('input'));
+}
+
+function updateMobileSummary() {
+  let kisten = 0, displays = 0;
+  document.querySelectorAll('.bier-input').forEach(el => { kisten   += parseInt(el.value) || 0; });
+  document.querySelectorAll('.disp-input').forEach(el => { displays += parseInt(el.value) || 0; });
+  const s = document.getElementById('mobileSummary');
+  if (s) {
+    const parts = [];
+    if (displays > 0) parts.push(displays + ' Display(s)');
+    if (kisten   > 0) parts.push(kisten   + ' Kisten');
+    s.textContent = parts.length ? '· ' + parts.join(', ') : '';
+  }
+}
+document.querySelectorAll('.disp-input, .bier-input').forEach(el => {
+  el.addEventListener('input', updateMobileSummary);
+});
+</script>
+{% endblock %}
