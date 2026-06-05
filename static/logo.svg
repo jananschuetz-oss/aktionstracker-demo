@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <circle cx="60" cy="60" r="58" fill="#1a3a5c" stroke="#c8860a" stroke-width="4"/>
+  <text x="60" y="52" font-family="Arial,sans-serif" font-size="28" font-weight="900"
+        fill="#ffffff" text-anchor="middle" letter-spacing="2">AT</text>
+  <text x="60" y="72" font-family="Arial,sans-serif" font-size="9" font-weight="600"
+        fill="#c8860a" text-anchor="middle" letter-spacing="1.5">AKTIONS</text>
+  <text x="60" y="83" font-family="Arial,sans-serif" font-size="9" font-weight="600"
+        fill="#c8860a" text-anchor="middle" letter-spacing="1.5">TRACKER</text>
+</svg>
