@@ -305,7 +305,7 @@
     <span class="flex-grow-1 small">App auf dem Homescreen speichern für schnelleren Zugriff</span>
     <button id="installBtn" onclick="installApp()" class="btn btn-primary btn-sm">Installieren</button>
     <button type="button" class="btn-close" data-bs-dismiss="alert"
-            onclick="localStorage.setItem('pwaInstalled','1');sessionStorage.setItem('bannerDismissed','1')"></button>
+            onclick="localStorage.setItem('bannerDismissed','1')"></button>
   </div>
   <!-- Anleitung-Modal für iOS / ältere Android-Browser -->
   <div class="modal fade" id="modalPwaAnleitung" tabindex="-1">
@@ -499,7 +499,7 @@ const isSafari     = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
 const isStandalone = window.matchMedia('(display-mode: standalone)').matches
                   || window.navigator.standalone === true;
 const pwaInstalled    = localStorage.getItem('pwaInstalled')    === '1';
-const bannerDismissed = sessionStorage.getItem('bannerDismissed') === '1';
+const bannerDismissed = localStorage.getItem('bannerDismissed') === '1';
 
 function hideBanner() {
   const banner = document.getElementById('installBanner');
@@ -510,7 +510,7 @@ function showBanner() {
   const banner = document.getElementById('installBanner');
   if (banner) {
     banner.style.display = 'flex';
-    sessionStorage.setItem('bannerDismissed', '1'); // diese Session: nur einmal zeigen
+    localStorage.setItem('bannerDismissed', '1'); // dauerhaft: nie wieder zeigen
   }
 }
 
