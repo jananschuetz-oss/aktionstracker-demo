@@ -1052,6 +1052,13 @@ def neue_aktivitaet():
         vs_id   = request.form.get('verkaufsstelle_id')
         notizen = request.form.get('notizen', '')
 
+        foto_file = request.files.get('foto')
+        if not foto_file or not foto_file.filename:
+            flash('Bitte ein Foto hochladen – das Foto ist ein Pflichtfeld.', 'danger')
+            return render_template('neue_aktivitaet.html',
+                verkaufsstellen=verkaufsstellen, biersorten=biersorten,
+                displaysorte=displaysorte, heute=date.today().isoformat())
+
         if not datum or not vs_id:
             flash('Datum und Verkaufsstelle sind Pflichtfelder.', 'danger')
             return render_template('neue_aktivitaet.html',
@@ -1070,7 +1077,6 @@ def neue_aktivitaet():
 
         # Foto verarbeiten
         foto_pfad = None
-        foto_file = request.files.get('foto')
         if foto_file and foto_file.filename and allowed_file(foto_file.filename):
             ext = foto_file.filename.rsplit('.', 1)[1].lower()
             dateiname = f"akt_{uuid.uuid4().hex}.{ext}"

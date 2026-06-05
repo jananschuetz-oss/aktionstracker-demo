@@ -58,7 +58,7 @@
 
       <!-- Foto-Upload -->
       <div class="mt-3">
-        <label class="form-label"><i class="bi bi-camera me-1"></i>Foto (optional)</label>
+        <label class="form-label"><i class="bi bi-camera me-1"></i>Foto <span class="text-danger">*</span> <small class="text-muted fw-normal">(Pflichtfeld)</small></label>
         <div class="d-flex gap-3 align-items-start flex-wrap">
           <div class="flex-grow-1">
             <label for="fotoInput" class="foto-upload-label d-flex align-items-center justify-content-center gap-2
@@ -71,7 +71,7 @@
               </span>
             </label>
             <input type="file" name="foto" id="fotoInput" accept="image/*"
-                   class="d-none" onchange="fotoPreview(this)">
+                   class="d-none" required onchange="fotoPreview(this)">
             <div class="form-text">JPG, PNG, WebP, GIF – max. 16 MB &nbsp;·&nbsp;
               <i class="bi bi-clock-history"></i> Fotos werden nach <strong>8 Wochen</strong> automatisch gelöscht
             </div>
