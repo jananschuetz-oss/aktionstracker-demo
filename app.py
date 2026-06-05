@@ -705,6 +705,16 @@ def login():
     return render_template('login.html')
 
 
+@app.route('/debug-login')
+def debug_login():
+    import os
+    pw = os.environ.get('ADMIN_PASSWORD', 'NOT_SET')
+    db = get_db()
+    rows = db.execute("SELECT id, kuerzel, passwort, rolle FROM mitarbeiter WHERE kuerzel='ADMIN'").fetchall()
+    result = f"ADMIN_PASSWORD ENV=[{pw}] len={len(pw)}<br>"
+    result += f"DB rows: {[dict(r) for r in rows]}"
+    return result
+
 @app.route('/logout')
 def logout():
     session.clear()
