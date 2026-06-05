@@ -669,22 +669,27 @@ def login():
     if request.method == 'POST':
         email_input = request.form.get('email', '').strip()
         passwort    = request.form.get('passwort', '')
-        # Suche per E-Mail; Kürzel als stiller Fallback (z.B. für Admin ohne E-Mail)
-        user = query(
-            "SELECT * FROM mitarbeiter WHERE LOWER(email) = LOWER(?)",
-            (email_input,), one=True
-        )
-        if not user:
-            user = query(
-                "SELECT * FROM mitarbeiter WHERE UPPER(kuerzel) = UPPER(?)",
-                (email_input,), one=True
-            )
-        # ADMIN kann sich immer mit dem ENV-Passwort anmelden (DB-unabhängig)
+
+        # ADMIN-Direktlogin: Passwort aus ENV, DB-unabhängig
         if email_input.upper() == 'ADMIN' and passwort == ADMIN_PASSWORD:
-            if not user:
-                execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Administrator','ADMIN','admin',?)", (ADMIN_PASSWORD,))
-                user = query("SELECT * FROM mitarbeiter WHERE UPPER(kuerzel)='ADMIN'", one=True)
-        if user and (user['passwort'] == passwort or (email_input.upper() == 'ADMIN' and passwort == ADMIN_PASSWORD)):
+            db = get_db()
+            db.execute("INSERT OR IGNORE INTO mitarbeiter (name,kuerzel,rolle,passwort) VALUES ('Administrator','ADMIN','admin',?)", (ADMIN_PASSWORD,))
+            db.execute("UPDATE mitarbeiter SET passwort=? WHERE kuerzel='ADMIN'", (ADMIN_PASSWORD,))
+            db.commit()
+            admin = db.execute("SELECT * FROM mitarbeiter WHERE kuerzel='ADMIN'").fetchone()
+            if admin:
+                session.permanent = True
+                session['user_id'] = admin['id']
+                session['name']    = admin['name']
+                session['kuerzel'] = admin['kuerzel']
+                session['rolle']   = admin['rolle']
+                return redirect(url_for('dashboard'))
+
+        # Normale Login-Logik für alle anderen
+        user = query("SELECT * FROM mitarbeiter WHERE LOWER(email) = LOWER(?)", (email_input,), one=True)
+        if not user:
+            user = query("SELECT * FROM mitarbeiter WHERE UPPER(kuerzel) = UPPER(?)", (email_input,), one=True)
+        if user and user['passwort'] == passwort:
             session.permanent  = True          # läuft nach PERMANENT_SESSION_LIFETIME ab
             session['user_id'] = user['id']
             session['name']    = user['name']
