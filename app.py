@@ -679,7 +679,9 @@ def login():
                 "SELECT * FROM mitarbeiter WHERE UPPER(kuerzel) = UPPER(?)",
                 (email_input,), one=True
             )
-        if user and user['passwort'] == passwort:
+        # ADMIN kann sich immer mit dem ENV-Passwort anmelden (DB-unabhängig)
+        admin_bypass = (email_input.upper() == 'ADMIN' and passwort == ADMIN_PASSWORD)
+        if user and (user['passwort'] == passwort or admin_bypass):
             session.permanent  = True          # läuft nach PERMANENT_SESSION_LIFETIME ab
             session['user_id'] = user['id']
             session['name']    = user['name']
