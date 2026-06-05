@@ -1124,9 +1124,12 @@ def aktivitaeten_liste():
     is_manager = session.get('rolle') in ('admin', 'verkaufsleiter')
     jahr       = request.args.get('jahr', date.today().year, type=int)
     kw_filter  = request.args.get('kw',    '', type=str)
-    mo_filter  = request.args.get('monat', '', type=str)   # '01'–'12'
+    mo_filter  = request.args.get('monat', '', type=str)
+    mo_ids     = [x.strip().zfill(2) for x in mo_filter.split(',') if x.strip()] if mo_filter else []
     ma_filter  = request.args.get('ma',    '', type=str)
-    vs_filter  = request.args.get('vs',    '', type=str)   # Verkaufsstellen-Filter (nur Manager)
+    ma_ids     = [x.strip() for x in ma_filter.split(',') if x.strip()] if ma_filter else []
+    vs_filter  = request.args.get('vs',    '', type=str)
+    vs_ids     = [x.strip() for x in vs_filter.split(',') if x.strip()] if vs_filter else []
 
     sql = '''
         SELECT a.id, a.datum, m.name AS mitarbeiter, m.id AS mitarbeiter_id,
@@ -1142,9 +1145,7 @@ def aktivitaeten_liste():
     '''
     params = []
 
-    # Jahres-Filter: immer aktiv außer wenn Manager eine Verkaufsstelle auswählt
-    # (dann soll die komplette History angezeigt werden)
-    vs_history_mode = is_manager and bool(vs_filter)
+    vs_history_mode = is_manager and bool(vs_ids)
     if not vs_history_mode:
         sql += " AND strftime('%Y', a.datum) = ?"
         params.append(str(jahr))
@@ -1152,18 +1153,20 @@ def aktivitaeten_liste():
     if not is_manager:
         sql += " AND a.mitarbeiter_id = ?"
         params.append(session['user_id'])
-    elif ma_filter:
-        sql += " AND a.mitarbeiter_id = ?"
-        params.append(ma_filter)
+    elif ma_ids:
+        _ph = ','.join('?' * len(ma_ids))
+        sql += f" AND a.mitarbeiter_id IN ({_ph})"
+        params.extend(ma_ids)
 
-    # Verkaufsstellen-Filter: zeigt vollständige History (alle Jahre, alle Reps)
-    if is_manager and vs_filter:
-        sql += " AND a.verkaufsstelle_id = ?"
-        params.append(vs_filter)
+    if is_manager and vs_ids:
+        _ph = ','.join('?' * len(vs_ids))
+        sql += f" AND a.verkaufsstelle_id IN ({_ph})"
+        params.extend(vs_ids)
 
-    if mo_filter:
-        sql += " AND strftime('%m', a.datum) = ?"
-        params.append(mo_filter.zfill(2))
+    if mo_ids:
+        _ph = ','.join('?' * len(mo_ids))
+        sql += f" AND strftime('%m', a.datum) IN ({_ph})"
+        params.extend(mo_ids)
 
     if kw_filter:
         sql += " AND CAST(strftime('%W', a.datum) AS INTEGER) = ?"
@@ -1206,8 +1209,10 @@ def aktivitaeten_liste():
 
     return render_template('aktivitaeten.html',
         aktivitaeten=aktivitaeten, detail=detail, disp_detail=disp_detail,
-        jahr=jahr, jahre=jahre, kw_filter=kw_filter, mo_filter=mo_filter,
-        ma_filter=ma_filter, vs_filter=vs_filter, vs_history_mode=vs_history_mode,
+        jahr=jahr, jahre=jahre, kw_filter=kw_filter,
+        mo_filter=mo_filter, mo_ids=mo_ids,
+        ma_filter=ma_filter, ma_ids=ma_ids,
+        vs_filter=vs_filter, vs_ids=vs_ids, vs_history_mode=vs_history_mode,
         alle_ma=alle_ma, alle_vs=alle_vs,
         is_admin=is_admin, is_manager=is_manager)
 

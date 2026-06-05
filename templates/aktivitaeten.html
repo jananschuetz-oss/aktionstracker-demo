@@ -24,82 +24,141 @@
 </div>
 
 <!-- Filter -->
+{% set MONATE = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'] %}
 <div class="card mb-4">
   <div class="card-body py-2">
-    <form method="GET" class="row g-2 align-items-end">
+    <form method="GET" class="row g-2 align-items-end" id="filterForm">
+
+      <!-- Jahr -->
       <div class="col-auto">
         <label class="form-label mb-1 small fw-bold" {% if vs_history_mode %}style="opacity:.45"{% endif %}>
           Jahr{% if vs_history_mode %} <span class="text-muted fw-normal">(ignoriert)</span>{% endif %}
         </label>
         <select name="jahr" class="form-select form-select-sm"
-                {% if vs_history_mode %}style="opacity:.45" title="Bei Verkaufsstellenfilter wird die komplette History angezeigt"{% endif %}>
+                {% if vs_history_mode %}style="opacity:.45"{% endif %} onchange="this.form.submit()">
           {% for j in jahre %}
           <option value="{{ j }}" {% if j==jahr %}selected{% endif %}>{{ j }}</option>
           {% endfor %}
         </select>
       </div>
+
+      <!-- Monat (Multi-Select Checkbox) -->
       <div class="col-auto">
         <label class="form-label mb-1 small fw-bold">Monat</label>
-        <select name="monat" class="form-select form-select-sm">
-          <option value="">Alle Monate</option>
-          {% set monatsnamen = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'] %}
-          {% for i in range(1, 13) %}
-          <option value="{{ '%02d'|format(i) }}" {% if mo_filter == '%02d'|format(i) %}selected{% endif %}>
-            {{ monatsnamen[i-1] }}
-          </option>
-          {% endfor %}
-        </select>
+        <div class="dropdown">
+          <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle"
+                  data-bs-toggle="dropdown" data-bs-auto-close="outside"
+                  id="moBtnAkt" style="min-width:130px;text-align:left">
+            {% if mo_ids|length == 1 %}{{ MONATE[mo_ids[0]|int - 1] }}
+            {% elif mo_ids|length > 1 %}{{ mo_ids|length }} Monate
+            {% else %}Alle Monate{% endif %}
+          </button>
+          <div class="dropdown-menu p-2 shadow" style="min-width:160px">
+            <div class="form-check py-1 border-bottom mb-1">
+              <input class="form-check-input" type="checkbox" id="mo_alle_akt" {% if not mo_ids %}checked{% endif %}>
+              <label class="form-check-label fw-semibold" for="mo_alle_akt">Alle Monate</label>
+            </div>
+            {% for i in range(1, 13) %}
+            <div class="form-check py-1">
+              <input class="form-check-input mo-cb-akt" type="checkbox"
+                     value="{{ '%02d'|format(i) }}" id="mo_akt_{{ i }}"
+                     {% if not mo_ids or '%02d'|format(i) in mo_ids %}checked{% endif %}>
+              <label class="form-check-label" for="mo_akt_{{ i }}">{{ MONATE[i-1] }}</label>
+            </div>
+            {% endfor %}
+            <button type="button" class="btn btn-primary btn-sm w-100 mt-2" onclick="filterAnwenden()">
+              <i class="bi bi-check2 me-1"></i>Anwenden
+            </button>
+          </div>
+        </div>
       </div>
+
+      <!-- KW (einfaches Dropdown) -->
       <div class="col-auto">
-        <label class="form-label mb-1 small fw-bold">Kalenderwoche</label>
-        <select name="kw" class="form-select form-select-sm">
-          <option value="">Alle KW</option>
+        <label class="form-label mb-1 small fw-bold">KW</label>
+        <select name="kw" class="form-select form-select-sm" onchange="this.form.submit()">
+          <option value="">Alle</option>
           {% for w in range(1, 54) %}
           <option value="{{ w }}" {% if kw_filter == w|string %}selected{% endif %}>KW {{ '%02d'|format(w) }}</option>
           {% endfor %}
         </select>
       </div>
+
       {% if is_manager %}
+      <!-- Mitarbeiter (Multi-Select Checkbox) -->
       <div class="col-auto">
         <label class="form-label mb-1 small fw-bold">Mitarbeiter</label>
-        <select name="ma" class="form-select form-select-sm">
-          <option value="">Alle</option>
-          {% for m in alle_ma %}
-          <option value="{{ m.id }}" {% if ma_filter == m.id|string %}selected{% endif %}>{{ m.name }}</option>
-          {% endfor %}
-        </select>
+        <div class="dropdown">
+          <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle"
+                  data-bs-toggle="dropdown" data-bs-auto-close="outside"
+                  id="maAktBtn" style="min-width:150px;text-align:left">
+            {% if ma_ids|length == 1 %}{% for m in alle_ma %}{% if m.id|string in ma_ids %}{{ m.name }}{% endif %}{% endfor %}
+            {% elif ma_ids|length > 1 %}{{ ma_ids|length }} Mitarbeiter
+            {% else %}Alle{% endif %}
+          </button>
+          <div class="dropdown-menu p-2 shadow" style="min-width:200px">
+            <div class="form-check py-1 border-bottom mb-1">
+              <input class="form-check-input" type="checkbox" id="ma_alle_akt" {% if not ma_ids %}checked{% endif %}>
+              <label class="form-check-label fw-semibold" for="ma_alle_akt">Alle Mitarbeiter</label>
+            </div>
+            {% for m in alle_ma %}
+            <div class="form-check py-1">
+              <input class="form-check-input ma-cb-akt" type="checkbox"
+                     value="{{ m.id }}" id="ma_akt_{{ m.id }}"
+                     {% if not ma_ids or m.id|string in ma_ids %}checked{% endif %}>
+              <label class="form-check-label" for="ma_akt_{{ m.id }}">{{ m.name }}</label>
+            </div>
+            {% endfor %}
+            <button type="button" class="btn btn-primary btn-sm w-100 mt-2" onclick="filterAnwenden()">
+              <i class="bi bi-check2 me-1"></i>Anwenden
+            </button>
+          </div>
+        </div>
       </div>
+
+      <!-- Verkaufsstelle (Multi-Select Checkbox) -->
       <div class="col-auto">
         <label class="form-label mb-1 small fw-bold">Verkaufsstelle</label>
-        <select name="vs" class="form-select form-select-sm" style="max-width:200px">
-          <option value="">Alle</option>
-          {% set aktive_vs   = alle_vs | selectattr('aktiv') | list %}
-          {% set inaktive_vs = alle_vs | rejectattr('aktiv') | list %}
-          {% for vs in aktive_vs %}
-          <option value="{{ vs.id }}" {% if vs_filter == vs.id|string %}selected{% endif %}>
-            {{ vs.name }}{% if vs.ort %} – {{ vs.ort }}{% endif %}
-          </option>
-          {% endfor %}
-          {% if inaktive_vs %}
-          <optgroup label="─ Inaktiv ─">
-            {% for vs in inaktive_vs %}
-            <option value="{{ vs.id }}" {% if vs_filter == vs.id|string %}selected{% endif %}>
-              {{ vs.name }}{% if vs.ort %} – {{ vs.ort }}{% endif %}
-            </option>
+        <div class="dropdown">
+          <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle"
+                  data-bs-toggle="dropdown" data-bs-auto-close="outside"
+                  id="vsAktBtn" style="min-width:160px;text-align:left">
+            {% if vs_ids|length == 1 %}{% for vs in alle_vs %}{% if vs.id|string in vs_ids %}{{ vs.name }}{% endif %}{% endfor %}
+            {% elif vs_ids|length > 1 %}{{ vs_ids|length }} Stationen
+            {% else %}Alle{% endif %}
+          </button>
+          <div class="dropdown-menu p-2 shadow" style="min-width:240px;max-height:320px;overflow-y:auto">
+            <div class="form-check py-1 border-bottom mb-1" style="position:sticky;top:0;background:#fff;z-index:1">
+              <input class="form-check-input" type="checkbox" id="vs_alle_akt" {% if not vs_ids %}checked{% endif %}>
+              <label class="form-check-label fw-semibold" for="vs_alle_akt">Alle Stationen</label>
+            </div>
+            {% for vs in alle_vs %}
+            {% if vs.aktiv %}
+            <div class="form-check py-1">
+              <input class="form-check-input vs-cb-akt" type="checkbox"
+                     value="{{ vs.id }}" id="vs_akt_{{ vs.id }}"
+                     {% if not vs_ids or vs.id|string in vs_ids %}checked{% endif %}>
+              <label class="form-check-label small" for="vs_akt_{{ vs.id }}">{{ vs.name }}{% if vs.ort %} <span class="text-muted">– {{ vs.ort }}</span>{% endif %}</label>
+            </div>
+            {% endif %}
             {% endfor %}
-          </optgroup>
-          {% endif %}
-        </select>
+            <div class="mt-2 pt-1 border-top" style="position:sticky;bottom:0;background:#fff">
+              <button type="button" class="btn btn-primary btn-sm w-100" onclick="filterAnwenden()">
+                <i class="bi bi-check2 me-1"></i>Anwenden
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
       {% endif %}
+
+      <!-- Reset -->
       <div class="col-auto">
-        <button type="submit" class="btn btn-primary btn-sm">
-          <i class="bi bi-filter me-1"></i>Filtern
-        </button>
-        <a href="{{ url_for('aktivitaeten_liste') }}" class="btn btn-outline-secondary btn-sm ms-1">
+        <a href="{{ url_for('aktivitaeten_liste') }}" class="btn btn-outline-secondary btn-sm" title="Filter zurücksetzen">
           <i class="bi bi-x"></i>
         </a>
       </div>
+
       <div class="col-auto ms-auto text-muted small d-flex align-items-end gap-2 pb-1">
         {% if vs_history_mode %}
         <span class="badge" style="background:#2e6da4;font-size:.75rem">
@@ -226,7 +285,7 @@
             <!-- Bestellpositionen -->
             <div class="col-md-8">
               {% if pos %}
-              <strong class="text-muted small d-block mb-2">BESTELLUNG</strong>
+              <strong class="text-muted small d-block mb-2">BIERBESTELLUNG</strong>
               <div class="d-flex flex-wrap gap-2">
                 {% for p in pos %}
                 <span class="badge rounded-pill py-2 px-3"
@@ -267,4 +326,64 @@
   </a>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Generisches Multi-Checkbox-Dropdown ─────────────────────────────────────
+function initMultiDropdown(alleId, cbClass) {
+  const allesCb    = document.getElementById(alleId);
+  const einzelnCbs = Array.from(document.querySelectorAll('.' + cbClass));
+  if (!allesCb || !einzelnCbs.length) return;
+
+  function sync() {
+    const n = einzelnCbs.filter(c => c.checked).length;
+    allesCb.indeterminate = n > 0 && n < einzelnCbs.length;
+    allesCb.checked       = !allesCb.indeterminate && n === einzelnCbs.length;
+  }
+  allesCb.addEventListener('change', function () {
+    einzelnCbs.forEach(cb => cb.checked = this.checked);
+    sync();
+  });
+  einzelnCbs.forEach(cb => cb.addEventListener('change', sync));
+  sync();
+}
+
+// ── Alle Dropdowns initialisieren ────────────────────────────────────────────
+initMultiDropdown('mo_alle_akt', 'mo-cb-akt');
+{% if is_manager %}
+initMultiDropdown('ma_alle_akt', 'ma-cb-akt');
+initMultiDropdown('vs_alle_akt', 'vs-cb-akt');
+{% endif %}
+
+// ── Anwenden: alle Checkboxen → URL-Parameter → navigieren ──────────────────
+function filterAnwenden() {
+  const params = new URLSearchParams(window.location.search);
+
+  function applyGroup(cbClass, paramName) {
+    const cbs     = Array.from(document.querySelectorAll('.' + cbClass));
+    const checked = cbs.filter(c => c.checked);
+    if (!cbs.length || checked.length === 0 || checked.length === cbs.length) {
+      params.delete(paramName);
+    } else {
+      params.set(paramName, checked.map(c => c.value).join(','));
+    }
+  }
+
+  applyGroup('mo-cb-akt', 'monat');
+  {% if is_manager %}
+  applyGroup('ma-cb-akt', 'ma');
+  applyGroup('vs-cb-akt', 'vs');
+  {% endif %}
+
+  // Jahr + KW aus dem Formular direkt übernehmen
+  const jahrEl = document.querySelector('select[name="jahr"]');
+  const kwEl   = document.querySelector('select[name="kw"]');
+  if (jahrEl)  params.set('jahr',  jahrEl.value);
+  if (kwEl && kwEl.value) params.set('kw', kwEl.value);
+  else params.delete('kw');
+
+  window.location.href = window.location.pathname + '?' + params.toString();
+}
+</script>
 {% endblock %}
