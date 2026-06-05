@@ -93,7 +93,7 @@ def inject_now():
         'now':           datetime.now(),
         'company_name':  COMPANY_NAME,
         'company_short': COMPANY_SHORT,
-        'logo_url':      LOGO_URL or '/logo.svg',
+        'logo_url':      LOGO_URL or '/static/logo.svg',
         'karte_modus':   KARTE_MODUS,
         'meine_vertretungen': [],
         'alle_kollegen':      [],
