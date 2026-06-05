@@ -680,8 +680,11 @@ def login():
                 (email_input,), one=True
             )
         # ADMIN kann sich immer mit dem ENV-Passwort anmelden (DB-unabhängig)
-        admin_bypass = (email_input.upper() == 'ADMIN' and passwort == ADMIN_PASSWORD)
-        if user and (user['passwort'] == passwort or admin_bypass):
+        if email_input.upper() == 'ADMIN' and passwort == ADMIN_PASSWORD:
+            if not user:
+                execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Administrator','ADMIN','admin',?)", (ADMIN_PASSWORD,))
+                user = query("SELECT * FROM mitarbeiter WHERE UPPER(kuerzel)='ADMIN'", one=True)
+        if user and (user['passwort'] == passwort or (email_input.upper() == 'ADMIN' and passwort == ADMIN_PASSWORD)):
             session.permanent  = True          # läuft nach PERMANENT_SESSION_LIFETIME ab
             session['user_id'] = user['id']
             session['name']    = user['name']
