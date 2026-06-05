@@ -671,10 +671,11 @@ def login():
         passwort    = request.form.get('passwort', '')
 
         # ADMIN-Direktlogin: Passwort aus ENV, DB-unabhängig
-        if email_input.upper() == 'ADMIN' and passwort == ADMIN_PASSWORD:
+        _admin_pw = ADMIN_PASSWORD.strip()
+        if email_input.upper() == 'ADMIN' and passwort == _admin_pw:
             db = get_db()
-            db.execute("INSERT OR IGNORE INTO mitarbeiter (name,kuerzel,rolle,passwort) VALUES ('Administrator','ADMIN','admin',?)", (ADMIN_PASSWORD,))
-            db.execute("UPDATE mitarbeiter SET passwort=? WHERE kuerzel='ADMIN'", (ADMIN_PASSWORD,))
+            db.execute("INSERT OR IGNORE INTO mitarbeiter (name,kuerzel,rolle,passwort) VALUES ('Administrator','ADMIN','admin',?)", (_admin_pw,))
+            db.execute("UPDATE mitarbeiter SET passwort=? WHERE kuerzel='ADMIN'", (_admin_pw,))
             db.commit()
             admin = db.execute("SELECT * FROM mitarbeiter WHERE kuerzel='ADMIN'").fetchone()
             if admin:
