@@ -506,7 +506,7 @@ function hideBanner() {
   if (banner) banner.style.display = 'none';
 }
 function showBanner() {
-  if (isStandalone || pwaInstalled || bannerDismissed) return;
+  if (isStandalone || pwaInstalled || localStorage.getItem('bannerDismissed') === '1') return;
   const banner = document.getElementById('installBanner');
   if (banner) {
     banner.style.display = 'flex';
