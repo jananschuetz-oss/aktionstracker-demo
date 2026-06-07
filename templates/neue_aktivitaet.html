@@ -494,8 +494,12 @@ function vsShowLetzterBesuch(id) {
         else if (diff < 0) trendHtml = `<span class="text-danger ms-1 fw-normal"><i class="bi bi-arrow-down-short"></i></span>`;
         else               trendHtml = `<span class="text-muted ms-1 fw-normal"><i class="bi bi-dash"></i></span>`;
       }
+      const showMa = besuche.some(b => b.mitarbeiter);
       const rows = besuche.map((b, i) => {
         const bold = i === 0 ? 'fw-semibold' : '';
+        const maTd = showMa
+          ? `<td class="text-muted">${b.mitarbeiter || ''}</td>`
+          : '';
         const notizTd = b.notizen
           ? `<td class="text-muted fst-italic" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">"${b.notizen}"</td>`
           : `<td></td>`;
@@ -503,9 +507,10 @@ function vsShowLetzterBesuch(id) {
           <td class="ps-2">${b.datum} <span class="text-muted fw-normal" style="font-size:.8em">vor ${b.tage_ago}d</span></td>
           <td><i class="bi bi-box-seam me-1" style="color:#c8860a"></i>${b.kisten}</td>
           <td><i class="bi bi-display me-1" style="color:#2e6da4"></i>${b.displays}</td>
-          ${notizTd}
+          ${maTd}${notizTd}
         </tr>`;
       }).join('');
+      const maHeader = showMa ? '<th class="fw-normal">Rep</th>' : '';
       box.innerHTML = `
         <div class="rounded-3" style="background:#eef4fb;border:1px solid #b8d4f0;overflow:hidden">
           <div class="px-2 py-1 small fw-semibold d-flex align-items-center gap-1"
@@ -518,6 +523,7 @@ function vsShowLetzterBesuch(id) {
                 <th class="ps-2 fw-normal">Datum</th>
                 <th class="fw-normal">Kisten</th>
                 <th class="fw-normal">Displays</th>
+                ${maHeader}
                 <th class="fw-normal">Notiz</th>
               </tr>
             </thead>

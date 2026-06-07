@@ -995,16 +995,31 @@ def dashboard():
 @app.route('/api/letzter-besuch/<int:vs_id>')
 @login_required
 def api_letzter_besuch(vs_id):
-    """Gibt die letzten 3 Besuche eines Reps bei einer Verkaufsstelle zurück."""
+    """Gibt die letzten 3 Besuche bei einer Verkaufsstelle zurück.
+    Manager sehen alle Reps, normale Reps nur ihre eigenen."""
     ma_id = session['user_id']
-    rows = query('''
-        SELECT a.datum, a.anzahl_displays, a.notizen,
-               COALESCE((SELECT SUM(bp.kisten_anzahl) FROM bestellposition bp
-                         WHERE bp.aktivitaet_id = a.id), 0) AS kisten_gesamt
-        FROM aktivitaet a
-        WHERE a.verkaufsstelle_id = ? AND a.mitarbeiter_id = ?
-        ORDER BY a.datum DESC, a.id DESC LIMIT 3
-    ''', (vs_id, ma_id))
+    is_manager = session.get('rolle') in ('admin', 'verkaufsleiter')
+    if is_manager:
+        rows = query('''
+            SELECT a.datum, a.anzahl_displays, a.notizen,
+                   m.name AS mitarbeiter,
+                   COALESCE((SELECT SUM(bp.kisten_anzahl) FROM bestellposition bp
+                             WHERE bp.aktivitaet_id = a.id), 0) AS kisten_gesamt
+            FROM aktivitaet a
+            JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
+            WHERE a.verkaufsstelle_id = ?
+            ORDER BY a.datum DESC, a.id DESC LIMIT 3
+        ''', (vs_id,))
+    else:
+        rows = query('''
+            SELECT a.datum, a.anzahl_displays, a.notizen,
+                   NULL AS mitarbeiter,
+                   COALESCE((SELECT SUM(bp.kisten_anzahl) FROM bestellposition bp
+                             WHERE bp.aktivitaet_id = a.id), 0) AS kisten_gesamt
+            FROM aktivitaet a
+            WHERE a.verkaufsstelle_id = ? AND a.mitarbeiter_id = ?
+            ORDER BY a.datum DESC, a.id DESC LIMIT 3
+        ''', (vs_id, ma_id))
     if not rows:
         return jsonify({'besuche': []})
     besuche = []
@@ -1022,11 +1037,12 @@ def api_letzter_besuch(vs_id):
         if len(notizen) > 60:
             notizen = notizen[:60] + '…'
         besuche.append({
-            'datum':    datum_fmt,
-            'tage_ago': tage,
-            'displays': row['anzahl_displays'] or 0,
-            'kisten':   row['kisten_gesamt']   or 0,
-            'notizen':  notizen
+            'datum':       datum_fmt,
+            'tage_ago':    tage,
+            'displays':    row['anzahl_displays'] or 0,
+            'kisten':      row['kisten_gesamt']   or 0,
+            'notizen':     notizen,
+            'mitarbeiter': row['mitarbeiter'] or None
         })
     return jsonify({'besuche': besuche})
 
