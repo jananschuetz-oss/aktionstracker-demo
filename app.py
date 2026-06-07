@@ -385,6 +385,7 @@ def init_db():
             "ALTER TABLE mitarbeiter   ADD COLUMN email               TEXT",
             "ALTER TABLE mitarbeiter   ADD COLUMN reset_token         TEXT",
             "ALTER TABLE mitarbeiter   ADD COLUMN reset_token_ablauf  DATETIME",
+            "ALTER TABLE mitarbeiter   ADD COLUMN muss_passwort_aendern INTEGER DEFAULT 0",
             "ALTER TABLE verkaufsstelle ADD COLUMN strasse             TEXT",
             "ALTER TABLE verkaufsstelle ADD COLUMN ansprechpartner    TEXT",
             "ALTER TABLE verkaufsstelle ADD COLUMN lat                REAL",
@@ -686,6 +687,8 @@ def login_required(f):
     def decorated(*args, **kwargs):
         if 'user_id' not in session:
             return redirect(url_for('login'))
+        if session.get('muss_passwort_aendern'):
+            return redirect(url_for('erstes_passwort'))
         return f(*args, **kwargs)
     return decorated
 
@@ -777,10 +780,13 @@ def login():
             session['kuerzel'] = user['kuerzel']
             session['rolle']   = user['rolle']
             session['team_id'] = user['team_id'] if 'team_id' in user.keys() else None
+            session['muss_passwort_aendern'] = bool(user['muss_passwort_aendern'] if 'muss_passwort_aendern' in user.keys() else 0)
             # Karte-Benachrichtigungen in Session laden (für Login-Notification)
             benachrichtigung = user['karte_benachrichtigung'] if 'karte_benachrichtigung' in user.keys() else None
             if benachrichtigung:
                 session['karte_benachrichtigung'] = benachrichtigung
+            if session['muss_passwort_aendern']:
+                return redirect(url_for('erstes_passwort'))
             return redirect(url_for('dashboard'))
         flash('Ungültige E-Mail-Adresse oder falsches Passwort.', 'danger')
 
@@ -866,6 +872,33 @@ def passwort_reset(token):
         flash('Passwort erfolgreich geändert! Bitte jetzt anmelden.', 'success')
         return redirect(url_for('login'))
     return render_template('passwort_reset.html', token=token, name=ma['name'])
+
+
+# --- Erstlogin: Passwort-AEnderung erzwingen ---
+
+@app.route('/erstes-passwort', methods=['GET', 'POST'])
+def erstes_passwort():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    if not session.get('muss_passwort_aendern'):
+        return redirect(url_for('dashboard'))
+    if request.method == 'POST':
+        neues_pw  = request.form.get('passwort', '').strip()
+        bestaet   = request.form.get('passwort2', '').strip()
+        if len(neues_pw) < 8:
+            flash('Passwort muss mindestens 8 Zeichen haben.', 'danger')
+            return render_template('erstes_passwort.html')
+        if neues_pw != bestaet:
+            flash('Passwoerter stimmen nicht ueberein.', 'danger')
+            return render_template('erstes_passwort.html')
+        execute(
+            'UPDATE mitarbeiter SET passwort=?, muss_passwort_aendern=0 WHERE id=?',
+            (neues_pw, session['user_id'])
+        )
+        session['muss_passwort_aendern'] = False
+        flash('Passwort erfolgreich gesetzt! Willkommen.', 'success')
+        return redirect(url_for('dashboard'))
+    return render_template('erstes_passwort.html')
 
 
 # ─── Rechtliche Seiten ────────────────────────────────────────────────────────
@@ -1851,7 +1884,7 @@ def admin_mitarbeiter_neu():
     email   = request.form.get('email',   '').strip().lower() or None
     if name and kuerzel:
         execute(
-            "INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, passwort, email) VALUES (?,?,?,?)",
+            "INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, passwort, email, muss_passwort_aendern) VALUES (?,?,?,?,1)",
             (name, kuerzel, passwort, email)
         )
         flash(f'Mitarbeiter "{name}" angelegt.', 'success')
