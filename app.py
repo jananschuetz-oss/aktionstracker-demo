@@ -43,7 +43,8 @@ LOGO_URL       = os.environ.get('LOGO_URL',       '')    # externe Bild-URL oder
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123')
 EXPORT_EMAIL   = os.environ.get('EXPORT_EMAIL',   '')        # E-Mail für automatischen 4-Wochen-Export
 KARTE_MODUS    = os.environ.get('KARTE_MODUS',   'basis')   # 'aus' | 'basis' | 'heatmap'
-UNIT_LABEL     = os.environ.get('UNIT_LABEL',    'Einheiten')  # Mengenbezeichnung z.B. 'Kisten', 'Kartons', 'Paletten'
+UNIT_LABEL       = os.environ.get('UNIT_LABEL',      'Einheiten')  # Mengenbezeichnung z.B. 'Kisten', 'Kartons', 'Paletten'
+MAX_MITARBEITER  = int(os.environ.get('MAX_MITARBEITER', 0))  # 0 = kein Limit (nicht konfiguriert)
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'static', 'uploads')
 ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'}
@@ -96,8 +97,9 @@ def inject_now():
         'company_name':  COMPANY_NAME,
         'company_short': COMPANY_SHORT,
         'logo_url':      LOGO_URL or '/static/logo.svg',
-        'karte_modus':   KARTE_MODUS,
-        'unit_label':    UNIT_LABEL,
+        'karte_modus':      KARTE_MODUS,
+        'unit_label':       UNIT_LABEL,
+        'max_mitarbeiter':  MAX_MITARBEITER,
         'meine_vertretungen': [],
         'alle_kollegen':      [],
     }
@@ -1878,11 +1880,22 @@ def admin():
 @app.route('/admin/mitarbeiter/neu', methods=['POST'])
 @admin_required
 def admin_mitarbeiter_neu():
-    name    = request.form.get('name',    '').strip()
-    kuerzel = request.form.get('kuerzel', '').strip().upper()
+    name     = request.form.get('name',    '').strip()
+    kuerzel  = request.form.get('kuerzel', '').strip().upper()
     passwort = request.form.get('passwort', 'brauerei').strip()
-    email   = request.form.get('email',   '').strip().lower() or None
+    email    = request.form.get('email',   '').strip().lower() or None
     if name and kuerzel:
+        if MAX_MITARBEITER > 0:
+            anzahl = query(
+                "SELECT COUNT(*) AS n FROM mitarbeiter WHERE rolle='rep'", one=True
+            )['n']
+            if anzahl >= MAX_MITARBEITER:
+                flash(
+                    f'Ihr Plan erlaubt max. {MAX_MITARBEITER} Mitarbeiter. '
+                    f'Bitte kontaktieren Sie uns für ein Upgrade.',
+                    'danger'
+                )
+                return redirect(url_for('admin'))
         execute(
             "INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, passwort, email, muss_passwort_aendern) VALUES (?,?,?,?,1)",
             (name, kuerzel, passwort, email)

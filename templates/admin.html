@@ -2,6 +2,19 @@
 {% block title %}Administration – Aktions Tracker {{ company_short }}{% endblock %}
 
 {% block content %}
+
+{% if max_mitarbeiter == 0 %}
+<div class="alert alert-warning d-flex align-items-start gap-3 mb-4" role="alert">
+  <i class="bi bi-exclamation-triangle-fill fs-4 mt-1 flex-shrink-0"></i>
+  <div>
+    <strong>Setup-Erinnerung:</strong> Die ENV-Variable <code>MAX_MITARBEITER</code> ist nicht gesetzt.
+    Bitte in Railway den Wert passend zum gebuchten Paket hinterlegen
+    (z.&nbsp;B. <code>5</code> für Starter, <code>12</code> für Team, <code>20</code> für Pro).
+    Ohne diesen Wert gibt es kein Mitarbeiter-Limit.
+  </div>
+</div>
+{% endif %}
+
 <div class="page-header">
   <h1><i class="bi bi-gear me-2"></i>Administration</h1>
   <p>Stammdaten verwalten – Mitarbeiter, Verkaufsstellen und Produkte</p>
