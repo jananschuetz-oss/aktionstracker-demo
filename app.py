@@ -1528,7 +1528,7 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id: int = N
     ws1.column_dimensions['D'].width = 15
 
     ws1.merge_cells('A1:D1')
-    ws1['A1'] = f"Wochenübersicht {jahr} – Displays & Kisten"
+    ws1['A1'] = f"Wochenübersicht {jahr} – Displays & {UNIT_LABEL}"
     ws1['A1'].font = TITLE_FONT
     ws1['A1'].alignment = CENTER
 
