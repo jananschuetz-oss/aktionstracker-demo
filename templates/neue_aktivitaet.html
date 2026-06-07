@@ -474,26 +474,56 @@ function vsClearSelection() {
 
 function vsShowLetzterBesuch(id) {
   const box = document.getElementById('vsLetzterBesuch');
-  box.innerHTML = `<div class="p-2 rounded-3 small" style="background:#eef4fb;border:1px solid #b8d4f0">
-    <i class="bi bi-clock me-1" style="color:#2e6da4"></i>Letzter Besuch wird geladen…</div>`;
+  box.innerHTML = `<div class="p-2 rounded-3 small text-muted" style="background:#f8f9fa;border:1px solid #dee2e6">
+    <i class="bi bi-hourglass-split me-1"></i>Lade Besuchshistorie…</div>`;
   box.style.display = 'block';
   fetch(`/api/letzter-besuch/${id}`)
     .then(r => r.json())
-    .then(d => {
-      if (!d.datum) {
+    .then(data => {
+      const besuche = data.besuche || [];
+      if (!besuche.length) {
         box.innerHTML = `<div class="p-2 rounded-3 small text-muted" style="background:#f8f9fa;border:1px solid #dee2e6">
           <i class="bi bi-clock-history me-1"></i>Noch kein Besuch eingetragen</div>`;
         return;
       }
-      const notiz = d.notizen ? `<span><i class="bi bi-chat-text me-1" style="color:#2e6da4"></i>"${d.notizen}"</span>` : '';
-      box.innerHTML = `<div class="p-2 rounded-3 small" style="background:#eef4fb;border:1px solid #b8d4f0">
-        <div class="d-flex gap-3 flex-wrap align-items-center">
-          <span><i class="bi bi-calendar-check me-1" style="color:#2e6da4"></i><strong>Letzter Besuch:</strong> ${d.datum} <span class="text-muted">(vor ${d.tage_ago} Tagen)</span></span>
-          <span><i class="bi bi-display me-1" style="color:#2e6da4"></i>${d.displays} Displays</span>
-          <span><i class="bi bi-box-seam me-1" style="color:#c8860a"></i>${d.kisten} Kisten</span>
-          ${notiz}
-        </div>
-      </div>`;
+      // Trend: Kisten neuester vs. ältester Besuch
+      let trendHtml = '';
+      if (besuche.length > 1) {
+        const diff = besuche[0].kisten - besuche[besuche.length - 1].kisten;
+        if (diff > 0)      trendHtml = `<span class="text-success ms-1 fw-normal"><i class="bi bi-arrow-up-short"></i></span>`;
+        else if (diff < 0) trendHtml = `<span class="text-danger ms-1 fw-normal"><i class="bi bi-arrow-down-short"></i></span>`;
+        else               trendHtml = `<span class="text-muted ms-1 fw-normal"><i class="bi bi-dash"></i></span>`;
+      }
+      const rows = besuche.map((b, i) => {
+        const bold = i === 0 ? 'fw-semibold' : '';
+        const notizTd = b.notizen
+          ? `<td class="text-muted fst-italic" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">"${b.notizen}"</td>`
+          : `<td></td>`;
+        return `<tr class="${bold}">
+          <td class="ps-2">${b.datum} <span class="text-muted fw-normal" style="font-size:.8em">vor ${b.tage_ago}d</span></td>
+          <td><i class="bi bi-box-seam me-1" style="color:#c8860a"></i>${b.kisten}</td>
+          <td><i class="bi bi-display me-1" style="color:#2e6da4"></i>${b.displays}</td>
+          ${notizTd}
+        </tr>`;
+      }).join('');
+      box.innerHTML = `
+        <div class="rounded-3" style="background:#eef4fb;border:1px solid #b8d4f0;overflow:hidden">
+          <div class="px-2 py-1 small fw-semibold d-flex align-items-center gap-1"
+               style="background:#d8eaf8;color:#1d4e8f;border-bottom:1px solid #b8d4f0">
+            <i class="bi bi-clock-history"></i> Letzte Besuche ${trendHtml}
+          </div>
+          <table class="table table-sm mb-0" style="font-size:.82em">
+            <thead class="text-muted">
+              <tr>
+                <th class="ps-2 fw-normal">Datum</th>
+                <th class="fw-normal">Kisten</th>
+                <th class="fw-normal">Displays</th>
+                <th class="fw-normal">Notiz</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
     })
     .catch(() => { box.style.display = 'none'; });
 }
