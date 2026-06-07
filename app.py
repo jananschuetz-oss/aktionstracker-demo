@@ -1909,10 +1909,14 @@ def admin():
 def admin_mitarbeiter_neu():
     name     = request.form.get('name',    '').strip()
     kuerzel  = request.form.get('kuerzel', '').strip().upper()
-    passwort = request.form.get('passwort', 'brauerei').strip()
+    passwort = request.form.get('passwort', 'demo123').strip()
     email    = request.form.get('email',   '').strip().lower() or None
+    rolle    = request.form.get('rolle',   'rep').strip()
+    if rolle not in ('rep', 'verkaufsleiter', 'admin'):
+        rolle = 'rep'
     if name and kuerzel:
-        if MAX_MITARBEITER > 0:
+        # MAX_MITARBEITER-Limit gilt nur für einfache Reps
+        if rolle == 'rep' and MAX_MITARBEITER > 0:
             anzahl = query(
                 "SELECT COUNT(*) AS n FROM mitarbeiter WHERE rolle='rep'", one=True
             )['n']
@@ -1924,10 +1928,11 @@ def admin_mitarbeiter_neu():
                 )
                 return redirect(url_for('admin'))
         execute(
-            "INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, passwort, email, muss_passwort_aendern) VALUES (?,?,?,?,1)",
-            (name, kuerzel, passwort, email)
+            "INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, passwort, email, rolle, muss_passwort_aendern) VALUES (?,?,?,?,?,1)",
+            (name, kuerzel, passwort, email, rolle)
         )
-        flash(f'Mitarbeiter "{name}" angelegt.', 'success')
+        rollen_label = {'rep': 'Mitarbeiter', 'verkaufsleiter': 'Verkaufsleiter', 'admin': 'Leitung'}.get(rolle, rolle)
+        flash(f'{rollen_label} „{name}" angelegt.', 'success')
     return redirect(url_for('admin'))
 
 
@@ -1979,6 +1984,23 @@ def admin_mitarbeiter_zuordnung(ma_id):
         )
     anzahl = len(vs_ids)
     flash(f'Zuordnung für „{ma["name"]}" gespeichert: {anzahl} Verkaufsstelle(n).', 'success')
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/mitarbeiter/<int:ma_id>/rolle', methods=['POST'])
+@admin_required
+def admin_mitarbeiter_rolle(ma_id):
+    if ma_id == session.get('user_id'):
+        flash('Sie können Ihre eigene Rolle nicht ändern.', 'danger')
+        return redirect(url_for('admin'))
+    ma    = query("SELECT * FROM mitarbeiter WHERE id=?", (ma_id,), one=True)
+    rolle = request.form.get('rolle', 'rep').strip()
+    if not ma or rolle not in ('rep', 'verkaufsleiter', 'admin'):
+        flash('Ungültige Anfrage.', 'danger')
+        return redirect(url_for('admin'))
+    execute("UPDATE mitarbeiter SET rolle=? WHERE id=?", (rolle, ma_id))
+    rollen_label = {'rep': 'Mitarbeiter', 'verkaufsleiter': 'Verkaufsleiter', 'admin': 'Leitung'}.get(rolle, rolle)
+    flash(f'Rolle von „{ma["name"]}" auf {rollen_label} geändert.', 'success')
     return redirect(url_for('admin'))
 
 

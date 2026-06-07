@@ -45,6 +45,18 @@
                 {% else %}
                   <span class="badge bg-secondary">Rep</span>
                 {% endif %}
+                {% if m.id != session.user_id %}
+                <button class="btn btn-link btn-sm p-0 ms-1 text-muted"
+                        style="font-size:.75rem;vertical-align:middle"
+                        data-bs-toggle="modal"
+                        data-bs-target="#modalRolle"
+                        data-ma-id="{{ m.id }}"
+                        data-ma-name="{{ m.name }}"
+                        data-current-rolle="{{ m.rolle }}"
+                        title="Rolle ändern">
+                  <i class="bi bi-pencil-square"></i>
+                </button>
+                {% endif %}
               </td>
               <td>
                 {% if m.rolle != 'admin' and teams %}
@@ -642,6 +654,15 @@
             <div class="form-text">Wird für die Anmeldung benötigt</div>
           </div>
           <div class="mb-3">
+            <label class="form-label">Rolle <span class="text-danger">*</span></label>
+            <select name="rolle" class="form-select" required>
+              <option value="rep" selected>Mitarbeiter (Außendienst)</option>
+              <option value="verkaufsleiter">Verkaufsleiter</option>
+              <option value="admin">Leitung (vollständiger Admin-Zugang)</option>
+            </select>
+            <div class="form-text">Leitung kann das Admin-Panel öffnen und alle Daten verwalten.</div>
+          </div>
+          <div class="mb-3">
             <label class="form-label">Passwort</label>
             <input type="text" name="passwort" class="form-control" value="demo123">
             <div class="form-text">Standard: demo123</div>
@@ -655,6 +676,43 @@
     </div>
   </div>
 </div>
+
+<!-- Modal: Rolle ändern (geteilt, per JS befüllt) -->
+<div class="modal fade" id="modalRolle" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <form method="POST" id="formRolle">
+        <div class="modal-header" style="background:#1a3a5c;color:white">
+          <h6 class="modal-title mb-0"><i class="bi bi-person-gear me-2"></i>Rolle ändern</h6>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted mb-3" id="rolleModalName"></p>
+          <select name="rolle" id="rolleSelect" class="form-select">
+            <option value="rep">Mitarbeiter (Außendienst)</option>
+            <option value="verkaufsleiter">Verkaufsleiter</option>
+            <option value="admin">Leitung (Admin-Zugang)</option>
+          </select>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-check me-1"></i>Speichern</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+document.getElementById('modalRolle').addEventListener('show.bs.modal', function(e) {
+  const btn = e.relatedTarget;
+  const maId   = btn.dataset.maId;
+  const maName = btn.dataset.maName;
+  const rolle  = btn.dataset.currentRolle;
+  document.getElementById('rolleModalName').textContent = maName;
+  document.getElementById('formRolle').action = '/admin/mitarbeiter/' + maId + '/rolle';
+  document.getElementById('rolleSelect').value = rolle;
+});
+</script>
 
 <!-- Modal: Verkaufsstelle -->
 <div class="modal fade" id="modalVS" tabindex="-1">
