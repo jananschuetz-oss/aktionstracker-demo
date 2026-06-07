@@ -2507,7 +2507,8 @@ def auto_export_job():
 
 # ─── Wochenbericht ───────────────────────────────────────────────────────────
 
-APP_URL = os.environ.get('APP_URL', '')
+APP_URL    = os.environ.get('APP_URL', '')
+FIRMA_NAME = os.environ.get('FIRMA_NAME', '')
 
 def send_wochenbericht(force=False):
     """Wöchentlichen Bericht generieren und an konfigurierte Empfänger senden.
@@ -2660,7 +2661,8 @@ def send_wochenbericht(force=False):
 </div>
 </body></html>'''
 
-            betreff = f'Wochenbericht Aktionstracker – KW {kw_nr}'
+            firma_teil = f' – {FIRMA_NAME}' if FIRMA_NAME else ''
+            betreff = f'Wochenbericht Aktionstracker{firma_teil} – KW {kw_nr}'
             ok_count = 0
             for mail in empfaenger:
                 if send_email(mail, betreff, html):
