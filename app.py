@@ -359,6 +359,15 @@ def init_db():
             "ALTER TABLE verkaufsstelle ADD COLUMN lat                REAL",
             "ALTER TABLE verkaufsstelle ADD COLUMN lng                REAL",
             "ALTER TABLE mitarbeiter   ADD COLUMN karte_benachrichtigung TEXT",
+            # Wochenbericht-Config – nachrüsten falls DB vor diesem Feature erstellt wurde
+            """CREATE TABLE IF NOT EXISTS wochenbericht_config (
+                id             INTEGER PRIMARY KEY CHECK (id = 1),
+                aktiv          INTEGER DEFAULT 0,
+                empfaenger_2   TEXT    DEFAULT '',
+                empfaenger_3   TEXT    DEFAULT '',
+                zuletzt_gesendet TEXT  DEFAULT ''
+            )""",
+            "INSERT OR IGNORE INTO wochenbericht_config (id) VALUES (1)",
         ]:
             try:
                 db.execute(migration)
@@ -2691,6 +2700,19 @@ def send_wochenbericht(force=False):
 def einstellungen_wochenbericht():
     if session.get('rolle') not in ('admin', 'verkaufsleiter'):
         return redirect(url_for('dashboard'))
+
+    # Sicherheits-Migration: Tabelle + Zeile anlegen falls DB älter als dieses Feature
+    try:
+        execute('''CREATE TABLE IF NOT EXISTS wochenbericht_config (
+            id             INTEGER PRIMARY KEY CHECK (id = 1),
+            aktiv          INTEGER DEFAULT 0,
+            empfaenger_2   TEXT    DEFAULT '',
+            empfaenger_3   TEXT    DEFAULT '',
+            zuletzt_gesendet TEXT  DEFAULT ''
+        )''')
+        execute("INSERT OR IGNORE INTO wochenbericht_config (id) VALUES (1)")
+    except Exception as _e:
+        app.logger.warning(f"wochenbericht_config setup: {_e}")
 
     vkl = query(
         "SELECT email, name FROM mitarbeiter WHERE rolle IN ('verkaufsleiter','admin') "
