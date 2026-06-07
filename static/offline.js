@@ -149,10 +149,29 @@ document.addEventListener('DOMContentLoaded', async () => {
 window.addEventListener('online',  () => { _updateDot(); setTimeout(oqSync, 1500); });
 window.addEventListener('offline', _updateDot);
 
+// Warteschlange komplett leeren (fehlgeschlagene / veraltete Einträge verwerfen)
+async function _dbClear() {
+  const db = await _dbOpen();
+  return new Promise((res, rej) => {
+    const r = db.transaction(_DB_STORE, 'readwrite').objectStore(_DB_STORE).clear();
+    r.onsuccess = () => res();
+    r.onerror   = () => rej(r.error);
+  });
+}
+
+async function oqDiscard() {
+  const count = await _dbCount();
+  const label = count === 1 ? '1 offline gespeicherten Besuch' : count + ' offline gespeicherte Besuche';
+  if (!confirm(`${label} endgültig verwerfen? Die Daten werden nicht auf den Server übertragen.`)) return;
+  await _dbClear();
+  await _updateBanner();
+}
+
 // Globale API für andere Skripte
 window.OQ = {
   save:          _dbSave,
   compressImage: _compressImage,
   updateBanner:  _updateBanner,
   sync:          oqSync,
+  discard:       oqDiscard,
 };
