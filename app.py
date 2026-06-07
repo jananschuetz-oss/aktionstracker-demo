@@ -1165,6 +1165,8 @@ def aktivitaeten_liste():
     ma_ids     = [x.strip() for x in ma_filter.split(',') if x.strip()] if ma_filter else []
     vs_filter  = request.args.get('vs',    '', type=str)
     vs_ids     = [x.strip() for x in vs_filter.split(',') if x.strip()] if vs_filter else []
+    typ_filter = request.args.get('typ',   '', type=str)   # kommagetrennte Typen
+    typ_ids    = [x.strip() for x in typ_filter.split(',') if x.strip()] if typ_filter else []
 
     sql = '''
         SELECT a.id, a.datum, m.name AS mitarbeiter, m.id AS mitarbeiter_id,
@@ -1207,6 +1209,11 @@ def aktivitaeten_liste():
         sql += " AND CAST(strftime('%W', a.datum) AS INTEGER) = ?"
         params.append(int(kw_filter))
 
+    if typ_ids:
+        _ph = ','.join('?' * len(typ_ids))
+        sql += f" AND v.typ IN ({_ph})"
+        params.extend(typ_ids)
+
     sql += " GROUP BY a.id ORDER BY a.datum DESC, a.erstellt_am DESC"
 
     aktivitaeten = query(sql, params)
@@ -1238,6 +1245,9 @@ def aktivitaeten_liste():
     alle_vs = query(
         "SELECT id, name, ort, aktiv FROM verkaufsstelle ORDER BY aktiv DESC, name"
     ) if is_manager else []
+    alle_typen = [r[0] for r in query(
+        "SELECT DISTINCT typ FROM verkaufsstelle WHERE typ IS NOT NULL AND typ != '' ORDER BY typ"
+    )]
     jahre = [r[0] for r in query("SELECT DISTINCT CAST(strftime('%Y', datum) AS INTEGER) FROM aktivitaet ORDER BY 1 DESC")]
     if not jahre:
         jahre = [date.today().year]
@@ -1248,6 +1258,7 @@ def aktivitaeten_liste():
         mo_filter=mo_filter, mo_ids=mo_ids,
         ma_filter=ma_filter, ma_ids=ma_ids,
         vs_filter=vs_filter, vs_ids=vs_ids, vs_history_mode=vs_history_mode,
+        typ_filter=typ_filter, typ_ids=typ_ids, alle_typen=alle_typen,
         alle_ma=alle_ma, alle_vs=alle_vs,
         is_admin=is_admin, is_manager=is_manager)
 
