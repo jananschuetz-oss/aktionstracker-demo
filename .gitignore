@@ -9,3 +9,20 @@ node_modules/
 static/uploads/
 backups/
 *.zip
+
+# Vertrags-Dokumente & lokale Skripte (nicht für Deployment)
+*.docx
+contract_text.txt
+create_*.js
+mockup_*.html
+package.json
+package-lock.json
+
+# Kunden-spezifische Dateien
+static/liesel_kronk.jpg
+static/logoarco.png
+
+# IDE / Tools
+.claude/
+.vscode/
+.idea/
