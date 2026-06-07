@@ -618,7 +618,7 @@
   <h6 class="fw-bold" style="color:#1a3a5c"><i class="bi bi-info-circle me-2"></i>Zugangsdaten &amp; Passwörter</h6>
   <p class="mb-1 small">
     Außendienstmitarbeiter melden sich mit ihrem <strong>Kürzel</strong> und ihrem Passwort an.
-    Standard-Passwort für neue Mitarbeiter: <code>demo123</code> (bitte nach erstem Login ändern).<br>
+    Standard-Passwort für neue Mitarbeiter: <code>{{ default_password }}</code> (bitte nach erstem Login ändern).<br>
     Mitarbeiter können ihr Passwort über <strong>„Passwort vergessen?"</strong> auf der Login-Seite
     zurücksetzen, sofern eine E-Mail-Adresse hinterlegt und E-Mail konfiguriert ist.
   </p>
@@ -664,8 +664,8 @@
           </div>
           <div class="mb-3">
             <label class="form-label">Passwort</label>
-            <input type="text" name="passwort" class="form-control" value="demo123">
-            <div class="form-text">Standard: demo123</div>
+            <input type="text" name="passwort" class="form-control" value="{{ default_password }}">
+            <div class="form-text">Standard: {{ default_password }}</div>
           </div>
         </div>
         <div class="modal-footer">

@@ -45,6 +45,7 @@ EXPORT_EMAIL   = os.environ.get('EXPORT_EMAIL',   '')        # E-Mail für autom
 KARTE_MODUS    = os.environ.get('KARTE_MODUS',   'basis')   # 'aus' | 'basis' | 'heatmap'
 UNIT_LABEL       = os.environ.get('UNIT_LABEL',      'Einheiten')  # Mengenbezeichnung z.B. 'Kisten', 'Kartons', 'Paletten'
 MAX_MITARBEITER  = int(os.environ.get('MAX_MITARBEITER', 0))  # 0 = kein Limit (nicht konfiguriert)
+DEFAULT_PASSWORD = os.environ.get('DEFAULT_PASSWORD', 'start123')  # Standard-Passwort für neue Mitarbeiter
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'static', 'uploads')
 ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'}
@@ -100,6 +101,7 @@ def inject_now():
         'karte_modus':      KARTE_MODUS,
         'unit_label':       UNIT_LABEL,
         'max_mitarbeiter':  MAX_MITARBEITER,
+        'default_password': DEFAULT_PASSWORD,
         'meine_vertretungen': [],
         'alle_kollegen':      [],
     }
@@ -288,7 +290,7 @@ def init_db():
                 name TEXT NOT NULL,
                 kuerzel TEXT NOT NULL UNIQUE,
                 rolle TEXT DEFAULT 'rep',
-                passwort TEXT DEFAULT 'brauerei'
+                passwort TEXT DEFAULT 'start123'
             );
 
             CREATE TABLE IF NOT EXISTS verkaufsstelle (
@@ -419,17 +421,17 @@ def init_db():
         db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Administrator', 'ADMIN', 'admin', ?)", (ADMIN_PASSWORD,))
         db.execute("UPDATE mitarbeiter SET passwort=? WHERE kuerzel='ADMIN'", (ADMIN_PASSWORD,))
         # Demo-Accounts: sichtbar in der Mitarbeiterliste als Beispiel
-        db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Demo Leitung', 'DL', 'admin', 'demo123')")
-        db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Verkaufsleiter', 'VKL', 'verkaufsleiter', 'demo123')")
+        db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Demo Leitung', 'DL', 'admin', DEFAULT_PASSWORD)")
+        db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Verkaufsleiter', 'VKL', 'verkaufsleiter', DEFAULT_PASSWORD)")
 
         # Beispiel-Mitarbeiter (nur bei INIT_DEMO_USERS=true)
         if os.environ.get('INIT_DEMO_USERS', 'true').lower() == 'true':
             reps = [
-                ('Max Müller',     'MM', 'demo123'),
-                ('Anna Schmidt',   'AS', 'demo123'),
-                ('Thomas Weber',   'TW', 'demo123'),
-                ('Lisa Fischer',   'LF', 'demo123'),
-                ('Klaus Hoffmann', 'KH', 'demo123'),
+                ('Max Müller',     'MM', DEFAULT_PASSWORD),
+                ('Anna Schmidt',   'AS', DEFAULT_PASSWORD),
+                ('Thomas Weber',   'TW', DEFAULT_PASSWORD),
+                ('Lisa Fischer',   'LF', DEFAULT_PASSWORD),
+                ('Klaus Hoffmann', 'KH', DEFAULT_PASSWORD),
             ]
             for name, kuerzel, pw in reps:
                 db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, passwort) VALUES (?, ?, ?)", (name, kuerzel, pw))
@@ -1913,7 +1915,7 @@ def admin():
 def admin_mitarbeiter_neu():
     name     = request.form.get('name',    '').strip()
     kuerzel  = request.form.get('kuerzel', '').strip().upper()
-    passwort = request.form.get('passwort', 'demo123').strip()
+    passwort = request.form.get('passwort', DEFAULT_PASSWORD).strip()
     email    = request.form.get('email',   '').strip().lower() or None
     rolle    = request.form.get('rolle',   'rep').strip()
     if rolle not in ('rep', 'verkaufsleiter', 'admin'):
@@ -2380,7 +2382,7 @@ def admin_import_excel():
             name     = _col(row, hmap, 'name', 'Name')
             kuerzel  = _col(row, hmap, 'kuerzel', 'Kürzel', 'kuerzel').upper()
             rolle    = _col(row, hmap, 'rolle', 'Rolle') or 'rep'
-            passwort = _col(row, hmap, 'passwort', 'Passwort') or 'brauerei'
+            passwort = _col(row, hmap, 'passwort', 'Passwort') or DEFAULT_PASSWORD
             email    = _col(row, hmap, 'email', 'Email', 'E-Mail').lower() or None
 
             if not name or not kuerzel:
