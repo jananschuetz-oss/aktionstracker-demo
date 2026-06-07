@@ -82,9 +82,9 @@ async function _updateBanner() {
   if (!banner) return;
   if (count > 0) {
     if (badge) badge.textContent = count === 1 ? '1 Besuch' : count + ' Besuche';
-    banner.style.display = 'flex';
+    banner.classList.remove('d-none');
   } else {
-    banner.style.display = 'none';
+    banner.classList.add('d-none');
   }
 }
 
