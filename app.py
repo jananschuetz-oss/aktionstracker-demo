@@ -800,10 +800,12 @@ def login():
                 session['rolle']   = admin['rolle']
                 return redirect(url_for('dashboard'))
 
-        # Normale Login-Logik für alle anderen
+        # Normale Login-Logik für alle anderen (E-Mail, Kürzel oder vollständiger Name)
         user = query("SELECT * FROM mitarbeiter WHERE LOWER(email) = LOWER(?)", (email_input,), one=True)
         if not user:
             user = query("SELECT * FROM mitarbeiter WHERE UPPER(kuerzel) = UPPER(?)", (email_input,), one=True)
+        if not user:
+            user = query("SELECT * FROM mitarbeiter WHERE LOWER(name) = LOWER(?)", (email_input,), one=True)
         if user and user['passwort'] == passwort:
             session.permanent  = True          # läuft nach PERMANENT_SESSION_LIFETIME ab
             session['user_id'] = user['id']
