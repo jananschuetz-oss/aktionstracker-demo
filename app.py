@@ -2509,19 +2509,22 @@ def auto_export_job():
 
 APP_URL = os.environ.get('APP_URL', '')
 
-def send_wochenbericht():
-    """Wöchentlichen Bericht generieren und an konfigurierte Empfänger senden."""
+def send_wochenbericht(force=False):
+    """Wöchentlichen Bericht generieren und an konfigurierte Empfänger senden.
+    force=True überspringt aktiv- und Duplikat-Prüfung (für Test-Versand)."""
     with app.app_context():
         try:
             config = query("SELECT * FROM wochenbericht_config WHERE id=1", one=True)
-            if not config or not config['aktiv']:
-                return
+            if not config:
+                return False, "Keine Konfiguration gefunden."
+            if not force and not config['aktiv']:
+                return False, "Wochenbericht ist deaktiviert."
 
-            # Nicht zwei Mal in derselben Woche senden
+            # Nicht zwei Mal in derselben Woche senden (außer bei force)
             kw_key = date.today().strftime('%Y-W%V')
-            if config['zuletzt_gesendet'] == kw_key:
+            if not force and config['zuletzt_gesendet'] == kw_key:
                 app.logger.info("WOCHENBERICHT: Diese Woche bereits gesendet – übersprungen.")
-                return
+                return False, "Diese Woche bereits gesendet."
 
             # Empfänger: VKL-E-Mail + bis zu 2 weitere
             vkl = query(
@@ -2538,7 +2541,7 @@ def send_wochenbericht():
                 empfaenger.append(config['empfaenger_3'])
             if not empfaenger:
                 app.logger.warning("WOCHENBERICHT: Keine Empfänger konfiguriert – übersprungen.")
-                return
+                return False, "Keine Empfänger konfiguriert. Bitte E-Mail-Adresse des Verkaufsleiters im Admin-Panel hinterlegen oder einen zusätzlichen Empfänger eintragen."
 
             # Zeiträume
             heute          = date.today()
@@ -2658,14 +2661,23 @@ def send_wochenbericht():
 </body></html>'''
 
             betreff = f'Wochenbericht KW {kw_nr} – Aktions Tracker'
+            ok_count = 0
             for mail in empfaenger:
-                send_email(mail, betreff, html)
-                app.logger.info(f"WOCHENBERICHT KW {kw_nr}: Gesendet an {mail}")
+                if send_email(mail, betreff, html):
+                    app.logger.info(f"WOCHENBERICHT KW {kw_nr}: Gesendet an {mail}")
+                    ok_count += 1
+                else:
+                    app.logger.error(f"WOCHENBERICHT KW {kw_nr}: Versand an {mail} fehlgeschlagen")
 
-            execute("UPDATE wochenbericht_config SET zuletzt_gesendet=? WHERE id=1", (kw_key,))
+            if ok_count > 0:
+                execute("UPDATE wochenbericht_config SET zuletzt_gesendet=? WHERE id=1", (kw_key,))
+                return True, f"Gesendet an {ok_count} Empfänger: {', '.join(empfaenger)}"
+            else:
+                return False, "E-Mail-Versand fehlgeschlagen – SMTP-Konfiguration prüfen (Railway-Umgebungsvariablen MAIL_SERVER, MAIL_USERNAME, MAIL_PASSWORD)."
 
         except Exception as e:
             app.logger.error(f"WOCHENBERICHT Fehler: {e}", exc_info=True)
+            return False, f"Fehler: {e}"
 
 
 @app.route('/einstellungen/wochenbericht', methods=['GET', 'POST'])
@@ -2690,10 +2702,8 @@ def einstellungen_wochenbericht():
             (aktiv, empfaenger_2, empfaenger_3)
         )
         if request.form.get('jetzt_senden'):
-            # Sofortversand: zuletzt_gesendet kurz leeren damit send() nicht blockt
-            execute("UPDATE wochenbericht_config SET zuletzt_gesendet='' WHERE id=1")
-            send_wochenbericht()
-            flash('Testbericht wurde sofort gesendet.', 'success')
+            ok, msg = send_wochenbericht(force=True)
+            flash(msg, 'success' if ok else 'danger')
         else:
             flash('Einstellungen gespeichert.', 'success')
         return redirect(url_for('einstellungen_wochenbericht'))
