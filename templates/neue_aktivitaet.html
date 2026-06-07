@@ -558,5 +558,93 @@ document.getElementById('aktivForm').addEventListener('submit', function(e) {
   }
 });
 vsSearch.addEventListener('input', function() { vsSearch.classList.remove('is-invalid'); });
+
+// ── Offline-Submit-Abfang ─────────────────────────────────────────────────────
+document.getElementById('aktivForm').addEventListener('submit', async function(e) {
+  // Nur abfangen wenn wirklich offline
+  if (navigator.onLine) return;
+
+  e.preventDefault();
+  e.stopImmediatePropagation();
+
+  const vsId = document.getElementById('vsId').value;
+  if (!vsId) {
+    vsSearch.classList.add('is-invalid');
+    vsSearch.focus();
+    vsSearch.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+
+  const fotoFile = document.getElementById('fotoInput').files[0];
+  if (!fotoFile) {
+    const lbl = document.getElementById('fotoLabel');
+    if (lbl) { lbl.style.borderColor = '#dc3545'; lbl.style.background = '#fff5f5'; }
+    lbl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // kleinen Hinweis einblenden
+    let hint = document.getElementById('fotoOfflineHint');
+    if (!hint) {
+      hint = document.createElement('div');
+      hint.id = 'fotoOfflineHint';
+      hint.className = 'text-danger small mt-1';
+      hint.textContent = 'Foto ist Pflicht – auch im Offline-Modus.';
+      document.getElementById('fotoLabel').insertAdjacentElement('afterend', hint);
+    }
+    return;
+  }
+
+  // Foto komprimieren (Canvas, max 1600px, JPEG 80%)
+  const saveBtn = document.querySelector('#aktivForm button[type=submit]');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Wird gespeichert…'; }
+
+  const fotoB64 = await window.OQ.compressImage(fotoFile);
+
+  // Formular-Daten sammeln
+  const datum   = document.querySelector('[name="datum"]').value;
+  const notizen = document.querySelector('[name="notizen"]').value;
+  const displays = {};
+  document.querySelectorAll('.disp-input').forEach(el => {
+    const v = parseInt(el.value);
+    if (v > 0) displays[el.dataset.id] = v;
+  });
+  const bier = {};
+  document.querySelectorAll('.bier-input').forEach(el => {
+    const v = parseInt(el.value);
+    if (v > 0) bier[el.dataset.id] = v;
+  });
+
+  const vsLabel = document.getElementById('vsSearch').value;
+
+  // In IndexedDB speichern
+  await window.OQ.save({
+    data: { datum, verkaufsstelle_id: vsId, notizen, foto: fotoB64, displays, bier },
+    vs_label: vsLabel,
+    saved_at: new Date().toISOString(),
+  });
+
+  await window.OQ.updateBanner();
+
+  // Formular zurücksetzen + Erfolgs-Feedback
+  if (saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = '<i class="bi bi-check-circle me-2"></i>Aktivität speichern'; }
+
+  const successDiv = document.createElement('div');
+  successDiv.className = 'alert alert-success d-flex align-items-center gap-2 mt-3';
+  successDiv.innerHTML = `
+    <i class="bi bi-cloud-check fs-4"></i>
+    <div>
+      <strong>Offline gespeichert!</strong><br>
+      <small>Besuch bei <em>${vsLabel}</em> wird automatisch übertragen sobald du wieder online bist.</small>
+    </div>`;
+  document.getElementById('aktivForm').insertAdjacentElement('beforebegin', successDiv);
+  document.getElementById('aktivForm').reset();
+  // VS-Auswahl manuell zurücksetzen
+  vsClearSelection();
+  document.getElementById('vsLetzterBesuch').style.display = 'none';
+  document.getElementById('dispGesamt').textContent = '0';
+  document.getElementById('kistenGesamt').textContent = '0';
+  successDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+  // Erfolgsmeldung nach 6s ausblenden
+  setTimeout(() => { if (successDiv.parentNode) successDiv.remove(); }, 6000);
+});
 </script>
 {% endblock %}

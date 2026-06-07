@@ -1,13 +1,16 @@
-const CACHE = 'arcobraeu-v3';
-const OFFLINE = [
-  'https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css',
-  'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css',
-  'https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js',
-  'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js',
-];
+const CACHE = 'at-v4';
+const CDN_HOSTS = ['cdn.jsdelivr.net'];
+
+// App-Shell-Seiten: nach erstem Laden gecacht, dann offline verfügbar
+const SHELL_PATHS = ['/aktivitaet/neu', '/aktivitaeten', '/dashboard'];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(OFFLINE).catch(() => {})));
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll([
+    'https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css',
+    'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css',
+    'https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js',
+    'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js',
+  ]).catch(() => {})));
   self.skipWaiting();
 });
 
@@ -19,14 +22,42 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  // Nur CDN-Assets cachen, App-Requests immer live
-  if (e.request.url.includes('cdn.jsdelivr.net')) {
+  if (e.request.method !== 'GET') return;
+  const url = new URL(e.request.url);
+
+  // CDN-Assets: Cache-First (blitzschnell, offline verfügbar)
+  if (CDN_HOSTS.some(h => url.hostname.includes(h))) {
     e.respondWith(
       caches.match(e.request).then(r => r || fetch(e.request).then(res => {
-        const clone = res.clone();
-        caches.open(CACHE).then(c => c.put(e.request, clone));
+        caches.open(CACHE).then(c => c.put(e.request, res.clone()));
         return res;
       }))
     );
+    return;
+  }
+
+  // Static-Files (offline.js, manifest.json, icons)
+  if (url.pathname.startsWith('/static/')) {
+    e.respondWith(
+      caches.match(e.request).then(r => r || fetch(e.request).then(res => {
+        if (res.ok) caches.open(CACHE).then(c => c.put(e.request, res.clone()));
+        return res;
+      }).catch(() => caches.match(e.request)))
+    );
+    return;
+  }
+
+  // App-Shell-Seiten: Network-First, Cache als Fallback
+  // Beim ersten Laden online → gecacht; danach offline nutzbar
+  if (SHELL_PATHS.some(p => url.pathname === p)) {
+    e.respondWith(
+      fetch(e.request)
+        .then(res => {
+          if (res.ok) caches.open(CACHE).then(c => c.put(e.request, res.clone()));
+          return res;
+        })
+        .catch(() => caches.match(e.request))
+    );
+    return;
   }
 });

@@ -4,6 +4,7 @@ import os
 import uuid
 import secrets
 import shutil
+import base64
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -1091,6 +1092,65 @@ def api_letzter_besuch(vs_id):
             'mitarbeiter': row['mitarbeiter'] or None
         })
     return jsonify({'besuche': besuche})
+
+
+@app.route('/api/aktivitaet/offline-sync', methods=['POST'])
+@login_required
+def api_aktivitaet_offline_sync():
+    """Nimmt eine offline gespeicherte Aktivität als JSON (base64-Foto) entgegen."""
+    data = request.get_json(force=True, silent=True)
+    if not data:
+        return jsonify({'ok': False, 'error': 'Kein JSON'}), 400
+
+    datum   = data.get('datum', '').strip()
+    vs_id   = data.get('verkaufsstelle_id', '')
+    notizen = data.get('notizen', '')
+    foto_b64 = data.get('foto', '')   # 'data:image/jpeg;base64,...'
+    displays = data.get('displays', {})  # {ds_id: menge}
+    bier_map = data.get('bier', {})      # {bier_id: kisten}
+
+    if not datum or not vs_id:
+        return jsonify({'ok': False, 'error': 'Datum und Verkaufsstelle fehlen'}), 400
+
+    # Foto dekodieren und speichern
+    foto_pfad = None
+    if foto_b64 and ',' in foto_b64:
+        try:
+            header, b64data = foto_b64.split(',', 1)
+            ext = 'jpg'
+            if 'png'  in header: ext = 'png'
+            elif 'webp' in header: ext = 'webp'
+            foto_bytes = base64.b64decode(b64data)
+            dateiname  = f"akt_{uuid.uuid4().hex}.{ext}"
+            with open(os.path.join(UPLOAD_FOLDER, dateiname), 'wb') as f:
+                f.write(foto_bytes)
+            foto_pfad = dateiname
+        except Exception as exc:
+            app.logger.warning(f"Offline-Sync Foto-Fehler: {exc}")
+
+    anzahl_displays = sum(int(v) for v in displays.values()
+                          if str(v).lstrip('-').isdigit() and int(v) > 0)
+
+    akt_id = execute(
+        "INSERT INTO aktivitaet (datum, mitarbeiter_id, verkaufsstelle_id, "
+        "anzahl_displays, notizen, foto_pfad) VALUES (?,?,?,?,?,?)",
+        (datum, session['user_id'], vs_id, anzahl_displays, notizen, foto_pfad)
+    )
+
+    for ds_id, menge in displays.items():
+        menge = int(menge)
+        if menge > 0:
+            execute("INSERT INTO displayposition (aktivitaet_id, displaysorte_id, anzahl)"
+                    " VALUES (?,?,?)", (akt_id, int(ds_id), menge))
+
+    for bier_id, kisten in bier_map.items():
+        kisten = int(kisten)
+        if kisten > 0:
+            execute("INSERT INTO bestellposition (aktivitaet_id, biersorte_id, kisten_anzahl)"
+                    " VALUES (?,?,?)", (akt_id, int(bier_id), kisten))
+
+    app.logger.info(f"Offline-Sync: Aktivität {akt_id} für User {session['user_id']} gespeichert")
+    return jsonify({'ok': True, 'akt_id': akt_id})
 
 
 # ─── Routes: Aktivitäten ──────────────────────────────────────────────────────
