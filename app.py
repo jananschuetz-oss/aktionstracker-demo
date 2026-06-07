@@ -160,7 +160,7 @@ def send_email(to: str, subject: str, body_html: str) -> bool:
         msg['From']    = MAIL_FROM
         msg['To']      = to
         msg.attach(MIMEText(body_html, 'html', 'utf-8'))
-        with smtplib.SMTP(MAIL_SERVER, MAIL_PORT, timeout=15) as smtp:
+        with smtplib.SMTP(MAIL_SERVER, MAIL_PORT, timeout=10) as smtp:
             if MAIL_USE_TLS:
                 smtp.starttls()
             smtp.login(MAIL_USERNAME, MAIL_PASSWORD)
