@@ -1048,7 +1048,7 @@ def api_letzter_besuch(vs_id):
     is_manager = session.get('rolle') in ('admin', 'verkaufsleiter')
     if is_manager:
         rows = query('''
-            SELECT a.datum, a.anzahl_displays, a.notizen,
+            SELECT a.id, a.datum, a.anzahl_displays, a.notizen,
                    m.name AS mitarbeiter,
                    COALESCE((SELECT SUM(bp.kisten_anzahl) FROM bestellposition bp
                              WHERE bp.aktivitaet_id = a.id), 0) AS kisten_gesamt
@@ -1059,7 +1059,7 @@ def api_letzter_besuch(vs_id):
         ''', (vs_id,))
     else:
         rows = query('''
-            SELECT a.datum, a.anzahl_displays, a.notizen,
+            SELECT a.id, a.datum, a.anzahl_displays, a.notizen,
                    NULL AS mitarbeiter,
                    COALESCE((SELECT SUM(bp.kisten_anzahl) FROM bestellposition bp
                              WHERE bp.aktivitaet_id = a.id), 0) AS kisten_gesamt
@@ -1069,8 +1069,24 @@ def api_letzter_besuch(vs_id):
         ''', (vs_id, ma_id))
     if not rows:
         return jsonify({'besuche': []})
+
+    # Einzelpositionen des neuesten Besuchs für "Letzte Bestellung übernehmen"
+    neueste_id = rows[0]['id']
+    bier_pos = query(
+        "SELECT biersorte_id, kisten_anzahl FROM bestellposition WHERE aktivitaet_id = ?",
+        (neueste_id,)
+    )
+    disp_pos = query(
+        "SELECT displaysorte_id, anzahl FROM displayposition WHERE aktivitaet_id = ?",
+        (neueste_id,)
+    )
+    letzte_bestellung = {
+        'bier':     {str(r['biersorte_id']):   r['kisten_anzahl'] for r in bier_pos},
+        'displays': {str(r['displaysorte_id']): r['anzahl']        for r in disp_pos},
+    }
+
     besuche = []
-    for row in rows:
+    for i, row in enumerate(rows):
         try:
             tage = (date.today() - date.fromisoformat(row['datum'])).days
         except Exception:
@@ -1083,14 +1099,17 @@ def api_letzter_besuch(vs_id):
         notizen = (row['notizen'] or '').strip()
         if len(notizen) > 60:
             notizen = notizen[:60] + '…'
-        besuche.append({
+        entry = {
             'datum':       datum_fmt,
             'tage_ago':    tage,
             'displays':    row['anzahl_displays'] or 0,
             'kisten':      row['kisten_gesamt']   or 0,
             'notizen':     notizen,
-            'mitarbeiter': row['mitarbeiter'] or None
-        })
+            'mitarbeiter': row['mitarbeiter'] or None,
+        }
+        if i == 0:
+            entry['letzte_bestellung'] = letzte_bestellung
+        besuche.append(entry)
     return jsonify({'besuche': besuche})
 
 

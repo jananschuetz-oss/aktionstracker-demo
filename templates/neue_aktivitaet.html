@@ -511,11 +511,27 @@ function vsShowLetzterBesuch(id) {
         </tr>`;
       }).join('');
       const maHeader = showMa ? '<th class="fw-normal">Rep</th>' : '';
+
+      // Letzte Bestellung für den Button merken
+      const lb = besuche[0].letzte_bestellung;
+      window._letzteBestellung = lb || null;
+
+      // Button nur zeigen wenn Positionen vorhanden
+      const hatPositionen = lb && (Object.keys(lb.bier||{}).length + Object.keys(lb.displays||{}).length) > 0;
+      const btnHtml = hatPositionen ? `
+        <button type="button" onclick="letzteBestellungUebernehmen()"
+          class="btn btn-sm d-flex align-items-center gap-1"
+          style="background:#fff;color:#1a3a5c;border:1.5px solid #2e6da4;
+                 font-size:.78rem;font-weight:600;padding:.2rem .6rem;white-space:nowrap">
+          <i class="bi bi-arrow-counterclockwise"></i> Letzte Bestellung übernehmen
+        </button>` : '';
+
       box.innerHTML = `
         <div class="rounded-3" style="background:#eef4fb;border:1px solid #b8d4f0;overflow:hidden">
-          <div class="px-2 py-1 small fw-semibold d-flex align-items-center gap-1"
+          <div class="px-2 py-1 small fw-semibold d-flex align-items-center justify-content-between gap-1"
                style="background:#d8eaf8;color:#1d4e8f;border-bottom:1px solid #b8d4f0">
-            <i class="bi bi-clock-history"></i> Letzte Besuche ${trendHtml}
+            <span><i class="bi bi-clock-history"></i> Letzte Besuche ${trendHtml}</span>
+            ${btnHtml}
           </div>
           <table class="table table-sm mb-0" style="font-size:.82em">
             <thead class="text-muted">
@@ -558,6 +574,58 @@ document.getElementById('aktivForm').addEventListener('submit', function(e) {
   }
 });
 vsSearch.addEventListener('input', function() { vsSearch.classList.remove('is-invalid'); });
+
+// ── Letzte Bestellung übernehmen ──────────────────────────────────────────────
+function letzteBestellungUebernehmen() {
+  const lb = window._letzteBestellung;
+  if (!lb) return;
+
+  // Bier-Felder befüllen
+  if (lb.bier) {
+    Object.entries(lb.bier).forEach(([id, menge]) => {
+      const el = document.getElementById('bier_' + id);
+      if (el) {
+        el.value = menge || '';
+        el.dispatchEvent(new Event('input'));
+      }
+    });
+  }
+
+  // Display-Felder befüllen
+  if (lb.displays) {
+    Object.entries(lb.displays).forEach(([id, anzahl]) => {
+      const el = document.getElementById('disp_' + id);
+      if (el) {
+        el.value = anzahl || '';
+        el.dispatchEvent(new Event('input'));
+      }
+    });
+  }
+
+  updateGesamt();
+  updateDispGesamt();
+  updateMobileSummary();
+
+  // Kurzes visuelles Feedback am Button
+  const btn = document.querySelector('[onclick="letzteBestellungUebernehmen()"]');
+  if (btn) {
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<i class="bi bi-check2"></i> Übernommen!';
+    btn.style.background = '#d4edda';
+    btn.style.borderColor = '#27ae60';
+    btn.style.color = '#145a32';
+    setTimeout(() => {
+      btn.innerHTML = orig;
+      btn.style.background = '';
+      btn.style.borderColor = '';
+      btn.style.color = '';
+    }, 2000);
+  }
+
+  // Zur Bestellsektion scrollen
+  document.querySelector('.bier-input')?.closest('.card')
+    ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 
 // ── Offline-Submit-Abfang ─────────────────────────────────────────────────────
 document.getElementById('aktivForm').addEventListener('submit', async function(e) {
