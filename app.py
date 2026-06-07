@@ -2510,11 +2510,9 @@ def auto_export_job():
 APP_URL    = os.environ.get('APP_URL', '')
 FIRMA_NAME = os.environ.get('FIRMA_NAME', '')
 
-def send_wochenbericht(force=False):
-    """Wöchentlichen Bericht generieren und an konfigurierte Empfänger senden.
-    force=True überspringt aktiv- und Duplikat-Prüfung (für Test-Versand)."""
-    with app.app_context():
-        try:
+def _do_send_wochenbericht(force=False):
+    """Kern-Logik – muss innerhalb eines aktiven App-Contexts aufgerufen werden."""
+    try:
             config = query("SELECT * FROM wochenbericht_config WHERE id=1", one=True)
             if not config:
                 return False, "Keine Konfiguration gefunden."
@@ -2677,9 +2675,15 @@ def send_wochenbericht(force=False):
             else:
                 return False, "E-Mail-Versand fehlgeschlagen – SMTP-Konfiguration prüfen (Railway-Umgebungsvariablen MAIL_SERVER, MAIL_USERNAME, MAIL_PASSWORD)."
 
-        except Exception as e:
-            app.logger.error(f"WOCHENBERICHT Fehler: {e}", exc_info=True)
-            return False, f"Fehler: {e}"
+    except Exception as e:
+        app.logger.error(f"WOCHENBERICHT Fehler: {e}", exc_info=True)
+        return False, f"Fehler: {e}"
+
+
+def send_wochenbericht(force=False):
+    """Wrapper für APScheduler – erstellt eigenen App-Context."""
+    with app.app_context():
+        return _do_send_wochenbericht(force=force)
 
 
 @app.route('/einstellungen/wochenbericht', methods=['GET', 'POST'])
@@ -2704,7 +2708,7 @@ def einstellungen_wochenbericht():
             (aktiv, empfaenger_2, empfaenger_3)
         )
         if request.form.get('jetzt_senden'):
-            ok, msg = send_wochenbericht(force=True)
+            ok, msg = _do_send_wochenbericht(force=True)
             flash(msg, 'success' if ok else 'danger')
         else:
             flash('Einstellungen gespeichert.', 'success')
