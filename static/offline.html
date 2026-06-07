@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aktions Tracker – Offline</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #f4f6fa;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .card {
+      background: #fff;
+      border-radius: 1rem;
+      box-shadow: 0 4px 24px rgba(0,0,0,.1);
+      max-width: 420px;
+      width: 100%;
+      overflow: hidden;
+    }
+    .header {
+      background: linear-gradient(135deg, #1a3a5c, #2e6da4);
+      color: #fff;
+      padding: 1.5rem;
+      text-align: center;
+    }
+    .header .icon {
+      font-size: 3rem;
+      margin-bottom: .5rem;
+    }
+    .header h1 {
+      font-size: 1.3rem;
+      font-weight: 700;
+    }
+    .body {
+      padding: 1.75rem 1.5rem;
+    }
+    .alert {
+      background: #fff8e1;
+      border: 1px solid #f5a623;
+      border-radius: .6rem;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1.25rem;
+      color: #7a4f00;
+      font-size: .95rem;
+      line-height: 1.5;
+    }
+    .alert strong { display: block; margin-bottom: .25rem; font-size: 1rem; }
+    .steps {
+      list-style: none;
+      padding: 0;
+      margin-bottom: 1.5rem;
+    }
+    .steps li {
+      display: flex;
+      align-items: flex-start;
+      gap: .75rem;
+      padding: .6rem 0;
+      border-bottom: 1px solid #eee;
+      font-size: .9rem;
+      color: #333;
+      line-height: 1.4;
+    }
+    .steps li:last-child { border-bottom: none; }
+    .step-num {
+      background: #1a3a5c;
+      color: #fff;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: .75rem;
+      font-weight: 700;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .btn {
+      display: block;
+      width: 100%;
+      padding: .85rem;
+      background: linear-gradient(135deg, #1a3a5c, #2e6da4);
+      color: #fff;
+      border: none;
+      border-radius: .6rem;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+      text-decoration: none;
+    }
+    .btn:hover { opacity: .92; }
+    .wifi-icon { font-size: 2.5rem; text-align: center; margin-bottom: .75rem; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <div class="icon">📶</div>
+      <h1>Aktions Tracker</h1>
+    </div>
+    <div class="body">
+      <div class="wifi-icon">🔌</div>
+      <div class="alert">
+        <strong>Kein Internet – App noch nicht bereit</strong>
+        Die App muss zuerst einmal mit Internetverbindung geöffnet werden, damit sie danach auch offline funktioniert.
+      </div>
+      <ul class="steps">
+        <li>
+          <span class="step-num">1</span>
+          <span>Mit WLAN oder mobilem Internet verbinden</span>
+        </li>
+        <li>
+          <span class="step-num">2</span>
+          <span>App einmal normal öffnen und einloggen</span>
+        </li>
+        <li>
+          <span class="step-num">3</span>
+          <span>Seite „Neue Aktivität" aufrufen – ab jetzt ist die App offline verfügbar</span>
+        </li>
+      </ul>
+      <button class="btn" onclick="window.location.reload()">
+        🔄 Erneut versuchen
+      </button>
+    </div>
+  </div>
+</body>
+</html>
