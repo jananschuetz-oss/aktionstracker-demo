@@ -1859,7 +1859,7 @@ def export_excel():
 @app.route('/admin')
 @admin_required
 def admin():
-    mitarbeiter     = query("SELECT m.*, t.name AS team_name FROM mitarbeiter m LEFT JOIN team t ON t.id = m.team_id ORDER BY m.rolle, m.name")
+    mitarbeiter     = query("SELECT m.*, t.name AS team_name FROM mitarbeiter m LEFT JOIN team t ON t.id = m.team_id WHERE m.kuerzel != 'ADMIN' ORDER BY m.rolle, m.name")
     verkaufsstellen = query("SELECT * FROM verkaufsstelle ORDER BY aktiv DESC, name")
     biersorten      = query("SELECT * FROM biersorte ORDER BY name")
     displaysorte    = query("SELECT * FROM displaysorte ORDER BY name")
