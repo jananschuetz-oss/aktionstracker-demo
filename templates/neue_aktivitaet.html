@@ -203,7 +203,7 @@
           <div class="mt-3 p-3 rounded-3" style="background:#fffbf0;border:2px solid #c8860a">
             <div class="d-flex justify-content-between align-items-center">
               <span class="fw-bold" style="color:#1a3a5c">
-                <i class="bi bi-box-seam me-2"></i>Kisten gesamt:
+                <i class="bi bi-box-seam me-2"></i>{{ unit_label }} gesamt:
               </span>
               <span class="fw-bold fs-4" style="color:#c8860a" id="kistenGesamt">0</span>
             </div>
@@ -401,7 +401,7 @@ function updateMobileSummary() {
   if (s) {
     const parts = [];
     if (displays > 0) parts.push(displays + ' Display(s)');
-    if (kisten   > 0) parts.push(kisten   + ' Kisten');
+    if (kisten   > 0) parts.push(kisten   + ' {{ unit_label }}');
     s.textContent = parts.length ? '· ' + parts.join(', ') : '';
   }
 }
@@ -486,7 +486,7 @@ function vsShowLetzterBesuch(id) {
           <i class="bi bi-clock-history me-1"></i>Noch kein Besuch eingetragen</div>`;
         return;
       }
-      // Trend: Kisten neuester vs. ältester Besuch
+      // Trend: {{ unit_label }} neuester vs. ältester Besuch
       let trendHtml = '';
       if (besuche.length > 1) {
         const diff = besuche[0].kisten - besuche[besuche.length - 1].kisten;
@@ -537,7 +537,7 @@ function vsShowLetzterBesuch(id) {
             <thead class="text-muted">
               <tr>
                 <th class="ps-2 fw-normal">Datum</th>
-                <th class="fw-normal">Kisten</th>
+                <th class="fw-normal">{{ unit_label }}</th>
                 <th class="fw-normal">Displays</th>
                 ${maHeader}
                 <th class="fw-normal">Notiz</th>

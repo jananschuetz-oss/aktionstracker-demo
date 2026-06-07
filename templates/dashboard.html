@@ -50,7 +50,7 @@
   </div>
   <div class="col-6 col-lg-3">
     <div class="stat-card amber h-100">
-      <p><i class="bi bi-box-seam me-1"></i>Kisten gesamt</p>
+      <p><i class="bi bi-box-seam me-1"></i>{{ unit_label }} gesamt</p>
       <h2>{{ jahres.kisten or 0 }}</h2>
       <p style="font-size:.8rem;margin-top:.25rem">Kumuliert {{ jahr }}</p>
       <i class="bi bi-box-seam bg-icon"></i>
@@ -74,7 +74,7 @@
     </div>
     {% else %}
     <div class="stat-card purple h-100">
-      <p><i class="bi bi-bar-chart me-1"></i>Ø Kisten/Besuch</p>
+      <p><i class="bi bi-bar-chart me-1"></i>Ø {{ unit_label }}/Besuch</p>
       <h2>{% if jahres.besuche %}{{ ((jahres.kisten or 0) / jahres.besuche)|round(1) }}{% else %}–{% endif %}</h2>
       <p style="font-size:.8rem;margin-top:.25rem">Durchschnitt {{ jahr }}</p>
       <i class="bi bi-bar-chart bg-icon"></i>
@@ -88,7 +88,7 @@
   <div class="col-lg-8">
     <div class="card h-100">
       <div class="card-header">
-        <i class="bi bi-bar-chart-line me-2"></i>Wochenübersicht – Displays & Kisten pro Kalenderwoche
+        <i class="bi bi-bar-chart-line me-2"></i>Wochenübersicht – Displays &amp; {{ unit_label }} pro Kalenderwoche
       </div>
       <div class="card-body">
         {% if kw_data %}
@@ -140,7 +140,7 @@
               <tr>
                 <th>KW</th>
                 <th class="text-center">Displays</th>
-                <th class="text-center">Kisten</th>
+                <th class="text-center">{{ unit_label }}</th>
                 <th class="text-center">Besuche</th>
               </tr>
             </thead>
@@ -186,7 +186,7 @@
                 <th>#</th>
                 <th>Mitarbeiter</th>
                 <th class="text-center">Displays</th>
-                <th class="text-center">Kisten</th>
+                <th class="text-center">{{ unit_label }}</th>
                 <th class="text-center">Besuche</th>
               </tr>
             </thead>
@@ -230,7 +230,7 @@
           {% if is_manager %}<th>Mitarbeiter</th>{% endif %}
           <th>Verkaufsstelle</th>
           <th class="text-center">Displays</th>
-          <th class="text-center">Kisten</th>
+          <th class="text-center">{{ unit_label }}</th>
         </tr>
       </thead>
       <tbody>
@@ -275,7 +275,7 @@ new Chart(kwCtx, {
         yAxisID: 'y',
       },
       {
-        label: 'Kisten',
+        label: '{{ unit_label }}',
         data: {{ chart_kist|safe }},
         backgroundColor: 'rgba(200,134,10,.8)',
         borderColor: '#c8860a',
@@ -297,7 +297,7 @@ new Chart(kwCtx, {
       y2: {
         beginAtZero: true,
         position: 'right',
-        title: { display: true, text: 'Kisten', color: '#c8860a', font: { weight: 'bold' } },
+        title: { display: true, text: '{{ unit_label }}', color: '#c8860a', font: { weight: 'bold' } },
         ticks: { color: '#c8860a' },
         grid: { drawOnChartArea: false }
       }

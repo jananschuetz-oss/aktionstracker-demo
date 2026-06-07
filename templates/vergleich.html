@@ -106,7 +106,7 @@
         {% if akt_mon %}
         <div class="mb-3">
           <div class="d-flex justify-content-between mb-1">
-            <span class="small fw-semibold" style="color:#c8860a"><i class="bi bi-box-seam me-1"></i>Kisten</span>
+            <span class="small fw-semibold" style="color:#c8860a"><i class="bi bi-box-seam me-1"></i>{{ unit_label }}</span>
             <span class="small">
               <strong style="color:#c8860a">{{ akt_mon.kisten_ist }}</strong> / {{ akt_mon.kisten_ziel }}
               {% if akt_mon.kisten_pct is not none %}
@@ -144,7 +144,7 @@
       <div class="card-body">
         <div class="mb-3">
           <div class="d-flex justify-content-between mb-1">
-            <span class="small fw-semibold" style="color:#c8860a"><i class="bi bi-box-seam me-1"></i>Kisten</span>
+            <span class="small fw-semibold" style="color:#c8860a"><i class="bi bi-box-seam me-1"></i>{{ unit_label }}</span>
             <span class="small">
               <strong style="color:#c8860a">{{ selected_rep.kisten_ist }}</strong> / {{ k_jz or '–' }}
               {% if k_pct_j is not none %}<span class="badge ms-1 {% if k_pct_j >= 100 %}bg-success{% elif k_pct_j >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}">{{ k_pct_j }}%</span>{% endif %}
@@ -165,7 +165,7 @@
         {% if k_jz %}
         <div class="text-muted mt-2" style="font-size:.72rem">
           <i class="bi bi-info-circle me-1"></i>
-          Hochrechnung linear: ~{{ ((selected_rep.kisten_ist / aktueller_monat * 12)|round(0)|int) }} Kisten/Jahr
+          Hochrechnung linear: ~{{ ((selected_rep.kisten_ist / aktueller_monat * 12)|round(0)|int) }} {{ unit_label }}/Jahr
         </div>
         {% endif %}
       </div>
@@ -181,7 +181,7 @@
       <div class="card-body">
         <div class="mb-3">
           <div class="d-flex justify-content-between mb-1">
-            <span class="small fw-semibold" style="color:#c8860a"><i class="bi bi-box-seam me-1"></i>Kisten</span>
+            <span class="small fw-semibold" style="color:#c8860a"><i class="bi bi-box-seam me-1"></i>{{ unit_label }}</span>
             <span class="small">
               <strong style="color:#c8860a">{{ kurs.kum_k_ist }}</strong> / {{ kurs.kum_k_ziel }}
               {% if kk is not none %}<span class="badge ms-1 {% if kk >= 100 %}bg-success{% elif kk >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}">{{ kk }}%</span>{% endif %}
@@ -211,7 +211,7 @@
 <div class="row g-3 mb-4">
   <div class="col-lg-6">
     <div class="card">
-      <div class="card-header secondary"><i class="bi bi-bar-chart me-2"></i>Kisten je Monat – IST vs. Monatsziel</div>
+      <div class="card-header secondary"><i class="bi bi-bar-chart me-2"></i>{{ unit_label }} je Monat – IST vs. Monatsziel</div>
       <div class="card-body"><div class="chart-container"><canvas id="monKistChart"></canvas></div></div>
     </div>
   </div>
@@ -227,7 +227,7 @@
 <div class="card mb-4">
   <div class="card-header" style="background:linear-gradient(135deg,#c8860a,#f5a623)">
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-      <span><i class="bi bi-calendar-month me-2"></i>Monats-Übersicht {{ jahr }} – Kisten mit Sonnenschlüssel</span>
+      <span><i class="bi bi-calendar-month me-2"></i>Monats-Übersicht {{ jahr }} – {{ unit_label }} mit Sonnenschlüssel</span>
       <small class="opacity-85">IST / Monatsziel · Grün ≥ 100% · Gelb ≥ 70% · Rot &lt; 70%</small>
     </div>
     <!-- Monatsfilter -->
@@ -392,7 +392,7 @@
           </div>
           <div class="col-md-6">
             <div class="d-flex justify-content-between mb-1">
-              <small class="fw-semibold" style="color:#c8860a"><i class="bi bi-box-seam me-1"></i>Kisten</small>
+              <small class="fw-semibold" style="color:#c8860a"><i class="bi bi-box-seam me-1"></i>{{ unit_label }}</small>
               <small>{{ t_kist_ist }} / {{ teamziel.kisten_ziel }}
                 <strong class="ms-1 {% if t_kist_pct >= 100 %}text-success{% elif t_kist_pct >= 70 %}text-warning{% else %}text-danger{% endif %}">
                   {{ t_kist_pct }}%
@@ -471,7 +471,7 @@
         <div class="mb-3">
           <div class="d-flex justify-content-between align-items-end mb-1">
             <span class="small fw-semibold" style="color:#c8860a">
-              <i class="bi bi-box-seam me-1"></i>Kisten
+              <i class="bi bi-box-seam me-1"></i>{{ unit_label }}
             </span>
             <span class="small">
               <strong style="color:#c8860a">{{ rep.kisten_ist }}</strong>
@@ -521,7 +521,7 @@
             </div>
           </div>
           <div class="d-flex justify-content-between" style="font-size:.68rem;color:#666">
-            <span>{{ kurs.kum_k_ist }} / {{ kurs.kum_k_ziel }} Kisten saisonal erwartet</span>
+            <span>{{ kurs.kum_k_ist }} / {{ kurs.kum_k_ziel }} {{ unit_label }} saisonal erwartet</span>
           </div>
           {% if kk is not none %}
           <div class="progress mt-1" style="height:3px">
@@ -567,9 +567,9 @@
           <th class="text-center">Displays IST</th>
           <th class="text-center">Displays SOLL</th>
           <th class="text-center">Displays %</th>
-          <th class="text-center">Kisten IST</th>
-          <th class="text-center">Kisten SOLL</th>
-          <th class="text-center">Kisten %</th>
+          <th class="text-center">{{ unit_label }} IST</th>
+          <th class="text-center">{{ unit_label }} SOLL</th>
+          <th class="text-center">{{ unit_label }} %</th>
         </tr>
       </thead>
       <tbody>
@@ -636,7 +636,7 @@
 <div class="card mb-4">
   <div class="card-header" style="background:linear-gradient(135deg,#c8860a,#f5a623)">
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-      <span><i class="bi bi-sun me-2"></i>Saisonaler Monatsverlauf {{ jahr }} – Kisten (Sonnenschlüssel)</span>
+      <span><i class="bi bi-sun me-2"></i>Saisonaler Monatsverlauf {{ jahr }} – {{ unit_label }} (Sonnenschlüssel)</span>
       <small class="opacity-85">IST / Monatsziel · Grün ≥ 100% · Gelb ≥ 70% · Rot &lt; 70%</small>
     </div>
     <!-- Monatsfilter -->
@@ -823,7 +823,7 @@
 <!-- Kumulativer Verlauf Chart -->
 <div class="card mb-4">
   <div class="card-header secondary">
-    <i class="bi bi-graph-up me-2"></i>Kumulativer Kistenverlauf vs. Saisonaler Zielkurs {{ jahr }}
+    <i class="bi bi-graph-up me-2"></i>Kumulativer {{ unit_label }}verlauf vs. Saisonaler Zielkurs {{ jahr }}
   </div>
   <div class="card-body">
     <div class="chart-container" style="height:280px">
@@ -836,7 +836,7 @@
 <div class="row g-4">
   <div class="col-lg-6">
     <div class="card">
-      <div class="card-header secondary"><i class="bi bi-bar-chart me-2"></i>Kisten IST vs. SOLL</div>
+      <div class="card-header secondary"><i class="bi bi-bar-chart me-2"></i>{{ unit_label }} IST vs. SOLL</div>
       <div class="card-body"><div class="chart-container"><canvas id="kistenChart"></canvas></div></div>
     </div>
   </div>
@@ -898,7 +898,7 @@ new Chart(document.getElementById('monKistChart'), {
     labels: MON_LABELS,
     datasets: [
       {
-        label: 'Kisten IST',
+        label: '{{ unit_label }} IST',
         data: MON_KIST_IST,
         backgroundColor: MON_KIST_IST.map((v, i) =>
           i < VG_IDX ? 'rgba(200,134,10,.85)' : 'rgba(200,134,10,.15)'),
@@ -975,7 +975,7 @@ if (kumReps.length) {
         tooltip: { mode: 'index', intersect: false }
       },
       scales: { y: { beginAtZero: true,
-        title: { display: true, text: 'Kisten kumuliert', color: '#1a3a5c', font: { size: 11 } }
+        title: { display: true, text: '{{ unit_label }} kumuliert', color: '#1a3a5c', font: { size: 11 } }
       }}
     }
   });

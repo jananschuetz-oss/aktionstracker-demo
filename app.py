@@ -43,6 +43,7 @@ LOGO_URL       = os.environ.get('LOGO_URL',       '')    # externe Bild-URL oder
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123')
 EXPORT_EMAIL   = os.environ.get('EXPORT_EMAIL',   '')        # E-Mail für automatischen 4-Wochen-Export
 KARTE_MODUS    = os.environ.get('KARTE_MODUS',   'basis')   # 'aus' | 'basis' | 'heatmap'
+UNIT_LABEL     = os.environ.get('UNIT_LABEL',    'Einheiten')  # Mengenbezeichnung z.B. 'Kisten', 'Kartons', 'Paletten'
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'static', 'uploads')
 ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'}
@@ -96,6 +97,7 @@ def inject_now():
         'company_short': COMPANY_SHORT,
         'logo_url':      LOGO_URL or '/static/logo.svg',
         'karte_modus':   KARTE_MODUS,
+        'unit_label':    UNIT_LABEL,
         'meine_vertretungen': [],
         'alle_kollegen':      [],
     }
@@ -1530,7 +1532,7 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id: int = N
     ws1['A1'].font = TITLE_FONT
     ws1['A1'].alignment = CENTER
 
-    headers = ['Kalenderwoche', 'Anzahl Displays', 'Kisten gesamt', 'Besuche']
+    headers = ['Kalenderwoche', 'Anzahl Displays', f'{UNIT_LABEL} gesamt', 'Besuche']
     for col, h in enumerate(headers, 1):
         ws1.cell(row=2, column=col, value=h)
     style_header(ws1, 2, 4)
@@ -1602,7 +1604,7 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id: int = N
         ws2['A1'].font = TITLE_FONT
         ws2['A1'].alignment = CENTER
 
-        h2 = ['Mitarbeiter', 'Kürzel', 'Displays gesamt', 'Kisten gesamt', 'Besuche']
+        h2 = ['Mitarbeiter', 'Kürzel', 'Displays gesamt', f'{UNIT_LABEL} gesamt', 'Besuche']
         for col, h in enumerate(h2, 1):
             ws2.cell(2, col, h)
         style_header(ws2, 2, 5)
@@ -1637,7 +1639,7 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id: int = N
     # ── Sheet 3: Alle Aktivitäten ─────────────────────────────────────────
     ws3 = wb.create_sheet("Aktivitäten-Detail")
     cols3 = ['Datum', 'KW', 'Mitarbeiter', 'Verkaufsstelle', 'Ort', 'Typ',
-             'Displays', 'Produkt', 'Kisten', 'Notizen']
+             'Displays', 'Produkt', UNIT_LABEL, 'Notizen']
     widths = [14, 6, 20, 28, 16, 16, 10, 20, 10, 35]
     for i, w in enumerate(widths, 1):
         ws3.column_dimensions[get_column_letter(i)].width = w
@@ -1732,7 +1734,7 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id: int = N
     ws4['A1'].font = TITLE_FONT
     ws4['A1'].alignment = CENTER
 
-    for col, h in enumerate(['Produkt', 'Einheit', 'Kisten gesamt'], 1):
+    for col, h in enumerate(['Produkt', 'Einheit', f'{UNIT_LABEL} gesamt'], 1):
         ws4.cell(2, col, h)
     style_header(ws4, 2, 3)
 
@@ -2842,7 +2844,7 @@ def _do_send_wochenbericht(force=False):
         <td width="12"></td>
         <td style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
           <div style="font-size:30px;font-weight:bold;color:#c8860a">{diese["kisten"]}</div>
-          <div style="font-size:12px;color:#666;margin-top:3px">Kisten</div>
+          <div style="font-size:12px;color:#666;margin-top:3px">{UNIT_LABEL}</div>
           <div style="font-size:11px;font-weight:bold;color:{trend_col(diese["kisten"],letzte["kisten"])};margin-top:5px">{trend_str(diese["kisten"],letzte["kisten"])} ggü. Vorwoche</div>
         </td>
         <td width="12"></td>
@@ -2862,7 +2864,7 @@ def _do_send_wochenbericht(force=False):
         <tr style="background:#edf2f7">
           <th style="padding:9px 14px;text-align:left;font-size:11px;color:#666;font-weight:600;letter-spacing:.5px">MITARBEITER</th>
           <th style="padding:9px 14px;text-align:center;font-size:11px;color:#666;font-weight:600;letter-spacing:.5px">BESUCHE</th>
-          <th style="padding:9px 14px;text-align:center;font-size:11px;color:#666;font-weight:600;letter-spacing:.5px">KISTEN</th>
+          <th style="padding:9px 14px;text-align:center;font-size:11px;color:#666;font-weight:600;letter-spacing:.5px">{UNIT_LABEL.upper()}</th>
         </tr>
       </thead>
       <tbody>{rep_rows}</tbody>
