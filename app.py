@@ -699,7 +699,7 @@ def admin_required(f):
         if 'user_id' not in session:
             return redirect(url_for('login'))
         if session.get('rolle') != 'admin':
-            flash('Zugriff verweigert – nur für Administratoren.', 'danger')
+            flash('Zugriff verweigert – nur für die Leitung.', 'danger')
             return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
     return decorated
@@ -711,7 +711,7 @@ def manager_required(f):
         if 'user_id' not in session:
             return redirect(url_for('login'))
         if session.get('rolle') not in ('admin', 'verkaufsleiter'):
-            flash('Zugriff verweigert – nur für Verkaufsleiter und Administratoren.', 'danger')
+            flash('Zugriff verweigert – nur für Leitung und Verkaufsleiter.', 'danger')
             return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
     return decorated

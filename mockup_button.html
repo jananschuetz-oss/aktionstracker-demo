@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mockup – Letzte Bestellung übernehmen</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    :root {
+      --brand-dark: #1a3a5c;
+      --brand-mid:  #2e6da4;
+      --brand-light:#eef4fb;
+      --brand-gold: #c8860a;
+      --brand-amber:#f5a623;
+    }
+    body { background: #f4f6fa; font-family: 'Segoe UI', sans-serif; padding: 1.5rem; }
+    .card { border: none; border-radius: .75rem; box-shadow: 0 2px 12px rgba(0,0,0,.08); }
+    .card-header { background: var(--brand-dark); color: white; font-weight: 600;
+                   border-radius: .75rem .75rem 0 0 !important; padding: .85rem 1.2rem; }
+    .form-label { font-weight: 600; color: var(--brand-dark); font-size: .9rem; }
+
+    /* Letzte Besuche Box */
+    .besuche-box { background:#eef4fb; border:1px solid #b8d4f0; border-radius: .5rem; overflow:hidden; }
+    .besuche-header { background:#d8eaf8; color:#1d4e8f; padding:.4rem .75rem;
+                      font-size:.82rem; font-weight:600; border-bottom:1px solid #b8d4f0; }
+    .besuche-table { font-size:.82em; margin:0; }
+    .besuche-table th { color:#6c757d; font-weight:normal; padding: .35rem .5rem; }
+    .besuche-table td { padding: .35rem .5rem; vertical-align:middle; }
+    .besuche-table tr:first-child td { font-weight:600; }
+
+    /* DER BUTTON – zwei Varianten zum Vergleich */
+    .btn-uebernehmen-1 {
+      background: var(--brand-dark);
+      color: #fff;
+      border: none;
+      border-radius: 0 0 .5rem .5rem;
+      width: 100%;
+      padding: .5rem;
+      font-size: .85rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: .4rem;
+      transition: background .15s;
+    }
+    .btn-uebernehmen-1:hover { background: var(--brand-mid); }
+
+    .btn-uebernehmen-2 {
+      background: #fff;
+      color: var(--brand-dark);
+      border: 2px solid var(--brand-dark);
+      border-radius: .4rem;
+      padding: .35rem .85rem;
+      font-size: .82rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      transition: all .15s;
+    }
+    .btn-uebernehmen-2:hover { background: var(--brand-light); }
+
+    .label-neu { font-size: .65rem; background: var(--brand-amber); color:#fff;
+                 border-radius: .25rem; padding: .1rem .35rem; font-weight:700;
+                 letter-spacing:.03em; vertical-align:middle; }
+
+    .vs-input-group { border: 2px solid var(--brand-mid); border-radius: .4rem; }
+
+    .variante-label {
+      font-size: .7rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .08em; color: #999; margin-bottom: .5rem;
+    }
+  </style>
+</head>
+<body>
+
+<div style="max-width:640px;margin:auto">
+
+  <h5 class="mb-1" style="color:#1a3a5c"><i class="bi bi-plus-circle me-2"></i>Neue Aktivität eintragen</h5>
+  <p class="text-muted small mb-4">Mockup – zwei Varianten des „Letzte Bestellung übernehmen"-Buttons</p>
+
+  <!-- FORMULAR-AUSSCHNITT -->
+  <div class="card mb-4">
+    <div class="card-header"><i class="bi bi-info-circle me-2"></i>Grunddaten</div>
+    <div class="card-body">
+
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label">Datum</label>
+          <input type="date" class="form-control" value="2026-06-07">
+        </div>
+        <div class="col-md-8">
+          <label class="form-label">Verkaufsstelle</label>
+          <div class="input-group vs-input-group">
+            <span class="input-group-text border-0 bg-white"><i class="bi bi-shop" style="color:#2e6da4"></i></span>
+            <input type="text" class="form-control border-0" value="REWE Markt – München (Einzelhandel)" readonly>
+            <button class="btn btn-outline-secondary border-0" type="button"><i class="bi bi-x-lg"></i></button>
+          </div>
+
+          <!-- LETZTE BESUCHE BOX mit Button VARIANTE 1 (unten angehängt) -->
+          <div class="mt-2">
+            <div class="variante-label">Variante A – Button als Teil der Besuchsbox</div>
+            <div class="besuche-box">
+              <div class="besuche-header d-flex align-items-center justify-content-between">
+                <span><i class="bi bi-clock-history me-1"></i> Letzte Besuche
+                  <span class="text-success ms-1"><i class="bi bi-arrow-up-short"></i></span>
+                </span>
+              </div>
+              <table class="table besuche-table">
+                <thead class="text-muted">
+                  <tr>
+                    <th>Datum</th><th>Kisten</th><th>Displays</th><th>Notiz</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>31.05.2026 <span class="text-muted fw-normal" style="font-size:.8em">vor 7 Tagen</span></td>
+                    <td><i class="bi bi-box-seam me-1" style="color:#c8860a"></i>24</td>
+                    <td><i class="bi bi-display me-1" style="color:#2e6da4"></i>2</td>
+                    <td class="text-muted fst-italic">"Sonderaktion Mai"</td>
+                  </tr>
+                  <tr>
+                    <td>24.05.2026 <span class="text-muted fw-normal" style="font-size:.8em">vor 14 Tagen</span></td>
+                    <td><i class="bi bi-box-seam me-1" style="color:#c8860a"></i>18</td>
+                    <td><i class="bi bi-display me-1" style="color:#2e6da4"></i>1</td>
+                    <td></td>
+                  </tr>
+                  <tr>
+                    <td>17.05.2026 <span class="text-muted fw-normal" style="font-size:.8em">vor 21 Tagen</span></td>
+                    <td><i class="bi bi-box-seam me-1" style="color:#c8860a"></i>20</td>
+                    <td><i class="bi bi-display me-1" style="color:#2e6da4"></i>2</td>
+                    <td></td>
+                  </tr>
+                </tbody>
+              </table>
+              <!-- VARIANTE A: Button direkt unter der Tabelle -->
+              <button class="btn-uebernehmen-1">
+                <i class="bi bi-arrow-counterclockwise"></i>
+                Letzte Bestellung übernehmen
+                <span style="opacity:.75;font-weight:400;font-size:.78rem">(24 Kisten, 2 Displays)</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- VARIANTE B: kleiner Button neben dem Header -->
+          <div class="mt-3">
+            <div class="variante-label">Variante B – kleiner Button oben rechts in der Box</div>
+            <div class="besuche-box">
+              <div class="besuche-header d-flex align-items-center justify-content-between">
+                <span><i class="bi bi-clock-history me-1"></i> Letzte Besuche
+                  <span class="text-success ms-1"><i class="bi bi-arrow-up-short"></i></span>
+                </span>
+                <button class="btn-uebernehmen-2">
+                  <i class="bi bi-arrow-counterclockwise"></i> Übernehmen
+                  <span class="label-neu">NEU</span>
+                </button>
+              </div>
+              <table class="table besuche-table">
+                <thead class="text-muted">
+                  <tr>
+                    <th>Datum</th><th>Kisten</th><th>Displays</th><th>Notiz</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>31.05.2026 <span class="text-muted fw-normal" style="font-size:.8em">vor 7 Tagen</span></td>
+                    <td><i class="bi bi-box-seam me-1" style="color:#c8860a"></i>24</td>
+                    <td><i class="bi bi-display me-1" style="color:#2e6da4"></i>2</td>
+                    <td class="text-muted fst-italic">"Sonderaktion Mai"</td>
+                  </tr>
+                  <tr>
+                    <td>24.05.2026 <span class="text-muted fw-normal" style="font-size:.8em">vor 14 Tagen</span></td>
+                    <td><i class="bi bi-box-seam me-1" style="color:#c8860a"></i>18</td>
+                    <td><i class="bi bi-display me-1" style="color:#2e6da4"></i>1</td>
+                    <td></td>
+                  </tr>
+                  <tr>
+                    <td>17.05.2026 <span class="text-muted fw-normal" style="font-size:.8em">vor 21 Tagen</span></td>
+                    <td><i class="bi bi-box-seam me-1" style="color:#c8860a"></i>20</td>
+                    <td><i class="bi bi-display me-1" style="color:#2e6da4"></i>2</td>
+                    <td></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="alert alert-info py-2 small">
+    <i class="bi bi-info-circle me-1"></i>
+    Der Button trägt automatisch die Mengen vom <strong>letzten Besuch</strong> in die Displays- und Kisten-Felder ein. Der Rep kann danach einzelne Werte anpassen.
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
