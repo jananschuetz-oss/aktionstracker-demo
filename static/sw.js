@@ -1,4 +1,4 @@
-const CACHE = 'at-v8';
+const CACHE = 'at-v9';
 const CDN_HOSTS = ['cdn.jsdelivr.net'];
 const OFFLINE_PAGE = '/static/offline.html';
 

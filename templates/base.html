@@ -310,8 +310,8 @@
 <div class="container-fluid px-4 py-3">
   <!-- PWA Install Banner (nur Mobile) -->
   {% if session.user_id %}
-  <div id="installBanner" style="display:none"
-       class="alert alert-primary alert-dismissible d-flex align-items-center gap-2 py-2 mb-2">
+  <div id="installBanner"
+       class="alert alert-primary alert-dismissible d-none d-flex align-items-center gap-2 py-2 mb-2">
     <i class="bi bi-phone fs-5"></i>
     <span class="flex-grow-1 small">App auf dem Homescreen speichern für schnelleren Zugriff</span>
     <button id="installBtn" onclick="installApp()" class="btn btn-primary btn-sm">Installieren</button>
@@ -533,21 +533,22 @@ const bannerDismissed = localStorage.getItem('bannerDismissed') === '1';
 
 function hideBanner() {
   const banner = document.getElementById('installBanner');
-  if (banner) banner.style.display = 'none';
+  if (banner) banner.classList.add('d-none');
 }
 function showBanner() {
   if (isStandalone || pwaInstalled || localStorage.getItem('bannerDismissed') === '1') return;
   const banner = document.getElementById('installBanner');
-  if (banner) {
-    banner.style.display = 'flex';
-    localStorage.setItem('bannerDismissed', '1'); // dauerhaft: nie wieder zeigen
-  }
+  if (banner) banner.classList.remove('d-none');
 }
 
-// Beim Laden sofort verstecken wenn bereits installiert
-if (isStandalone || pwaInstalled || bannerDismissed) {
-  document.addEventListener('DOMContentLoaded', hideBanner);
+// Beim Laden + bfcache-Restore: sofort verstecken wenn bereits installiert/dismissed
+function _checkInstallBanner() {
+  if (isStandalone || pwaInstalled || localStorage.getItem('bannerDismissed') === '1') {
+    hideBanner();
+  }
 }
+document.addEventListener('DOMContentLoaded', _checkInstallBanner);
+window.addEventListener('pageshow', e => { if (e.persisted) _checkInstallBanner(); });
 
 // beforeinstallprompt feuert auf Android Chrome / Desktop
 window.addEventListener('beforeinstallprompt', e => {
