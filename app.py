@@ -2730,7 +2730,16 @@ def einstellungen_wochenbericht():
             (aktiv, empfaenger_2, empfaenger_3)
         )
         if request.form.get('jetzt_senden'):
-            ok, msg = _do_send_wochenbericht(force=True)
+            try:
+                result = _do_send_wochenbericht(force=True)
+                if isinstance(result, tuple) and len(result) == 2:
+                    ok, msg = result
+                else:
+                    ok, msg = False, f'Unerwartetes Ergebnis: {result!r}'
+            except BaseException as _bex:
+                import traceback as _tb
+                app.logger.error(f"WOCHENBERICHT UNCAUGHT:\n{_tb.format_exc()}")
+                ok, msg = False, f'Fehler ({type(_bex).__name__}): {_bex}'
             flash(msg, 'success' if ok else 'danger')
         else:
             flash('Einstellungen gespeichert.', 'success')
