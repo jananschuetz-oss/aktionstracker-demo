@@ -107,7 +107,7 @@
   <div class="col-lg-4">
     <div class="card h-100">
       <div class="card-header secondary">
-        <i class="bi bi-pie-chart me-2"></i>Top Produkte {{ jahr }}
+        <i class="bi bi-bar-chart-horizontal me-2"></i>Top Produkte {{ jahr }}
       </div>
       <div class="card-body">
         {% if bier_namen | from_json | length > 0 %}
@@ -116,7 +116,7 @@
         </div>
         {% else %}
         <div class="text-center text-muted py-5">
-          <i class="bi bi-pie-chart" style="font-size:3rem"></i>
+          <i class="bi bi-bar-chart-horizontal" style="font-size:3rem"></i>
           <p class="mt-2">Keine Bestelldaten vorhanden.</p>
         </div>
         {% endif %}
@@ -311,19 +311,36 @@ const bierData = {{ bier_kist|safe }};
 if (bierData.length > 0) {
   const bierCtx = document.getElementById('bierChart').getContext('2d');
   new Chart(bierCtx, {
-    type: 'doughnut',
+    type: 'bar',
     data: {
       labels: {{ bier_namen|safe }},
       datasets: [{
+        label: '{{ unit_label }}',
         data: bierData,
         backgroundColor: COLORS,
-        borderWidth: 2, borderColor: '#fff'
+        borderRadius: 4,
+        borderWidth: 0
       }]
     },
     options: {
+      indexAxis: 'y',
       responsive: true, maintainAspectRatio: false,
       plugins: {
-        legend: { position: 'bottom', labels: { padding: 12, font: { size: 11 } } }
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) { return ' ' + ctx.parsed.x + ' {{ unit_label }}'; }
+          }
+        }
+      },
+      scales: {
+        x: {
+          beginAtZero: true,
+          ticks: { font: { size: 11 } }
+        },
+        y: {
+          ticks: { font: { size: 11 } }
+        }
       }
     }
   });
