@@ -418,6 +418,8 @@ def init_db():
         # Admin + Verkaufsleiter (Passwort via ENV ADMIN_PASSWORD konfigurierbar)
         db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Administrator', 'ADMIN', 'admin', ?)", (ADMIN_PASSWORD,))
         db.execute("UPDATE mitarbeiter SET passwort=? WHERE kuerzel='ADMIN'", (ADMIN_PASSWORD,))
+        # Demo-Accounts: sichtbar in der Mitarbeiterliste als Beispiel
+        db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Demo Leitung', 'DL', 'admin', 'demo123')")
         db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Verkaufsleiter', 'VKL', 'verkaufsleiter', 'demo123')")
 
         # Beispiel-Mitarbeiter (nur bei INIT_DEMO_USERS=true)
