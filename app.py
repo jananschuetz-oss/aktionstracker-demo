@@ -397,6 +397,12 @@ def init_db():
                 zuletzt_gesendet TEXT  DEFAULT ''
             )""",
             "INSERT OR IGNORE INTO wochenbericht_config (id) VALUES (1)",
+            # Multi-Team-Feature
+            """CREATE TABLE IF NOT EXISTS team (
+                id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL
+            )""",
+            "ALTER TABLE mitarbeiter ADD COLUMN team_id INTEGER REFERENCES team(id) ON DELETE SET NULL",
         ]:
             try:
                 db.execute(migration)
@@ -706,6 +712,31 @@ def manager_required(f):
     return decorated
 
 
+# ─── Team-Filter-Hilfsfunktionen ──────────────────────────────────────────────
+
+def _team_ma_clause(alias='a'):
+    """Gibt (sql_fragment, params) zurück um Aktivitäts-Queries auf das VKL-Team einzugrenzen.
+    Nur aktiv wenn VKL eingeloggt ist UND ein Team zugeordnet hat. Admin und Rep: kein Filter.
+    alias: Tabellen-Alias der aktivitaet-Tabelle in der Query."""
+    if session.get('rolle') == 'verkaufsleiter':
+        tid = session.get('team_id')
+        if tid:
+            return (
+                f' AND {alias}.mitarbeiter_id IN (SELECT id FROM mitarbeiter WHERE team_id = ?)',
+                (tid,)
+            )
+    return '', ()
+
+def _team_m_clause(alias='m'):
+    """Gibt (sql_fragment, params) zurück um mitarbeiter-Queries auf das VKL-Team einzugrenzen.
+    alias: Tabellen-Alias der mitarbeiter-Tabelle."""
+    if session.get('rolle') == 'verkaufsleiter':
+        tid = session.get('team_id')
+        if tid:
+            return f' AND {alias}.team_id = ?', (tid,)
+    return '', ()
+
+
 # ─── Routes: Auth ─────────────────────────────────────────────────────────────
 
 @app.route('/', methods=['GET', 'POST'])
@@ -743,6 +774,7 @@ def login():
             session['name']    = user['name']
             session['kuerzel'] = user['kuerzel']
             session['rolle']   = user['rolle']
+            session['team_id'] = user['team_id'] if 'team_id' in user.keys() else None
             # Karte-Benachrichtigungen in Session laden (für Login-Notification)
             benachrichtigung = user['karte_benachrichtigung'] if 'karte_benachrichtigung' in user.keys() else None
             if benachrichtigung:
@@ -898,6 +930,9 @@ def dashboard():
     # Subquery: Kisten pro Aktivität voraggregieren → verhindert Duplikation von anzahl_displays
     BP = "(SELECT aktivitaet_id, SUM(kisten_anzahl) AS kisten_total FROM bestellposition GROUP BY aktivitaet_id)"
 
+    # Team-Filter (VKL mit zugewiesenem Team sieht nur eigene Team-Mitglieder)
+    t_ma_sql, t_ma_p = _team_ma_clause('a')
+
     if is_manager:
         kw_data = query(f'''
             SELECT strftime('%W', a.datum) AS kw,
@@ -907,10 +942,10 @@ def dashboard():
                    COUNT(a.id) AS besuche
             FROM aktivitaet a
             LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
-            WHERE strftime('%Y', a.datum) = ? {ma_clause}
+            WHERE strftime('%Y', a.datum) = ? {ma_clause}{t_ma_sql}
             GROUP BY kw
             ORDER BY kw
-        ''', (str(jahr),) + ma_params)
+        ''', (str(jahr),) + ma_params + t_ma_p)
     else:
         kw_data = query(f'''
             SELECT strftime('%W', a.datum) AS kw,
@@ -934,8 +969,8 @@ def dashboard():
                    COUNT(DISTINCT a.mitarbeiter_id) AS mitarbeiter_aktiv
             FROM aktivitaet a
             LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
-            WHERE strftime('%Y', a.datum) = ? {ma_clause}
-        ''', (str(jahr),) + ma_params, one=True)
+            WHERE strftime('%Y', a.datum) = ? {ma_clause}{t_ma_sql}
+        ''', (str(jahr),) + ma_params + t_ma_p, one=True)
     else:
         jahres = query(f'''
             SELECT SUM(a.anzahl_displays) AS displays,
@@ -953,9 +988,9 @@ def dashboard():
             FROM bestellposition bp
             JOIN biersorte bs ON bs.id = bp.biersorte_id
             JOIN aktivitaet a ON a.id = bp.aktivitaet_id
-            WHERE strftime('%Y', a.datum) = ? {ma_clause}
+            WHERE strftime('%Y', a.datum) = ? {ma_clause}{t_ma_sql}
             GROUP BY bs.id ORDER BY kisten DESC LIMIT 6
-        ''', (str(jahr),) + ma_params)
+        ''', (str(jahr),) + ma_params + t_ma_p)
     else:
         top_bier = query('''
             SELECT bs.name, SUM(bp.kisten_anzahl) AS kisten
@@ -967,6 +1002,7 @@ def dashboard():
         ''', (str(jahr), session['user_id']))
 
     # Mitarbeiter-Ranking (Manager-Sicht, nur ohne Einzelfilter)
+    t_m_sql, t_m_p = _team_m_clause('m')
     rep_stats = []
     if is_manager and not ma_filter:
         rep_stats = query(f'''
@@ -977,9 +1013,9 @@ def dashboard():
             FROM mitarbeiter m
             JOIN aktivitaet a ON a.mitarbeiter_id = m.id
             LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
-            WHERE strftime('%Y', a.datum) = ?
+            WHERE strftime('%Y', a.datum) = ?{t_m_sql}
             GROUP BY m.id ORDER BY kisten DESC
-        ''', (str(jahr),))
+        ''', (str(jahr),) + t_m_p)
 
     # Letzte Aktivitäten
     if is_manager:
@@ -990,9 +1026,9 @@ def dashboard():
             JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
             JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id
             LEFT JOIN bestellposition b ON b.aktivitaet_id = a.id
-            WHERE strftime('%Y', a.datum) = ? {ma_clause}
+            WHERE strftime('%Y', a.datum) = ? {ma_clause}{t_ma_sql}
             GROUP BY a.id ORDER BY a.datum DESC, a.erstellt_am DESC LIMIT 10
-        ''', (str(jahr),) + ma_params)
+        ''', (str(jahr),) + ma_params + t_ma_p)
     else:
         letzte = query('''
             SELECT a.id, a.datum, m.name AS mitarbeiter, v.name AS verkaufsstelle,
@@ -1005,7 +1041,11 @@ def dashboard():
             GROUP BY a.id ORDER BY a.datum DESC, a.erstellt_am DESC LIMIT 10
         ''', (str(jahr), session['user_id']))
 
-    alle_ma = query("SELECT id, name FROM mitarbeiter WHERE rolle IN ('rep','verkaufsleiter') ORDER BY name") if is_manager else []
+    _tm_sql, _tm_p = _team_m_clause('m')
+    alle_ma = query(
+        f"SELECT id, name FROM mitarbeiter WHERE rolle IN ('rep','verkaufsleiter'){_tm_sql} ORDER BY name",
+        _tm_p
+    ) if is_manager else []
 
     verfuegbare_jahre = [r[0] for r in query(
         "SELECT DISTINCT CAST(strftime('%Y', datum) AS INTEGER) FROM aktivitaet ORDER BY 1 DESC"
@@ -1387,7 +1427,11 @@ def aktivitaeten_liste():
         if dp:
             disp_detail[a['id']] = dp
 
-    alle_ma = query("SELECT id, name FROM mitarbeiter WHERE rolle IN ('rep','verkaufsleiter') ORDER BY name") if is_manager else []
+    _tm_sql, _tm_p = _team_m_clause('m')
+    alle_ma = query(
+        f"SELECT id, name FROM mitarbeiter m WHERE rolle IN ('rep','verkaufsleiter'){_tm_sql} ORDER BY name",
+        _tm_p
+    ) if is_manager else []
     # Alle VS für Dropdown (inkl. inaktive – für historische Suche)
     alle_vs = query(
         "SELECT id, name, ort, aktiv FROM verkaufsstelle ORDER BY aktiv DESC, name"
@@ -1751,10 +1795,11 @@ def export_excel():
 @app.route('/admin')
 @admin_required
 def admin():
-    mitarbeiter     = query("SELECT * FROM mitarbeiter ORDER BY rolle, name")
+    mitarbeiter     = query("SELECT m.*, t.name AS team_name FROM mitarbeiter m LEFT JOIN team t ON t.id = m.team_id ORDER BY m.rolle, m.name")
     verkaufsstellen = query("SELECT * FROM verkaufsstelle ORDER BY aktiv DESC, name")
     biersorten      = query("SELECT * FROM biersorte ORDER BY name")
     displaysorte    = query("SELECT * FROM displaysorte ORDER BY name")
+    teams           = query("SELECT t.*, COUNT(m.id) AS mitglieder FROM team t LEFT JOIN mitarbeiter m ON m.team_id = t.id GROUP BY t.id ORDER BY t.name")
     mail_konfiguriert = bool(MAIL_SERVER and MAIL_USERNAME)
 
     # Zuordnungen: {mitarbeiter_id: set(verkaufsstelle_id, ...)}
@@ -1791,6 +1836,7 @@ def admin():
         vs_besitzer=vs_besitzer,
         vertretungen=vertretungen,
         alle_ad=alle_ad,
+        teams=teams,
         mail_konfiguriert=mail_konfiguriert)
 
 
@@ -1897,6 +1943,54 @@ def admin_mitarbeiter_passwort(ma_id):
         return redirect(url_for('admin'))
     execute("UPDATE mitarbeiter SET passwort=? WHERE id=?", (neues_pw, ma_id))
     flash(f'Passwort für „{ma["name"]}" wurde geändert.', 'success')
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/team/neu', methods=['POST'])
+@admin_required
+def admin_team_neu():
+    name = request.form.get('name', '').strip()
+    if not name:
+        flash('Bitte einen Teamnamen eingeben.', 'danger')
+        return redirect(url_for('admin'))
+    existing = query("SELECT id FROM team WHERE LOWER(name) = LOWER(?)", (name,), one=True)
+    if existing:
+        flash(f'Ein Team mit dem Namen „{name}" existiert bereits.', 'warning')
+        return redirect(url_for('admin'))
+    execute("INSERT INTO team (name) VALUES (?)", (name,))
+    flash(f'Team „{name}" angelegt.', 'success')
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/team/<int:team_id>/loeschen', methods=['POST'])
+@admin_required
+def admin_team_loeschen(team_id):
+    team = query("SELECT * FROM team WHERE id=?", (team_id,), one=True)
+    if not team:
+        flash('Team nicht gefunden.', 'danger')
+        return redirect(url_for('admin'))
+    # Mitglieder aus Team austragen (nicht löschen)
+    execute("UPDATE mitarbeiter SET team_id = NULL WHERE team_id = ?", (team_id,))
+    execute("DELETE FROM team WHERE id=?", (team_id,))
+    flash(f'Team „{team["name"]}" gelöscht. Mitglieder wurden keinem Team zugeordnet.', 'success')
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/mitarbeiter/<int:ma_id>/team', methods=['POST'])
+@admin_required
+def admin_mitarbeiter_team(ma_id):
+    ma = query("SELECT * FROM mitarbeiter WHERE id=?", (ma_id,), one=True)
+    if not ma:
+        flash('Mitarbeiter nicht gefunden.', 'danger')
+        return redirect(url_for('admin'))
+    team_id_raw = request.form.get('team_id', '').strip()
+    team_id = int(team_id_raw) if team_id_raw and team_id_raw.isdigit() else None
+    execute("UPDATE mitarbeiter SET team_id=? WHERE id=?", (team_id, ma_id))
+    if team_id:
+        team = query("SELECT name FROM team WHERE id=?", (team_id,), one=True)
+        flash(f'„{ma["name"]}" dem Team „{team["name"]}" zugeordnet.', 'success')
+    else:
+        flash(f'„{ma["name"]}" aus allen Teams ausgetragen.', 'info')
     return redirect(url_for('admin'))
 
 
@@ -2283,6 +2377,7 @@ def vergleich():
 
     # IST-Werte aller Reps – Subquery verhindert Doppelung von anzahl_displays
     _BP = "(SELECT aktivitaet_id, SUM(kisten_anzahl) AS kisten_total FROM bestellposition GROUP BY aktivitaet_id)"
+    _vm_sql, _vm_p = _team_m_clause('m')
     ist = query(f'''
         SELECT m.id, m.name, m.kuerzel,
                COALESCE(SUM(a.anzahl_displays), 0) AS displays_ist,
@@ -2293,10 +2388,10 @@ def vergleich():
                ON a.mitarbeiter_id = m.id
               AND strftime('%Y', a.datum) = ?
         LEFT JOIN {_BP} b ON b.aktivitaet_id = a.id
-        WHERE m.rolle IN ('rep','verkaufsleiter')
+        WHERE m.rolle IN ('rep','verkaufsleiter'){_vm_sql}
         GROUP BY m.id
         ORDER BY m.name
-    ''', (str(jahr),))
+    ''', (str(jahr),) + _vm_p)
 
     # Zielzahlen
     ziele_raw = query(
@@ -2320,17 +2415,17 @@ def vergleich():
     disp_soll   = [ziele.get(r['id'], {}).get('displays_ziel', 0) or 0 for r in ist]
 
     # KW-Verlauf je Mitarbeiter (für Liniendiagramm)
-    kw_verlauf = query('''
+    kw_verlauf = query(f'''
         SELECT m.name,
                CAST(strftime('%W', a.datum) AS INTEGER) AS kw,
                COALESCE(SUM(bp.kisten_anzahl), 0) AS kisten
         FROM mitarbeiter m
         JOIN aktivitaet a ON a.mitarbeiter_id = m.id
         LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
-        WHERE strftime('%Y', a.datum) = ? AND m.rolle IN ('rep','verkaufsleiter')
+        WHERE strftime('%Y', a.datum) = ? AND m.rolle IN ('rep','verkaufsleiter'){_vm_sql}
         GROUP BY m.id, kw
         ORDER BY m.name, kw
-    ''', (str(jahr),))
+    ''', (str(jahr),) + _vm_p)
 
     # KW-Verlauf als Dict {rep_name: [(kw, kisten), ...]}
     from collections import defaultdict
@@ -2353,9 +2448,9 @@ def vergleich():
                ON a.mitarbeiter_id = m.id
               AND strftime('%Y', a.datum) = ?
         LEFT JOIN {_BPm} b ON b.aktivitaet_id = a.id
-        WHERE m.rolle IN ('rep','verkaufsleiter')
+        WHERE m.rolle IN ('rep','verkaufsleiter'){_vm_sql}
         GROUP BY m.id, monat
-    ''', (str(jahr),))
+    ''', (str(jahr),) + _vm_p)
 
     # {rep_id: {monat(1–12): {displays, kisten}}}
     monatlich_dict = {}
@@ -2432,7 +2527,10 @@ def vergleich():
     disp_saison_soll   = [zielkurs.get(r['id'], {}).get('kum_d_ziel', 0) or 0 for r in ist]
 
     sk_pct  = [int(x * 100) for x in SONNENSCHLUESSEL]
-    alle_ma = query("SELECT id, name, kuerzel FROM mitarbeiter WHERE rolle IN ('rep','verkaufsleiter') ORDER BY name") if is_manager else []
+    alle_ma = query(
+        f"SELECT id, name, kuerzel FROM mitarbeiter m WHERE rolle IN ('rep','verkaufsleiter'){_vm_sql} ORDER BY name",
+        _vm_p
+    ) if is_manager else []
 
     # Einzelner Rep für Detailansicht (Tabs)
     selected_rep = None
@@ -2475,7 +2573,11 @@ def zielzahlen():
 
     if request.method == 'POST':
         jar = request.form.get('jahr', date.today().year, type=int)
-        reps = query("SELECT id FROM mitarbeiter WHERE rolle IN ('rep','verkaufsleiter')")
+        _zz_sql, _zz_p = _team_m_clause('m')
+        reps = query(
+            f"SELECT id FROM mitarbeiter m WHERE rolle IN ('rep','verkaufsleiter'){_zz_sql}",
+            _zz_p
+        )
 
         for rep in reps:
             d_ziel = request.form.get(f'disp_{rep["id"]}', 0) or 0
@@ -2502,7 +2604,11 @@ def zielzahlen():
         flash(f'Zielzahlen für {jar} gespeichert.', 'success')
         return redirect(url_for('zielzahlen', jahr=jar))
 
-    reps = query("SELECT id, name, kuerzel FROM mitarbeiter WHERE rolle IN ('rep','verkaufsleiter') ORDER BY name")
+    _zz_sql, _zz_p = _team_m_clause('m')
+    reps = query(
+        f"SELECT id, name, kuerzel FROM mitarbeiter m WHERE rolle IN ('rep','verkaufsleiter'){_zz_sql} ORDER BY name",
+        _zz_p
+    )
     ziele_raw = query(
         "SELECT mitarbeiter_id, displays_ziel, kisten_ziel FROM zielzahlen WHERE jahr = ?",
         (str(jahr),)
@@ -2867,7 +2973,11 @@ def karte():
         flash('Die Karten-Funktion ist in Ihrem aktuellen Paket nicht verfügbar.', 'warning')
         return redirect(url_for('dashboard'))
     is_manager = session.get('rolle') in ('admin', 'verkaufsleiter')
-    reps = query("SELECT id, name, kuerzel FROM mitarbeiter WHERE rolle IN ('rep','verkaufsleiter') ORDER BY name")
+    _km_sql, _km_p = _team_m_clause('m')
+    reps = query(
+        f"SELECT id, name, kuerzel FROM mitarbeiter m WHERE rolle IN ('rep','verkaufsleiter'){_km_sql} ORDER BY name",
+        _km_p
+    )
     return render_template('karte.html', reps=reps, is_manager=is_manager, karte_modus=KARTE_MODUS)
 
 

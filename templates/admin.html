@@ -16,7 +16,7 @@
       <div class="card-body p-0">
         <table class="table table-sm table-striped mb-0">
           <thead>
-            <tr><th>Name</th><th>Kürzel</th><th>Rolle</th><th>E-Mail</th><th>VS</th><th></th></tr>
+            <tr><th>Name</th><th>Kürzel</th><th>Rolle</th><th>Team</th><th>E-Mail</th><th>VS</th><th></th></tr>
           </thead>
           <tbody>
             {% for m in mitarbeiter %}
@@ -31,6 +31,23 @@
                   <span class="badge bg-primary">VKL</span>
                 {% else %}
                   <span class="badge bg-secondary">Rep</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if m.rolle != 'admin' and teams %}
+                  <button class="btn btn-sm py-0 px-1 {% if m.team_name %}btn-outline-info{% else %}btn-outline-secondary{% endif %}"
+                          data-bs-toggle="modal"
+                          data-bs-target="#modalTeam_{{ m.id }}"
+                          title="Team zuordnen"
+                          style="font-size:.75rem">
+                    {% if m.team_name %}
+                      <i class="bi bi-people-fill me-1"></i>{{ m.team_name }}
+                    {% else %}
+                      <i class="bi bi-people me-1"></i>–
+                    {% endif %}
+                  </button>
+                {% elif m.rolle != 'admin' %}
+                  <span class="text-muted small">–</span>
                 {% endif %}
               </td>
               <td>
@@ -489,6 +506,61 @@
 
 </div>
 
+<!-- Teams verwalten -->
+<div class="card mt-4">
+  <div class="card-header" style="background:linear-gradient(135deg,#0d6efd,#0a58ca)">
+    <i class="bi bi-people-fill me-2"></i>Teams verwalten
+    <span class="badge bg-light text-primary ms-2" style="font-size:.75rem">optional</span>
+  </div>
+  <div class="card-body">
+    <p class="small text-muted mb-3">
+      <i class="bi bi-info-circle me-1"></i>
+      Teams ermöglichen mehrere Verkaufsleiter mit getrennten Außendienst-Gebieten.
+      Jeder VKL sieht nur die Reps seines Teams. Ohne Team-Zuweisung sieht ein VKL alle Mitarbeiter.
+    </p>
+
+    {% if teams %}
+    <div class="row g-3 mb-3">
+      {% for t in teams %}
+      <div class="col-md-3">
+        <div class="border rounded p-3" style="background:#f8f9fa">
+          <div class="d-flex justify-content-between align-items-start">
+            <div>
+              <div class="fw-bold" style="color:#1a3a5c">
+                <i class="bi bi-people me-1"></i>{{ t.name }}
+              </div>
+              <div class="text-muted small mt-1">
+                {{ t.mitglieder }} Mitglied{% if t.mitglieder != 1 %}er{% endif %}
+              </div>
+            </div>
+            <form method="POST" action="{{ url_for('admin_team_loeschen', team_id=t.id) }}"
+                  onsubmit="return confirm('Team „{{ t.name }}" wirklich löschen?\nMitglieder werden keinem Team mehr zugeordnet.')">
+              <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1" title="Team löschen">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="alert alert-light border mb-3">
+      <i class="bi bi-info-circle me-1 text-primary"></i>
+      Noch keine Teams angelegt. Teams werden benötigt wenn mehrere Verkaufsleiter
+      jeweils eigene Außendienst-Teams führen.
+    </div>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('admin_team_neu') }}" class="d-flex gap-2" style="max-width:400px">
+      <input type="text" name="name" class="form-control" placeholder="Neues Team – z.B. Nord, Süd…" required>
+      <button type="submit" class="btn btn-primary btn-sm" style="white-space:nowrap">
+        <i class="bi bi-plus me-1"></i>Team anlegen
+      </button>
+    </form>
+  </div>
+</div>
+
 <!-- Rechtliche Dokumente -->
 <div class="card mt-4">
   <div class="card-header" style="background:linear-gradient(135deg,#2c3e50,#4a6fa5)">
@@ -814,6 +886,42 @@
   </div>
 </div>
 {% endfor %}
+
+<!-- Team-Zuordnungs-Modals für jeden Mitarbeiter -->
+{% if teams %}
+{% for m in mitarbeiter %}
+{% if m.rolle != 'admin' %}
+<div class="modal fade" id="modalTeam_{{ m.id }}" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('admin_mitarbeiter_team', ma_id=m.id) }}">
+        <div class="modal-header" style="background:#0d6efd;color:white">
+          <h6 class="modal-title"><i class="bi bi-people me-2"></i>Team – {{ m.name }}</h6>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <label class="form-label small fw-bold">Team zuordnen</label>
+          <select name="team_id" class="form-select">
+            <option value="">– Kein Team –</option>
+            {% for t in teams %}
+            <option value="{{ t.id }}" {% if m.team_id == t.id %}selected{% endif %}>{{ t.name }}</option>
+            {% endfor %}
+          </select>
+          <div class="form-text mt-2">
+            VKL sehen nur Reps ihres Teams. Reps sehen immer nur eigene Daten.
+          </div>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-check me-1"></i>Speichern</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endfor %}
+{% endif %}
 
 <!-- Passwort-Modals für jeden Mitarbeiter -->
 {% for m in mitarbeiter %}
