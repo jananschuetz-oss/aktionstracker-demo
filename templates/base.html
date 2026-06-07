@@ -248,6 +248,11 @@
             <li><a class="dropdown-item" href="{{ url_for('zielzahlen') }}">
               <i class="bi bi-bullseye me-2"></i>Zielzahlen setzen
             </a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item {% if request.endpoint == 'einstellungen_wochenbericht' %}active{% endif %}"
+                   href="{{ url_for('einstellungen_wochenbericht') }}">
+              <i class="bi bi-envelope-at me-2"></i>Wochenbericht
+            </a></li>
             {% if karte_modus != 'aus' %}
             <li><hr class="dropdown-divider"></li>
             <li><a class="dropdown-item {% if request.endpoint == 'karte' %}active{% endif %}"

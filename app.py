@@ -337,6 +337,15 @@ def init_db():
                 FOREIGN KEY (abwesender_id) REFERENCES mitarbeiter(id) ON DELETE CASCADE,
                 FOREIGN KEY (vertreter_id)  REFERENCES mitarbeiter(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS wochenbericht_config (
+                id             INTEGER PRIMARY KEY CHECK (id = 1),
+                aktiv          INTEGER DEFAULT 0,
+                empfaenger_2   TEXT    DEFAULT '',
+                empfaenger_3   TEXT    DEFAULT '',
+                zuletzt_gesendet TEXT  DEFAULT ''
+            );
+            INSERT OR IGNORE INTO wochenbericht_config (id) VALUES (1);
         ''')
 
         # Migrationen für bestehende DBs
@@ -2496,6 +2505,204 @@ def auto_export_job():
             app.logger.error(f"AUTO_EXPORT Fehler: {e}", exc_info=True)
 
 
+# ─── Wochenbericht ───────────────────────────────────────────────────────────
+
+APP_URL = os.environ.get('APP_URL', '')
+
+def send_wochenbericht():
+    """Wöchentlichen Bericht generieren und an konfigurierte Empfänger senden."""
+    with app.app_context():
+        try:
+            config = query("SELECT * FROM wochenbericht_config WHERE id=1", one=True)
+            if not config or not config['aktiv']:
+                return
+
+            # Nicht zwei Mal in derselben Woche senden
+            kw_key = date.today().strftime('%Y-W%V')
+            if config['zuletzt_gesendet'] == kw_key:
+                app.logger.info("WOCHENBERICHT: Diese Woche bereits gesendet – übersprungen.")
+                return
+
+            # Empfänger: VKL-E-Mail + bis zu 2 weitere
+            vkl = query(
+                "SELECT email, name FROM mitarbeiter WHERE rolle IN ('verkaufsleiter','admin') "
+                "AND email IS NOT NULL AND email != '' ORDER BY rolle='verkaufsleiter' DESC LIMIT 1",
+                one=True
+            )
+            empfaenger = []
+            if vkl and vkl['email']:
+                empfaenger.append(vkl['email'])
+            if config['empfaenger_2']:
+                empfaenger.append(config['empfaenger_2'])
+            if config['empfaenger_3']:
+                empfaenger.append(config['empfaenger_3'])
+            if not empfaenger:
+                app.logger.warning("WOCHENBERICHT: Keine Empfänger konfiguriert – übersprungen.")
+                return
+
+            # Zeiträume
+            heute          = date.today()
+            montag_diese   = heute - timedelta(days=heute.weekday())
+            sonntag_diese  = montag_diese + timedelta(days=6)
+            montag_letzte  = montag_diese - timedelta(days=7)
+            sonntag_letzte = montag_letzte + timedelta(days=6)
+            kw_nr          = montag_diese.strftime('%V')
+            datum_von      = montag_diese.strftime('%d.%m.')
+            datum_bis      = sonntag_diese.strftime('%d.%m.%Y')
+
+            def stats(von, bis):
+                return query('''
+                    SELECT COUNT(DISTINCT a.id)          AS besuche,
+                           COALESCE(SUM(bp.kisten_anzahl),0) AS kisten,
+                           COALESCE(SUM(a.anzahl_displays),0) AS displays
+                    FROM aktivitaet a
+                    LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
+                    WHERE a.datum BETWEEN ? AND ?
+                ''', (von.isoformat(), bis.isoformat()), one=True)
+
+            diese = stats(montag_diese,  sonntag_diese)
+            letzte = stats(montag_letzte, sonntag_letzte)
+
+            rep_stats = query('''
+                SELECT m.name,
+                       COUNT(DISTINCT a.id)              AS besuche,
+                       COALESCE(SUM(bp.kisten_anzahl),0) AS kisten
+                FROM aktivitaet a
+                JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
+                LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
+                WHERE a.datum BETWEEN ? AND ? AND m.rolle = 'rep'
+                GROUP BY m.id, m.name
+                ORDER BY kisten DESC
+            ''', (montag_diese.isoformat(), sonntag_diese.isoformat()))
+
+            def trend_str(neu, alt):
+                diff = neu - alt
+                if diff > 0: return f'+{diff}'
+                if diff < 0: return str(diff)
+                return '±0'
+
+            def trend_col(neu, alt):
+                if neu > alt: return '#2d8a4e'
+                if neu < alt: return '#c0392b'
+                return '#888'
+
+            rep_rows = ''.join(f'''
+                <tr>
+                  <td style="padding:9px 14px;border-bottom:1px solid #f0f0f0">{r["name"]}</td>
+                  <td style="padding:9px 14px;border-bottom:1px solid #f0f0f0;text-align:center">{r["besuche"]}</td>
+                  <td style="padding:9px 14px;border-bottom:1px solid #f0f0f0;text-align:center;font-weight:600;color:#c8860a">{r["kisten"]}</td>
+                </tr>''' for r in rep_stats) or \
+                '<tr><td colspan="3" style="padding:12px 14px;color:#999;text-align:center">Keine Aktivitäten diese Woche</td></tr>'
+
+            dashboard_link = APP_URL or '#'
+
+            html = f'''<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f0f4f8;font-family:Arial,Helvetica,sans-serif">
+<div style="max-width:600px;margin:32px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.10)">
+
+  <div style="background:#1a3a5c;padding:26px 32px">
+    <div style="color:#fff;font-size:20px;font-weight:bold;letter-spacing:.3px">Aktions Tracker</div>
+    <div style="color:#90b8d8;font-size:13px;margin-top:5px">Wochenbericht KW {kw_nr} &nbsp;·&nbsp; {datum_von} – {datum_bis}</div>
+  </div>
+
+  <div style="padding:28px 32px 8px">
+    <div style="font-size:15px;font-weight:bold;color:#1a3a5c;margin-bottom:16px">Gesamtübersicht</div>
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
+          <div style="font-size:30px;font-weight:bold;color:#1a3a5c">{diese["besuche"]}</div>
+          <div style="font-size:12px;color:#666;margin-top:3px">Besuche</div>
+          <div style="font-size:11px;font-weight:bold;color:{trend_col(diese["besuche"],letzte["besuche"])};margin-top:5px">{trend_str(diese["besuche"],letzte["besuche"])} ggü. Vorwoche</div>
+        </td>
+        <td width="12"></td>
+        <td style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
+          <div style="font-size:30px;font-weight:bold;color:#c8860a">{diese["kisten"]}</div>
+          <div style="font-size:12px;color:#666;margin-top:3px">Kisten</div>
+          <div style="font-size:11px;font-weight:bold;color:{trend_col(diese["kisten"],letzte["kisten"])};margin-top:5px">{trend_str(diese["kisten"],letzte["kisten"])} ggü. Vorwoche</div>
+        </td>
+        <td width="12"></td>
+        <td style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
+          <div style="font-size:30px;font-weight:bold;color:#2e6da4">{diese["displays"]}</div>
+          <div style="font-size:12px;color:#666;margin-top:3px">Displays</div>
+          <div style="font-size:11px;font-weight:bold;color:{trend_col(diese["displays"],letzte["displays"])};margin-top:5px">{trend_str(diese["displays"],letzte["displays"])} ggü. Vorwoche</div>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <div style="padding:24px 32px">
+    <div style="font-size:15px;font-weight:bold;color:#1a3a5c;margin-bottom:12px">Mitarbeiter diese Woche</div>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e4eaf0;border-radius:8px;overflow:hidden">
+      <thead>
+        <tr style="background:#edf2f7">
+          <th style="padding:9px 14px;text-align:left;font-size:11px;color:#666;font-weight:600;letter-spacing:.5px">MITARBEITER</th>
+          <th style="padding:9px 14px;text-align:center;font-size:11px;color:#666;font-weight:600;letter-spacing:.5px">BESUCHE</th>
+          <th style="padding:9px 14px;text-align:center;font-size:11px;color:#666;font-weight:600;letter-spacing:.5px">KISTEN</th>
+        </tr>
+      </thead>
+      <tbody>{rep_rows}</tbody>
+    </table>
+  </div>
+
+  <div style="padding:16px 32px 24px;text-align:center">
+    <a href="{dashboard_link}" style="display:inline-block;background:#1a3a5c;color:#fff;text-decoration:none;padding:10px 24px;border-radius:6px;font-size:13px;font-weight:bold">→ Zum Dashboard</a>
+  </div>
+
+  <div style="padding:14px 32px;background:#f4f8fc;border-top:1px solid #e4eaf0;text-align:center">
+    <div style="font-size:11px;color:#aaa">Aktions Tracker · Automatischer Wochenbericht jeden Montag<br>
+    Einstellungen unter <em>Einstellungen → Wochenbericht</em></div>
+  </div>
+
+</div>
+</body></html>'''
+
+            betreff = f'Wochenbericht KW {kw_nr} – Aktions Tracker'
+            for mail in empfaenger:
+                send_email(mail, betreff, html)
+                app.logger.info(f"WOCHENBERICHT KW {kw_nr}: Gesendet an {mail}")
+
+            execute("UPDATE wochenbericht_config SET zuletzt_gesendet=? WHERE id=1", (kw_key,))
+
+        except Exception as e:
+            app.logger.error(f"WOCHENBERICHT Fehler: {e}", exc_info=True)
+
+
+@app.route('/einstellungen/wochenbericht', methods=['GET', 'POST'])
+@login_required
+def einstellungen_wochenbericht():
+    if session.get('rolle') not in ('admin', 'verkaufsleiter'):
+        return redirect(url_for('dashboard'))
+
+    vkl = query(
+        "SELECT email, name FROM mitarbeiter WHERE rolle IN ('verkaufsleiter','admin') "
+        "AND email IS NOT NULL AND email != '' ORDER BY rolle='verkaufsleiter' DESC LIMIT 1",
+        one=True
+    )
+    config = query("SELECT * FROM wochenbericht_config WHERE id=1", one=True)
+
+    if request.method == 'POST':
+        aktiv        = 1 if request.form.get('aktiv') else 0
+        empfaenger_2 = request.form.get('empfaenger_2', '').strip()
+        empfaenger_3 = request.form.get('empfaenger_3', '').strip()
+        execute(
+            "UPDATE wochenbericht_config SET aktiv=?, empfaenger_2=?, empfaenger_3=? WHERE id=1",
+            (aktiv, empfaenger_2, empfaenger_3)
+        )
+        if request.form.get('jetzt_senden'):
+            # Sofortversand: zuletzt_gesendet kurz leeren damit send() nicht blockt
+            execute("UPDATE wochenbericht_config SET zuletzt_gesendet='' WHERE id=1")
+            send_wochenbericht()
+            flash('Testbericht wurde sofort gesendet.', 'success')
+        else:
+            flash('Einstellungen gespeichert.', 'success')
+        return redirect(url_for('einstellungen_wochenbericht'))
+
+    return render_template('einstellungen_wochenbericht.html',
+                           config=config, vkl=vkl,
+                           is_manager=True, is_admin=session.get('rolle')=='admin')
+
+
 # ─── Karte ────────────────────────────────────────────────────────────────────
 
 @app.route('/karte')
@@ -2736,11 +2943,13 @@ init_db()
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
     _scheduler = BackgroundScheduler(daemon=True, timezone='Europe/Berlin')
-    _scheduler.add_job(backup_db,          'interval', days=1,  id='backup_db',     replace_existing=True)
-    _scheduler.add_job(cleanup_alte_fotos, 'interval', days=1,  id='cleanup_fotos', replace_existing=True)
-    _scheduler.add_job(auto_export_job,    'interval', weeks=4, id='auto_export',   replace_existing=True)
+    _scheduler.add_job(backup_db,           'interval', days=1,  id='backup_db',      replace_existing=True)
+    _scheduler.add_job(cleanup_alte_fotos,  'interval', days=1,  id='cleanup_fotos',  replace_existing=True)
+    _scheduler.add_job(auto_export_job,     'interval', weeks=4, id='auto_export',    replace_existing=True)
+    _scheduler.add_job(send_wochenbericht,  'cron', day_of_week='mon', hour=7, minute=0,
+                       id='wochenbericht', replace_existing=True, timezone='Europe/Berlin')
     _scheduler.start()
-    app.logger.info("Scheduler gestartet (Backup täglich, Foto-Cleanup täglich, Auto-Export alle 4 Wochen)")
+    app.logger.info("Scheduler gestartet (Backup täglich, Foto-Cleanup täglich, Auto-Export 4-wöchentlich, Wochenbericht montags 07:00)")
 except ImportError:
     app.logger.warning("APScheduler nicht installiert – automatische Jobs deaktiviert.")
 
