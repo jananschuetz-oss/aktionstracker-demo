@@ -136,15 +136,17 @@ async function oqSync() {
   if (fail > 0) _showAlert('<i class="bi bi-exclamation-triangle me-2"></i>' + fail + (fail === 1 ? ' Besuch konnte' : ' Besuche konnten') + ' nicht übertragen werden. Bitte erneut versuchen.', 'warning');
 }
 
-// Initialisierung beim Seitenaufruf
-document.addEventListener('DOMContentLoaded', async () => {
+// Initialisierung beim Seitenaufruf (inkl. bfcache-Restore)
+async function _init() {
   await _updateBanner();
   _updateDot();
   if (navigator.onLine) {
     const c = await _dbCount();
     if (c > 0) oqSync();
   }
-});
+}
+document.addEventListener('DOMContentLoaded', _init);
+window.addEventListener('pageshow', e => { if (e.persisted) _init(); }); // bfcache
 
 window.addEventListener('online',  () => { _updateDot(); setTimeout(oqSync, 1500); });
 window.addEventListener('offline', _updateDot);
@@ -175,3 +177,7 @@ window.OQ = {
   sync:          oqSync,
   discard:       oqDiscard,
 };
+
+// Direkte globale Referenzen für Inline-Onclick-Handler
+window._dbClear    = _dbClear;
+window._updateBanner = _updateBanner;

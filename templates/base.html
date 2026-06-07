@@ -331,7 +331,7 @@
     <button onclick="oqDiscard()" class="btn btn-outline-secondary btn-sm" title="Offline-Daten verwerfen">
       <i class="bi bi-trash me-1"></i>Verwerfen
     </button>
-    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    <button type="button" class="btn-close" onclick="_dbClear().then(_updateBanner)"></button>
   </div>
 
   <!-- Anleitung-Modal für iOS / ältere Android-Browser -->
