@@ -149,9 +149,14 @@ FOTO_AUFBEWAHRUNG_WOCHEN = 4   # Fotos werden nach 4 Wochen gelöscht (werden vo
 
 # ── E-Mail versenden ──────────────────────────────────────────────────────────
 
+_smtp_last_error = ''   # Letzten SMTP-Fehler für Diagnose merken
+
 def send_email(to: str, subject: str, body_html: str) -> bool:
     """Sendet eine HTML-E-Mail. Gibt True bei Erfolg zurück."""
+    global _smtp_last_error
+    _smtp_last_error = ''
     if not MAIL_SERVER or not MAIL_USERNAME:
+        _smtp_last_error = 'MAIL_SERVER oder MAIL_USERNAME nicht gesetzt'
         app.logger.warning("E-Mail nicht konfiguriert (MAIL_SERVER / MAIL_USERNAME fehlen).")
         return False
     try:
@@ -167,6 +172,7 @@ def send_email(to: str, subject: str, body_html: str) -> bool:
             smtp.send_message(msg)
         return True
     except Exception as e:
+        _smtp_last_error = str(e)
         app.logger.error(f"E-Mail-Fehler: {e}")
         return False
 
@@ -2682,7 +2688,8 @@ def _do_send_wochenbericht(force=False):
                 execute("UPDATE wochenbericht_config SET zuletzt_gesendet=? WHERE id=1", (kw_key,))
                 return True, f"Gesendet an {ok_count} Empfänger: {', '.join(empfaenger)}"
             else:
-                return False, "E-Mail-Versand fehlgeschlagen – SMTP-Konfiguration prüfen (Railway-Umgebungsvariablen MAIL_SERVER, MAIL_USERNAME, MAIL_PASSWORD)."
+                detail = f': {_smtp_last_error}' if _smtp_last_error else ''
+                return False, f"E-Mail-Versand fehlgeschlagen{detail}"
 
     except Exception as e:
         app.logger.error(f"WOCHENBERICHT Fehler: {e}", exc_info=True)
