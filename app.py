@@ -2660,7 +2660,7 @@ def send_wochenbericht(force=False):
 </div>
 </body></html>'''
 
-            betreff = f'Wochenbericht KW {kw_nr} – Aktions Tracker'
+            betreff = f'Wochenbericht Aktionstracker – KW {kw_nr}'
             ok_count = 0
             for mail in empfaenger:
                 if send_email(mail, betreff, html):
