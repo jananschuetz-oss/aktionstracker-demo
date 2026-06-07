@@ -421,8 +421,8 @@ def init_db():
         db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Administrator', 'ADMIN', 'admin', ?)", (ADMIN_PASSWORD,))
         db.execute("UPDATE mitarbeiter SET passwort=? WHERE kuerzel='ADMIN'", (ADMIN_PASSWORD,))
         # Demo-Accounts: sichtbar in der Mitarbeiterliste als Beispiel
-        db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Demo Leitung', 'DL', 'admin', DEFAULT_PASSWORD)")
-        db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Verkaufsleiter', 'VKL', 'verkaufsleiter', DEFAULT_PASSWORD)")
+        db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Demo Leitung', 'DL', 'admin', ?)", (DEFAULT_PASSWORD,))
+        db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Verkaufsleiter', 'VKL', 'verkaufsleiter', ?)", (DEFAULT_PASSWORD,))
 
         # Beispiel-Mitarbeiter (nur bei INIT_DEMO_USERS=true)
         if os.environ.get('INIT_DEMO_USERS', 'true').lower() == 'true':
