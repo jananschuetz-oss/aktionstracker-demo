@@ -990,6 +990,41 @@ def dashboard():
     )
 
 
+# ─── API: Letzter Besuch ─────────────────────────────────────────────────────
+
+@app.route('/api/letzter-besuch/<int:vs_id>')
+@login_required
+def api_letzter_besuch(vs_id):
+    ma_id = session['user_id']
+    row = query('''
+        SELECT a.datum, a.anzahl_displays, a.anzahl_kisten, a.notizen
+        FROM aktivitaet a
+        WHERE a.verkaufsstelle_id = ? AND a.mitarbeiter_id = ?
+        ORDER BY a.datum DESC, a.id DESC LIMIT 1
+    ''', (vs_id, ma_id), one=True)
+    if not row:
+        return jsonify({'datum': None})
+    try:
+        tage = (date.today() - date.fromisoformat(row['datum'])).days
+    except Exception:
+        tage = '?'
+    try:
+        d = date.fromisoformat(row['datum'])
+        datum_fmt = f"{d.day:02d}.{d.month:02d}.{d.year}"
+    except Exception:
+        datum_fmt = row['datum']
+    notizen = (row['notizen'] or '').strip()
+    if len(notizen) > 80:
+        notizen = notizen[:80] + '…'
+    return jsonify({
+        'datum':    datum_fmt,
+        'tage_ago': tage,
+        'displays': row['anzahl_displays'] or 0,
+        'kisten':   row['anzahl_kisten']   or 0,
+        'notizen':  notizen
+    })
+
+
 # ─── Routes: Aktivitäten ──────────────────────────────────────────────────────
 
 @app.route('/aktivitaet/neu', methods=['GET', 'POST'])

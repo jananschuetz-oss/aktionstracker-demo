@@ -20,27 +20,23 @@
         </div>
         <div class="col-md-7">
           <label class="form-label">Verkaufsstelle <span class="text-danger">*</span></label>
-          <select name="verkaufsstelle_id" class="form-select" required id="vsSelect">
-            <option value="">– Bitte auswählen –</option>
-            {% if vertretungs_gruppen %}<optgroup label="Mein Gebiet">{% endif %}
-            {% for vs in verkaufsstellen %}
-            <option value="{{ vs.id }}"
-              {% if preselect_vs == vs.id|string %}selected{% endif %}>
-              {{ vs.name }}{% if vs.ort %} – {{ vs.ort }}{% endif %}{% if vs.typ %} ({{ vs.typ }}){% endif %}
-            </option>
-            {% endfor %}
-            {% if vertretungs_gruppen %}</optgroup>{% endif %}
-            {% for gruppe in vertretungs_gruppen %}
-            <optgroup label="Vertretung: {{ gruppe.name }}">
-              {% for vs in gruppe.vs %}
-              <option value="{{ vs.id }}"
-                {% if preselect_vs == vs.id|string %}selected{% endif %}>
-                {{ vs.name }}{% if vs.ort %} – {{ vs.ort }}{% endif %}{% if vs.typ %} ({{ vs.typ }}){% endif %}
-              </option>
-              {% endfor %}
-            </optgroup>
-            {% endfor %}
-          </select>
+          <div class="position-relative">
+            <div class="input-group">
+              <span class="input-group-text"><i class="bi bi-search"></i></span>
+              <input type="text" id="vsSearch" class="form-control"
+                     placeholder="Verkaufsstelle suchen..." autocomplete="off">
+              <button type="button" class="btn btn-outline-secondary d-none" id="vsClear"
+                      onclick="vsClearSelection()"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <input type="hidden" name="verkaufsstelle_id" id="vsId"
+                   value="{{ preselect_vs or '' }}">
+            <div id="vsDropdown"
+                 class="dropdown-menu shadow-lg w-100 py-1"
+                 style="max-height:280px;overflow-y:auto;display:none;position:absolute;z-index:1055">
+            </div>
+          </div>
+          <!-- Letzter Besuch Info-Box (wird per JS befüllt) -->
+          <div id="vsLetzterBesuch" class="mt-2" style="display:none"></div>
         </div>
         <div class="col-md-2">
           <button type="button" class="btn btn-outline-primary w-100"
@@ -412,5 +408,119 @@ function updateMobileSummary() {
 document.querySelectorAll('.disp-input, .bier-input').forEach(el => {
   el.addEventListener('input', updateMobileSummary);
 });
+
+// ── VS-Suche ─────────────────────────────────────────────────────────────────
+const VS_DATA = [
+  {% for vs in verkaufsstellen %}
+  { id: {{ vs.id }}, label: "{{ vs.name }}{% if vs.ort %} – {{ vs.ort }}{% endif %}{% if vs.typ %} ({{ vs.typ }}){% endif %}", gruppe: null },
+  {% endfor %}
+  {% for gruppe in vertretungs_gruppen %}
+    {% for vs in gruppe.vs %}
+  { id: {{ vs.id }}, label: "{{ vs.name }}{% if vs.ort %} – {{ vs.ort }}{% endif %}{% if vs.typ %} ({{ vs.typ }}){% endif %}", gruppe: "Vertretung: {{ gruppe.name }}" },
+    {% endfor %}
+  {% endfor %}
+];
+
+const vsSearch   = document.getElementById('vsSearch');
+const vsId       = document.getElementById('vsId');
+const vsDropdown = document.getElementById('vsDropdown');
+const vsClear    = document.getElementById('vsClear');
+
+(function() {
+  const pre = vsId.value;
+  if (pre) {
+    const found = VS_DATA.find(v => v.id == pre);
+    if (found) { vsSearch.value = found.label; vsClear.classList.remove('d-none'); }
+  }
+})();
+
+function vsRenderDropdown(term) {
+  const t = term.toLowerCase().trim();
+  const filtered = t.length === 0 ? VS_DATA : VS_DATA.filter(v => v.label.toLowerCase().includes(t));
+  if (filtered.length === 0) {
+    vsDropdown.innerHTML = '<div class="dropdown-item text-muted">Keine Treffer</div>';
+  } else {
+    let html = '', lastGruppe = null;
+    filtered.forEach(v => {
+      if (v.gruppe !== lastGruppe) {
+        lastGruppe = v.gruppe;
+        if (v.gruppe) html += `<div class="dropdown-header small text-muted">${v.gruppe}</div>`;
+      }
+      html += `<button type="button" class="dropdown-item py-2" onclick="vsSelect(${v.id}, '${v.label.replace(/'/g,"\\'")}')">
+        <i class="bi bi-shop me-2 text-muted"></i>${v.label}
+      </button>`;
+    });
+    vsDropdown.innerHTML = html;
+  }
+  vsDropdown.style.display = 'block';
+}
+
+function vsSelect(id, label) {
+  vsId.value = id;
+  vsSearch.value = label;
+  vsDropdown.style.display = 'none';
+  vsClear.classList.remove('d-none');
+  vsShowLetzterBesuch(id);
+}
+
+function vsClearSelection() {
+  vsId.value = '';
+  vsSearch.value = '';
+  vsClear.classList.add('d-none');
+  vsDropdown.style.display = 'none';
+  document.getElementById('vsLetzterBesuch').style.display = 'none';
+  vsSearch.focus();
+}
+
+function vsShowLetzterBesuch(id) {
+  const box = document.getElementById('vsLetzterBesuch');
+  box.innerHTML = `<div class="p-2 rounded-3 small" style="background:#eef4fb;border:1px solid #b8d4f0">
+    <i class="bi bi-clock me-1" style="color:#2e6da4"></i>Letzter Besuch wird geladen…</div>`;
+  box.style.display = 'block';
+  fetch(`/api/letzter-besuch/${id}`)
+    .then(r => r.json())
+    .then(d => {
+      if (!d.datum) {
+        box.innerHTML = `<div class="p-2 rounded-3 small text-muted" style="background:#f8f9fa;border:1px solid #dee2e6">
+          <i class="bi bi-clock-history me-1"></i>Noch kein Besuch eingetragen</div>`;
+        return;
+      }
+      const notiz = d.notizen ? `<span><i class="bi bi-chat-text me-1" style="color:#2e6da4"></i>"${d.notizen}"</span>` : '';
+      box.innerHTML = `<div class="p-2 rounded-3 small" style="background:#eef4fb;border:1px solid #b8d4f0">
+        <div class="d-flex gap-3 flex-wrap align-items-center">
+          <span><i class="bi bi-calendar-check me-1" style="color:#2e6da4"></i><strong>Letzter Besuch:</strong> ${d.datum} <span class="text-muted">(vor ${d.tage_ago} Tagen)</span></span>
+          <span><i class="bi bi-display me-1" style="color:#2e6da4"></i>${d.displays} Displays</span>
+          <span><i class="bi bi-box-seam me-1" style="color:#c8860a"></i>${d.kisten} Kisten</span>
+          ${notiz}
+        </div>
+      </div>`;
+    })
+    .catch(() => { box.style.display = 'none'; });
+}
+
+vsSearch.addEventListener('input', function() {
+  vsId.value = '';
+  vsClear.classList.add('d-none');
+  document.getElementById('vsLetzterBesuch').style.display = 'none';
+  vsRenderDropdown(this.value);
+});
+vsSearch.addEventListener('focus', function() {
+  if (!vsId.value) vsRenderDropdown(this.value);
+});
+document.addEventListener('click', function(e) {
+  if (!vsSearch.contains(e.target) && !vsDropdown.contains(e.target)) {
+    vsDropdown.style.display = 'none';
+    if (!vsId.value) vsSearch.value = '';
+  }
+});
+document.getElementById('aktivForm').addEventListener('submit', function(e) {
+  if (!vsId.value) {
+    e.preventDefault();
+    vsSearch.classList.add('is-invalid');
+    vsSearch.focus();
+    vsSearch.scrollIntoView({behavior:'smooth', block:'center'});
+  }
+});
+vsSearch.addEventListener('input', function() { vsSearch.classList.remove('is-invalid'); });
 </script>
 {% endblock %}
