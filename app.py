@@ -744,6 +744,33 @@ def _team_m_clause(alias='m'):
     return '', ()
 
 
+# ─── PWA Manifest (dynamisch mit COMPANY_NAME aus ENV) ───────────────────────
+
+@app.route('/manifest.json')
+def manifest():
+    from flask import jsonify
+    data = {
+        "name": f"Aktions Tracker – {COMPANY_NAME}",
+        "short_name": "Aktions Tracker",
+        "description": f"Außendienst-Aktivitäten und Bestellungen – {COMPANY_NAME}",
+        "start_url": "/dashboard",
+        "scope": "/",
+        "display": "standalone",
+        "background_color": "#1a3a5c",
+        "theme_color": "#1a3a5c",
+        "orientation": "portrait-primary",
+        "icons": [
+            {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+            {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+            {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+            {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+        ]
+    }
+    resp = jsonify(data)
+    resp.headers['Content-Type'] = 'application/manifest+json'
+    return resp
+
+
 # ─── Routes: Auth ─────────────────────────────────────────────────────────────
 
 @app.route('/', methods=['GET', 'POST'])
