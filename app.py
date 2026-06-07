@@ -149,12 +149,34 @@ FOTO_AUFBEWAHRUNG_WOCHEN = 4   # Fotos werden nach 4 Wochen gelöscht (werden vo
 
 # ── E-Mail versenden ──────────────────────────────────────────────────────────
 
-_smtp_last_error = ''   # Letzten SMTP-Fehler für Diagnose merken
+_smtp_last_error = ''   # Letzten E-Mail-Fehler für Diagnose merken
+RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
 
 def send_email(to: str, subject: str, body_html: str) -> bool:
-    """Sendet eine HTML-E-Mail. Gibt True bei Erfolg zurück."""
+    """Sendet eine HTML-E-Mail via Resend (bevorzugt) oder SMTP (Fallback)."""
     global _smtp_last_error
     _smtp_last_error = ''
+
+    # ── Resend API (funktioniert auf Railway, da SMTP-Ports oft blockiert sind) ──
+    if RESEND_API_KEY:
+        try:
+            import resend as _resend
+            _resend.api_key = RESEND_API_KEY
+            from_addr = MAIL_FROM or f'Aktionstracker <{MAIL_USERNAME}>'
+            _resend.Emails.send({
+                'from':    from_addr,
+                'to':      [to],
+                'subject': subject,
+                'html':    body_html,
+            })
+            app.logger.info(f"E-Mail via Resend gesendet an {to}")
+            return True
+        except Exception as e:
+            _smtp_last_error = f'Resend: {e}'
+            app.logger.error(f"Resend-Fehler: {e}")
+            return False
+
+    # ── SMTP-Fallback (lokale Entwicklung / andere Server) ────────────────────
     if not MAIL_SERVER or not MAIL_USERNAME:
         _smtp_last_error = 'MAIL_SERVER oder MAIL_USERNAME nicht gesetzt'
         app.logger.warning("E-Mail nicht konfiguriert (MAIL_SERVER / MAIL_USERNAME fehlen).")
@@ -173,7 +195,7 @@ def send_email(to: str, subject: str, body_html: str) -> bool:
         return True
     except Exception as e:
         _smtp_last_error = str(e)
-        app.logger.error(f"E-Mail-Fehler: {e}")
+        app.logger.error(f"E-Mail-Fehler (SMTP): {e}")
         return False
 
 
