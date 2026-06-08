@@ -422,21 +422,28 @@ async function ladeHeatmap(jahr) {
     data = await resp.json();
   } catch (e) { console.error('Heatmap laden fehlgeschlagen:', e); return; }
 
-  const stellen   = data.stellen || [];
+  const stellen   = (data.stellen || []).filter(s => s.anzahl > 0);
   const maxAnzahl = Math.max(...stellen.map(s => s.anzahl), 1);
 
   stellen.forEach(s => {
     if (s.lat == null || s.lng == null) return;
-    const norm   = s.anzahl / maxAnzahl;
-    const radius = Math.round(8 + norm * 34);   // 8–42 px
-    const opac   = 0.25 + norm * 0.55;          // 0.25–0.80
+    // Wurzel-Scaling: spreizung zwischen wenig und viel besuchten Stationen
+    const norm   = Math.sqrt(s.anzahl / maxAnzahl);
+    const radius = Math.round(4 + norm * 12);    // 4–16 px (war 8–42)
+    const opac   = 0.50 + norm * 0.35;           // 0.50–0.85
+    // Farbgradient: helles orange (wenig) → dunkelrot (viel)
+    const hue  = Math.round(18 - norm * 13);     // 18° (orange) → 5° (rot)
+    const sat  = Math.round(85 + norm * 10);     // 85 → 95 %
+    const lig  = Math.round(58 - norm * 22);     // 58 → 36 %
+    const fillColor = `hsl(${hue},${sat}%,${lig}%)`;
+    const borderColor = `hsl(${hue},${sat}%,${Math.round(lig - 10)}%)`;
 
     L.circleMarker([s.lat, s.lng], {
       radius,
-      fillColor: '#e74c3c',
-      color:     '#c0392b',
+      fillColor,
+      color:     borderColor,
       weight:    1,
-      opacity:   0.5,
+      opacity:   0.7,
       fillOpacity: opac,
       pane: 'shadowPane',
     })
