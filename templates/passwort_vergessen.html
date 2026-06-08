@@ -60,19 +60,18 @@
   </div>
   {% else %}
   <p class="text-muted small mb-3">
-    Geben Sie Ihr Mitarbeiter-<strong>Kürzel</strong> oder Ihre hinterlegte
-    <strong>E-Mail-Adresse</strong> ein. Falls ein Konto existiert und eine E-Mail
-    hinterlegt ist, erhalten Sie einen Zurücksetz-Link.
+    Geben Sie Ihre hinterlegte <strong>E-Mail-Adresse</strong> ein.
+    Falls ein Konto existiert, erhalten Sie einen Zurücksetz-Link.
   </p>
 
   <form method="POST">
     <div class="mb-4">
       <label class="form-label">
-        <i class="bi bi-person-circle me-1"></i>Kürzel oder E-Mail
+        <i class="bi bi-envelope me-1"></i>E-Mail-Adresse
       </label>
-      <input type="text" name="eingabe" class="form-control form-control-lg"
-             placeholder="z.B. MM oder vorname@beispiel.de"
-             required autocomplete="username" autofocus>
+      <input type="email" name="eingabe" class="form-control form-control-lg"
+             placeholder="vorname@firma.de"
+             required autocomplete="email" autofocus>
     </div>
     <button type="submit" class="btn btn-submit w-100 mb-3">
       <i class="bi bi-envelope me-2"></i>Reset-Link anfordern

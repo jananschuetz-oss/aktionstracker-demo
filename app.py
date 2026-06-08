@@ -842,8 +842,8 @@ def passwort_vergessen():
     if request.method == 'POST':
         eingabe = request.form.get('eingabe', '').strip()
         ma = query(
-            "SELECT * FROM mitarbeiter WHERE (UPPER(kuerzel)=UPPER(?) OR email=?) AND rolle!='admin'",
-            (eingabe, eingabe), one=True
+            "SELECT * FROM mitarbeiter WHERE email=? AND rolle!='admin'",
+            (eingabe,), one=True
         )
         if ma and ma['email']:
             token  = secrets.token_urlsafe(32)
@@ -877,7 +877,7 @@ def passwort_vergessen():
                 </p>
               </div>
             </div>"""
-            send_email(ma['email'], 'Passwort zurücksetzen – Aktions Tracker', html)
+            send_email(ma['email'], f'Passwort zurücksetzen – {COMPANY_NAME}', html)
         # Immer dieselbe Meldung (Sicherheit: kein Hinweis ob Konto existiert)
         flash('Falls ein Konto mit diesen Daten existiert, wurde eine E-Mail gesendet.', 'info')
         return redirect(url_for('login'))
@@ -3012,6 +3012,74 @@ def send_wochenbericht(force=False):
         return _do_send_wochenbericht(force=force)
 
 
+# ─── Demo-Frischhaltung: jede Woche neue Aktivitäten ─────────────────────────
+
+def _do_demo_woche_nachfuellen():
+    """Fügt der vergangenen Woche je 5 Aktivitäten pro Rep hinzu.
+    Läuft jeden Sonntag 23:30 – Daten sind bereit für den Montags-Wochenbericht.
+    Idempotent: Falls die Woche bereits Einträge hat, wird nichts eingefügt."""
+    import random as rnd
+    from datetime import date, timedelta
+
+    today       = date.today()
+    letzter_mo  = today - timedelta(days=today.weekday() + 7)
+    letzter_fr  = letzter_mo + timedelta(days=4)
+    kw          = letzter_mo.isocalendar()[1]
+    rnd.seed(kw * 1000 + letzter_mo.year)  # deterministisch pro KW
+
+    db      = get_db()
+    reps    = db.execute("SELECT id FROM mitarbeiter WHERE rolle='rep'").fetchall()
+    stellen = db.execute("SELECT id, typ FROM verkaufsstelle WHERE aktiv=1").fetchall()
+    biere   = db.execute("SELECT id FROM biersorte WHERE aktiv=1").fetchall()
+    bier_ids = [b['id'] for b in biere]
+
+    # Bereits Daten für diese Woche? → überspringen
+    existing = db.execute(
+        "SELECT COUNT(*) FROM aktivitaet WHERE datum BETWEEN ? AND ?",
+        (letzter_mo.isoformat(), letzter_fr.isoformat())
+    ).fetchone()[0]
+    if existing > 0:
+        app.logger.info(f"Demo-Seed KW {kw}/{letzter_mo.year}: {existing} Einträge vorhanden, übersprungen.")
+        return
+
+    NOTIZEN = [
+        '', '', '', '',
+        'Sonderaktion vereinbart', 'Kunde sehr zufrieden',
+        'Neues Kühlregal besprochen', 'Probierpaket mitgenommen',
+        'Konkurrenzprodukte gesichtet', 'Rückgabe 3 leere Displays',
+        'Termin für Herbstaktion vereinbart', 'Stammkunde, läuft sehr gut',
+    ]
+
+    gesamt = 0
+    for rep in reps:
+        tage = sorted(rnd.sample(range(5), k=5))          # Mo–Fr, 5 verschiedene Tage
+        vs_woche = rnd.sample(stellen, k=min(5, len(stellen)))  # 5 verschiedene Stellen
+        for i, tag in enumerate(tage):
+            datum    = (letzter_mo + timedelta(days=tag)).isoformat()
+            vs       = vs_woche[i]
+            displays = rnd.choices([0,1,2,3,4,5], weights=[30,25,20,12,8,5])[0]
+            cur = db.execute(
+                "INSERT INTO aktivitaet (datum,mitarbeiter_id,verkaufsstelle_id,anzahl_displays,notizen) "
+                "VALUES (?,?,?,?,?)",
+                (datum, rep['id'], vs['id'], displays, rnd.choice(NOTIZEN))
+            )
+            aid = cur.lastrowid
+            for bier_id in rnd.sample(bier_ids, k=rnd.randint(2, min(4, len(bier_ids)))):
+                db.execute(
+                    "INSERT INTO bestellposition (aktivitaet_id,biersorte_id,kisten_anzahl) VALUES (?,?,?)",
+                    (aid, bier_id, rnd.randint(3, 50))
+                )
+            gesamt += 1
+    db.commit()
+    app.logger.info(f"Demo-Seed KW {kw}/{letzter_mo.year}: {gesamt} neue Aktivitäten eingefügt.")
+
+
+def demo_woche_nachfuellen():
+    """Wrapper für APScheduler."""
+    with app.app_context():
+        _do_demo_woche_nachfuellen()
+
+
 @app.route('/einstellungen/wochenbericht', methods=['GET', 'POST'])
 @login_required
 def einstellungen_wochenbericht():
@@ -3314,6 +3382,8 @@ try:
     _scheduler.add_job(backup_db,           'interval', days=1,  id='backup_db',      replace_existing=True)
     _scheduler.add_job(cleanup_alte_fotos,  'interval', days=1,  id='cleanup_fotos',  replace_existing=True)
     _scheduler.add_job(auto_export_job,     'interval', weeks=4, id='auto_export',    replace_existing=True)
+    _scheduler.add_job(demo_woche_nachfuellen, 'cron', day_of_week='sun', hour=23, minute=30,
+                       id='demo_seed',        replace_existing=True)
     _scheduler.add_job(send_wochenbericht,  'cron', day_of_week='mon', hour=7, minute=0,
                        id='wochenbericht', replace_existing=True, timezone='Europe/Berlin')
     _scheduler.start()
