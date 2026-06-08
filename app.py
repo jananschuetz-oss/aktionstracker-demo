@@ -507,19 +507,19 @@ def init_db():
                 db.commit()
 
         # Stationszuordnung: Demo-Reps geografisch nach Region – idempotent
-        # Trigger: MM hat noch keine Bayern-Stationen ODER es gibt unzugeordnete Stationen
+        # Trigger: MM hat Stationen außerhalb Bayerns ODER es gibt unzugeordnete Stationen
         _mm_row = db.execute("SELECT id FROM mitarbeiter WHERE kuerzel='MM'").fetchone()
-        _mm_hat_geo = bool(_mm_row and db.execute("""
+        _mm_hat_falsch = bool(_mm_row and db.execute("""
             SELECT COUNT(*) FROM mitarbeiter_verkaufsstelle mv
             JOIN verkaufsstelle v ON v.id = mv.verkaufsstelle_id
-            WHERE mv.mitarbeiter_id=? AND v.ort IN ('München','Nürnberg')
+            WHERE mv.mitarbeiter_id=? AND v.ort NOT IN ('München','Nürnberg')
         """, (_mm_row['id'],)).fetchone()[0])
         _unzugeordnet = db.execute("""
             SELECT COUNT(*) FROM verkaufsstelle v
             LEFT JOIN mitarbeiter_verkaufsstelle mv ON mv.verkaufsstelle_id = v.id
             WHERE v.aktiv = 1 AND mv.mitarbeiter_id IS NULL
         """).fetchone()[0]
-        if _unzugeordnet > 0 or not _mm_hat_geo:
+        if _unzugeordnet > 0 or _mm_hat_falsch:
             import random as _rnd_assign
             _rnd_assign.seed(42)
             # Rep-Zuordnungen löschen und geografisch neu vergeben
