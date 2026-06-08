@@ -425,27 +425,53 @@ async function ladeHeatmap(jahr) {
   const stellen   = data.stellen || [];
   const maxAnzahl = Math.max(...stellen.map(s => s.anzahl), 1);
 
+  // Prozentrang-Schwellen: relativ zu allen besuchten Stationen
+  // → Skala passt sich automatisch an (auch am Jahresanfang sinnvoll)
+  const besuchtZahlen = stellen
+    .filter(s => s.anzahl > 0)
+    .map(s => s.anzahl)
+    .sort((a, b) => a - b);
+  const nBesucht = besuchtZahlen.length;
+
   stellen.forEach(s => {
     if (s.lat == null || s.lng == null) return;
 
-    let radius, fillColor, borderColor, opac;
+    let radius, fillColor, borderColor, opac, tooltipColor;
     if (s.anzahl === 0) {
-      // Nicht besucht: kleiner grauer Punkt → "weißer Fleck" sichtbar machen
-      radius      = 5;
-      fillColor   = '#adb5bd';
-      borderColor = '#868e96';
-      opac        = 0.55;
+      // ⚫ Kein Besuch → grau (weißer Fleck)
+      radius       = 5;
+      fillColor    = '#adb5bd';
+      borderColor  = '#868e96';
+      opac         = 0.55;
+      tooltipColor = '#868e96';
     } else {
-      // Wurzel-Scaling: bessere Spreizung zwischen wenig und viel besuchten Stationen
-      const norm  = Math.sqrt(s.anzahl / maxAnzahl);
-      radius      = Math.round(4 + norm * 12);    // 4–16 px
-      opac        = 0.50 + norm * 0.35;           // 0.50–0.85
-      // Farbgradient: helles orange (wenig) → dunkelrot (viel)
-      const hue   = Math.round(18 - norm * 13);   // 18° (orange) → 5° (rot)
-      const sat   = Math.round(85 + norm * 10);   // 85 → 95 %
-      const lig   = Math.round(58 - norm * 22);   // 58 → 36 %
-      fillColor   = `hsl(${hue},${sat}%,${lig}%)`;
-      borderColor = `hsl(${hue},${sat}%,${Math.round(lig - 10)}%)`;
+      // Größe: kontinuierlich nach Wurzel-Scaling
+      const norm = Math.sqrt(s.anzahl / maxAnzahl);
+      radius = Math.round(5 + norm * 11);   // 5–16 px
+      opac   = 0.65 + norm * 0.25;          // 0.65–0.90
+
+      // Farbe: Prozentrang im Vergleich zu allen besuchten Stationen
+      // gleiche Besuchszahl wie andere → im oberen Drittel (alle gleich = alle grün)
+      const rang = nBesucht > 0
+        ? besuchtZahlen.filter(x => x <= s.anzahl).length / nBesucht
+        : 1;
+
+      if (rang <= 0.33) {
+        // 🔴 Unteres Drittel – zu selten angefahren
+        fillColor   = '#e74c3c';
+        borderColor = '#c0392b';
+        tooltipColor = '#e74c3c';
+      } else if (rang <= 0.67) {
+        // 🟡 Mittleres Drittel – ausbaufähig
+        fillColor   = '#f39c12';
+        borderColor = '#d68910';
+        tooltipColor = '#d68910';
+      } else {
+        // 🟢 Oberes Drittel – gut versorgt
+        fillColor   = '#27ae60';
+        borderColor = '#1e8449';
+        tooltipColor = '#27ae60';
+      }
     }
 
     L.circleMarker([s.lat, s.lng], {
@@ -461,7 +487,7 @@ async function ladeHeatmap(jahr) {
       `<strong>${s.name}</strong><br><small>${s.ort}</small><br>` +
       (s.anzahl === 0
         ? `<b style="color:#868e96">Noch kein Besuch in ${jahr}</b>`
-        : `<b style="color:#e74c3c">${s.anzahl} Aktivität${s.anzahl !== 1 ? 'en' : ''}</b> in ${jahr}`),
+        : `<b style="color:${tooltipColor}">${s.anzahl} Aktivität${s.anzahl !== 1 ? 'en' : ''} in ${jahr}</b>`),
       { direction: 'top', offset: [0, -6] }
     )
     .addTo(heatmapLayer);
@@ -489,8 +515,11 @@ function aktiviereHeatmap() {
   document.getElementById('heatmapJahr').classList.remove('d-none');
   const leg = document.getElementById('legendeInline');
   if (leg) leg.innerHTML =
-    '<span class="ms-2"><i class="bi bi-circle-fill" style="color:#e74c3c;opacity:.7"></i> ' +
-    'Kreisfläche = Anzahl Aktivitäten</span>';
+    '<span class="ms-2 me-2"><i class="bi bi-circle-fill" style="color:#adb5bd"></i> Kein Besuch</span>' +
+    '<span class="me-2"><i class="bi bi-circle-fill" style="color:#e74c3c"></i> Wenig</span>' +
+    '<span class="me-2"><i class="bi bi-circle-fill" style="color:#f39c12"></i> Mittel</span>' +
+    '<span class="me-2"><i class="bi bi-circle-fill" style="color:#27ae60"></i> Häufig</span>' +
+    '<span class="text-muted" style="font-size:.75rem">(relativ zu anderen Stationen)</span>';
 }
 
 function deaktiviereHeatmap() {
