@@ -213,11 +213,13 @@
         <div class="row align-items-center g-2">
           <!-- Datum + KW -->
           <div class="col-auto">
-            <div class="text-center" style="min-width:70px">
-              <div class="badge-kw mb-1" style="display:block;text-align:center">
-                KW {{ a.datum[5:7]|int }}
+            <div class="text-center" style="min-width:54px">
+              <div style="font-size:.92rem;font-weight:700;color:#1a3a5c;line-height:1.2">
+                {{ a.datum[8:10] }}.{{ a.datum[5:7] }}.{{ a.datum[2:4] }}
               </div>
-              <div style="font-size:.85rem;font-weight:600;color:#333">{{ a.datum }}</div>
+              <span class="badge-kw" style="font-size:.65rem;padding:.1rem .42rem;margin-top:.18rem;display:inline-block">
+                KW {{ a.datum|isoweek }}
+              </span>
             </div>
           </div>
 

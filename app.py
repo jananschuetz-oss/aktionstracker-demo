@@ -86,6 +86,14 @@ def todatetime_filter(s):
     except Exception:
         return date.today()
 
+@app.template_filter('isoweek')
+def isoweek_filter(s):
+    """Gibt die ISO-Kalenderwoche für ein 'YYYY-MM-DD' Datum zurück."""
+    try:
+        return date.fromisoformat(str(s)).isocalendar()[1]
+    except Exception:
+        return ''
+
 @app.before_request
 def check_session_lifetime():
     """Leert die Session wenn sie abgelaufen ist (PERMANENT_SESSION_LIFETIME)."""

@@ -237,8 +237,8 @@
         {% for a in letzte %}
         <tr>
           <td>
-            <span class="badge-kw" style="font-size:.7rem">KW {{ a.datum[5:7]|int }}</span>
-            {{ a.datum }}
+            <span class="badge-kw" style="font-size:.7rem">KW {{ a.datum|isoweek }}</span>
+            {{ a.datum[8:10] }}.{{ a.datum[5:7] }}.{{ a.datum[2:4] }}
           </td>
           {% if is_manager %}<td><small>{{ a.mitarbeiter }}</small></td>{% endif %}
           <td>{{ a.verkaufsstelle }}</td>
