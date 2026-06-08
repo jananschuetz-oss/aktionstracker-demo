@@ -506,41 +506,74 @@ def init_db():
                                (dateiname, akt_row['id']))
                 db.commit()
 
-        # Stationszuordnung: alle noch nicht zugeordneten aktiven Stationen gleichmäßig verteilen
-        unzugeordnet = db.execute("""
-            SELECT v.id FROM verkaufsstelle v
+        # Stationszuordnung: Demo-Reps geografisch nach Region – idempotent
+        # Trigger: MM hat noch keine Bayern-Stationen ODER es gibt unzugeordnete Stationen
+        _mm_row = db.execute("SELECT id FROM mitarbeiter WHERE kuerzel='MM'").fetchone()
+        _mm_hat_geo = bool(_mm_row and db.execute("""
+            SELECT COUNT(*) FROM mitarbeiter_verkaufsstelle mv
+            JOIN verkaufsstelle v ON v.id = mv.verkaufsstelle_id
+            WHERE mv.mitarbeiter_id=? AND v.ort IN ('München','Nürnberg')
+        """, (_mm_row['id'],)).fetchone()[0])
+        _unzugeordnet = db.execute("""
+            SELECT COUNT(*) FROM verkaufsstelle v
             LEFT JOIN mitarbeiter_verkaufsstelle mv ON mv.verkaufsstelle_id = v.id
             WHERE v.aktiv = 1 AND mv.mitarbeiter_id IS NULL
-        """).fetchall()
-        if unzugeordnet:
+        """).fetchone()[0]
+        if _unzugeordnet > 0 or not _mm_hat_geo:
             import random as _rnd_assign
-            _rnd_assign.seed(99)
-            pool    = [s['id'] for s in unzugeordnet]
-            _rnd_assign.shuffle(pool)
-            reps_ma = db.execute("SELECT id FROM mitarbeiter WHERE rolle='rep'").fetchall()
-            vkls_ma = db.execute("SELECT id FROM mitarbeiter WHERE rolle='verkaufsleiter'").fetchall()
-            # VKLs: je bis zu 3 Stationen (nur wenn sie noch keine haben)
-            for vkl in vkls_ma:
-                hat_bereits = db.execute(
-                    "SELECT COUNT(*) FROM mitarbeiter_verkaufsstelle WHERE mitarbeiter_id=?",
-                    (vkl['id'],)
-                ).fetchone()[0]
-                fehlend = max(0, 3 - hat_bereits)
-                for _ in range(min(fehlend, len(pool))):
+            _rnd_assign.seed(42)
+            # Rep-Zuordnungen löschen und geografisch neu vergeben
+            db.execute("DELETE FROM mitarbeiter_verkaufsstelle WHERE mitarbeiter_id IN "
+                       "(SELECT id FROM mitarbeiter WHERE rolle='rep')")
+            DEMO_GEO = {
+                'MM': ('München', 'Nürnberg'),
+                'AS': ('Hamburg', 'Hannover', 'Bremen', 'Berlin'),
+                'TW': ('Frankfurt', 'Wiesbaden', 'Leipzig'),
+                'LF': ('Köln', 'Düsseldorf', 'Dortmund', 'Essen', 'Bonn'),
+                'KH': ('Stuttgart', 'Freiburg', 'Mannheim'),
+            }
+            for _kz, _staedte in DEMO_GEO.items():
+                _r = db.execute("SELECT id FROM mitarbeiter WHERE kuerzel=?", (_kz,)).fetchone()
+                if not _r:
+                    continue
+                for _s in db.execute(
+                    "SELECT id FROM verkaufsstelle WHERE ort IN ({}) AND aktiv=1".format(
+                        ','.join('?' * len(_staedte))
+                    ), _staedte
+                ).fetchall():
                     db.execute(
                         "INSERT OR IGNORE INTO mitarbeiter_verkaufsstelle (mitarbeiter_id, verkaufsstelle_id) VALUES (?,?)",
-                        (vkl['id'], pool.pop(0))
+                        (_r['id'], _s['id'])
                     )
-            # Reps: Rest gleichmäßig
-            if reps_ma:
-                for idx, st_id in enumerate(pool):
-                    rep = reps_ma[idx % len(reps_ma)]
+            # Catch-all: verbleibende unzugeordnete Stationen gleichmäßig auf Reps verteilen
+            _rest_reps = db.execute("SELECT id FROM mitarbeiter WHERE rolle='rep'").fetchall()
+            _rest_vs = db.execute("""
+                SELECT v.id FROM verkaufsstelle v
+                WHERE v.aktiv=1 AND v.id NOT IN (
+                    SELECT verkaufsstelle_id FROM mitarbeiter_verkaufsstelle
+                    WHERE mitarbeiter_id IN (SELECT id FROM mitarbeiter WHERE rolle='rep')
+                )
+            """).fetchall()
+            if _rest_vs and _rest_reps:
+                _pool_r = [s['id'] for s in _rest_vs]
+                _rnd_assign.shuffle(_pool_r)
+                for _i, _sid in enumerate(_pool_r):
                     db.execute(
                         "INSERT OR IGNORE INTO mitarbeiter_verkaufsstelle (mitarbeiter_id, verkaufsstelle_id) VALUES (?,?)",
-                        (rep['id'], st_id)
+                        (_rest_reps[_i % len(_rest_reps)]['id'], _sid)
                     )
+            # VKLs: falls noch keine Stationen → 5 querdurch aus allen Städten
+            for _vkl in db.execute("SELECT id FROM mitarbeiter WHERE rolle='verkaufsleiter'").fetchall():
+                _has = db.execute("SELECT COUNT(*) FROM mitarbeiter_verkaufsstelle WHERE mitarbeiter_id=?",
+                                  (_vkl['id'],)).fetchone()[0]
+                if _has == 0:
+                    for _s in db.execute("SELECT id FROM verkaufsstelle WHERE aktiv=1 ORDER BY id LIMIT 5").fetchall():
+                        db.execute(
+                            "INSERT OR IGNORE INTO mitarbeiter_verkaufsstelle (mitarbeiter_id, verkaufsstelle_id) VALUES (?,?)",
+                            (_vkl['id'], _s['id'])
+                        )
             db.commit()
-            app.logger.info(f"Stationszuordnung: {len(unzugeordnet)} Stationen automatisch verteilt.")
+            app.logger.info("Demo: Stationszuordnung geografisch nach Regionen verteilt.")
 
         # Demo-Koordinaten: Stationen ohne lat/lng anhand der Stadt direkt setzen
         ohne_coords = db.execute(
@@ -3060,8 +3093,15 @@ def _do_demo_woche_nachfuellen():
 
     gesamt = 0
     for rep in reps:
+        # Nur dem Rep zugewiesene Stationen nutzen (geografisch korrekt)
+        zugewiesen = db.execute("""
+            SELECT v.id, v.typ FROM verkaufsstelle v
+            JOIN mitarbeiter_verkaufsstelle mv ON mv.verkaufsstelle_id = v.id
+            WHERE mv.mitarbeiter_id = ? AND v.aktiv = 1
+        """, (rep['id'],)).fetchall()
+        rep_stellen = list(zugewiesen) if len(zugewiesen) >= 2 else list(stellen)
         tage = sorted(rnd.sample(range(5), k=5))          # Mo–Fr, 5 verschiedene Tage
-        vs_woche = rnd.sample(stellen, k=min(5, len(stellen)))  # 5 verschiedene Stellen
+        vs_woche = rnd.sample(rep_stellen, k=min(5, len(rep_stellen)))  # 5 Stellen aus der Region
         for i, tag in enumerate(tage):
             datum    = (letzter_mo + timedelta(days=tag)).isoformat()
             vs       = vs_woche[i]
