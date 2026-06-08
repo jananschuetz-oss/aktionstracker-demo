@@ -2261,6 +2261,21 @@ def vs_neu_rep():
     typ             = request.form.get('typ',             '').strip()
     ansprechpartner = request.form.get('ansprechpartner', '').strip()
     if name:
+        # Duplikat-Check: gleicher Name + Ort (Groß-/Kleinschreibung egal)
+        vorhanden = query(
+            "SELECT id, name, ort FROM verkaufsstelle WHERE LOWER(name)=LOWER(?) AND LOWER(COALESCE(ort,''))=LOWER(?) AND aktiv=1",
+            (name, ort), one=True
+        )
+        if vorhanden:
+            # Existiert bereits → direkt zuordnen und weiterleiten
+            if session.get('rolle') in ('rep', 'verkaufsleiter'):
+                execute(
+                    "INSERT OR IGNORE INTO mitarbeiter_verkaufsstelle (mitarbeiter_id, verkaufsstelle_id) VALUES (?,?)",
+                    (session['user_id'], vorhanden['id'])
+                )
+            flash(f'„{vorhanden["name"]}" in {vorhanden["ort"] or "unbekanntem Ort"} existiert bereits – direkt ausgewählt.', 'info')
+            return redirect(url_for('neue_aktivitaet', vs_id=vorhanden['id']))
+
         new_id = execute(
             "INSERT INTO verkaufsstelle (name, strasse, ort, typ, ansprechpartner) VALUES (?,?,?,?,?)",
             (name, strasse, ort, typ, ansprechpartner)
