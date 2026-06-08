@@ -57,17 +57,28 @@
         <label class="form-label"><i class="bi bi-camera me-1"></i>Foto <span class="text-danger">*</span> <small class="text-muted fw-normal">(Pflichtfeld)</small></label>
         <div class="d-flex gap-3 align-items-start flex-wrap">
           <div class="flex-grow-1">
-            <label for="fotoInput" class="foto-upload-label d-flex align-items-center justify-content-center gap-2
-                         border rounded-3 text-muted" id="fotoLabel"
-                   style="min-height:80px;cursor:pointer;border-style:dashed !important;
-                          border-color:#2e6da4 !important;background:#f8fafd;transition:all .2s">
-              <span id="fotoLabelText">
-                <i class="bi bi-cloud-upload fs-4 d-block text-center mb-1" style="color:#2e6da4"></i>
-                <span class="small">Foto auswählen oder aufnehmen</span>
-              </span>
-            </label>
-            <input type="file" name="foto" id="fotoInput" accept="image/*"
-                   class="d-none" required onchange="fotoPreview(this)">
+            <!-- Zwei explizite Buttons: Kamera + Galerie -->
+            <div id="fotoBtns" class="d-flex gap-2 mb-2">
+              <label for="fotoKameraBtn"
+                     class="btn btn-primary flex-fill py-3 text-center"
+                     style="min-height:80px;display:flex!important;flex-direction:column;align-items:center;justify-content:center">
+                <i class="bi bi-camera fs-3 mb-1"></i>
+                <span class="small fw-semibold">Kamera</span>
+              </label>
+              <input type="file" id="fotoKameraBtn" accept="image/*" capture="environment"
+                     class="d-none" onchange="fotoGewaehlt(this)">
+
+              <label for="fotoGalerieBtn"
+                     class="btn btn-outline-primary flex-fill py-3 text-center"
+                     style="min-height:80px;display:flex!important;flex-direction:column;align-items:center;justify-content:center">
+                <i class="bi bi-images fs-3 mb-1"></i>
+                <span class="small fw-semibold">Galerie</span>
+              </label>
+              <input type="file" id="fotoGalerieBtn" accept="image/*"
+                     class="d-none" onchange="fotoGewaehlt(this)">
+            </div>
+            <!-- Verstecktes Master-Input für Form-Submission -->
+            <input type="file" name="foto" id="fotoInput" accept="image/*" class="d-none" required>
             <div class="form-text">JPG, PNG, WebP, GIF – max. 16 MB &nbsp;·&nbsp;
               <i class="bi bi-clock-history"></i> Fotos werden nach <strong>8 Wochen</strong> automatisch gelöscht
             </div>
@@ -299,22 +310,31 @@
 
 {% block scripts %}
 <script>
-function fotoPreview(input) {
-  if (input.files && input.files[0]) {
-    const reader = new FileReader();
-    reader.onload = function(e) {
-      document.getElementById('fotoPreviewImg').src = e.target.result;
-      document.getElementById('fotoPreviewWrap').style.display = 'block';
-      document.getElementById('fotoLabel').style.display = 'none';
-    };
-    reader.readAsDataURL(input.files[0]);
-  }
+function fotoGewaehlt(src) {
+  if (!src.files || !src.files[0]) return;
+  // Datei per DataTransfer ins Master-Input kopieren (für form submit)
+  const master = document.getElementById('fotoInput');
+  try {
+    const dt = new DataTransfer();
+    dt.items.add(src.files[0]);
+    master.files = dt.files;
+  } catch(e) { /* DataTransfer nicht verfügbar – ältere Browser */ }
+  // Vorschau anzeigen
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    document.getElementById('fotoPreviewImg').src = e.target.result;
+    document.getElementById('fotoPreviewWrap').style.display = 'block';
+    document.getElementById('fotoBtns').style.display = 'none';
+  };
+  reader.readAsDataURL(src.files[0]);
 }
 
 function fotoEntfernen() {
   document.getElementById('fotoInput').value = '';
+  document.getElementById('fotoKameraBtn').value = '';
+  document.getElementById('fotoGalerieBtn').value = '';
   document.getElementById('fotoPreviewWrap').style.display = 'none';
-  document.getElementById('fotoLabel').style.display = 'flex';
+  document.getElementById('fotoBtns').style.display = 'flex';
 }
 
 // ── Display-Funktionen ──────────────────────────────────────────────────────
