@@ -562,16 +562,7 @@ def init_db():
                         "INSERT OR IGNORE INTO mitarbeiter_verkaufsstelle (mitarbeiter_id, verkaufsstelle_id) VALUES (?,?)",
                         (_rest_reps[_i % len(_rest_reps)]['id'], _sid)
                     )
-            # VKLs: falls noch keine Stationen → 5 querdurch aus allen Städten
-            for _vkl in db.execute("SELECT id FROM mitarbeiter WHERE rolle='verkaufsleiter'").fetchall():
-                _has = db.execute("SELECT COUNT(*) FROM mitarbeiter_verkaufsstelle WHERE mitarbeiter_id=?",
-                                  (_vkl['id'],)).fetchone()[0]
-                if _has == 0:
-                    for _s in db.execute("SELECT id FROM verkaufsstelle WHERE aktiv=1 ORDER BY id LIMIT 5").fetchall():
-                        db.execute(
-                            "INSERT OR IGNORE INTO mitarbeiter_verkaufsstelle (mitarbeiter_id, verkaufsstelle_id) VALUES (?,?)",
-                            (_vkl['id'], _s['id'])
-                        )
+            # VKL bekommt bewusst keine Stationen zugewiesen (sieht alles über die Gesamtansicht)
             db.commit()
             app.logger.info("Demo: Stationszuordnung geografisch nach Regionen verteilt.")
 
