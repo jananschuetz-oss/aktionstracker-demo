@@ -2254,6 +2254,38 @@ def admin_vs_neu():
     return redirect(url_for('admin'))
 
 
+@app.route('/admin/verkaufsstelle/<int:vs_id>/bearbeiten', methods=['POST'])
+@admin_required
+def admin_vs_bearbeiten(vs_id):
+    vs = query("SELECT * FROM verkaufsstelle WHERE id=?", (vs_id,), one=True)
+    if not vs:
+        flash('Verkaufsstelle nicht gefunden.', 'danger')
+        return redirect(url_for('admin'))
+    name            = request.form.get('name',            '').strip()
+    strasse         = request.form.get('strasse',         '').strip()
+    ort             = request.form.get('ort',             '').strip()
+    typ             = request.form.get('typ',             '').strip()
+    ansprechpartner = request.form.get('ansprechpartner', '').strip()
+    if not name:
+        flash('Name ist ein Pflichtfeld.', 'danger')
+        return redirect(url_for('admin'))
+    adresse_geaendert = strasse != (vs['strasse'] or '') or ort != (vs['ort'] or '')
+    execute(
+        "UPDATE verkaufsstelle SET name=?, strasse=?, ort=?, typ=?, ansprechpartner=? WHERE id=?",
+        (name, strasse, ort, typ, ansprechpartner, vs_id)
+    )
+    if adresse_geaendert and KARTE_MODUS != 'aus' and (strasse or ort):
+        lat, lng = _geocode_adresse(strasse, ort)
+        if lat is not None:
+            execute("UPDATE verkaufsstelle SET lat=?, lng=? WHERE id=?", (lat, lng, vs_id))
+            flash(f'„{name}" gespeichert und neu auf Karte verortet.', 'success')
+        else:
+            flash(f'„{name}" gespeichert. Koordinaten konnten nicht neu ermittelt werden.', 'warning')
+    else:
+        flash(f'„{name}" gespeichert.', 'success')
+    return redirect(url_for('admin'))
+
+
 @app.route('/admin/verkaufsstelle/<int:vs_id>/loeschen', methods=['POST'])
 @admin_required
 def admin_vs_loeschen(vs_id):

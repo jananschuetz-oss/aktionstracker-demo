@@ -168,6 +168,17 @@
                 </td>
                 <td class="text-center" style="white-space:nowrap">
                   {% if vs.aktiv %}
+                  <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1"
+                          title="Bearbeiten"
+                          data-bs-toggle="modal" data-bs-target="#modalVSEdit"
+                          data-id="{{ vs.id }}"
+                          data-name="{{ vs.name }}"
+                          data-strasse="{{ vs.strasse or '' }}"
+                          data-ort="{{ vs.ort or '' }}"
+                          data-typ="{{ vs.typ or '' }}"
+                          data-ansprechpartner="{{ vs.ansprechpartner or '' }}">
+                    <i class="bi bi-pencil"></i>
+                  </button>
                   <form method="POST"
                         action="{{ url_for('admin_vs_loeschen', vs_id=vs.id) }}"
                         style="display:inline"
@@ -760,6 +771,64 @@ document.getElementById('modalRolle').addEventListener('show.bs.modal', function
     </div>
   </div>
 </div>
+
+<!-- Modal: Verkaufsstelle bearbeiten -->
+<div class="modal fade" id="modalVSEdit" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" id="formVSEdit" action="">
+        <div class="modal-header" style="background:#2e6da4;color:white">
+          <h5 class="modal-title"><i class="bi bi-pencil me-2"></i>Verkaufsstelle bearbeiten</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Name <span class="text-danger">*</span></label>
+            <input type="text" name="name" id="editVsName" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Straße &amp; Hausnummer</label>
+            <input type="text" name="strasse" id="editVsStrasse" class="form-control" placeholder="z.B. Hauptstr. 12">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Ort</label>
+            <input type="text" name="ort" id="editVsOrt" class="form-control" placeholder="z.B. München">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Typ</label>
+            <select name="typ" id="editVsTyp" class="form-select">
+              <option value="Einzelhandel">Einzelhandel</option>
+              <option value="Gastronomie">Gastronomie</option>
+              <option value="Getränkehandel">Getränkehandel</option>
+              <option value="Hotel">Hotel</option>
+              <option value="Verein">Verein</option>
+              <option value="Sonstiges">Sonstiges</option>
+            </select>
+          </div>
+          <div class="mb-3 mb-0">
+            <label class="form-label">Ansprechpartner <span class="text-muted fw-normal">(optional)</span></label>
+            <input type="text" name="ansprechpartner" id="editVsAnsprechpartner" class="form-control" placeholder="z.B. Maria Müller">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-check me-1"></i>Speichern</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+document.getElementById('modalVSEdit').addEventListener('show.bs.modal', function(e) {
+  const btn = e.relatedTarget;
+  document.getElementById('formVSEdit').action = '/admin/verkaufsstelle/' + btn.dataset.id + '/bearbeiten';
+  document.getElementById('editVsName').value = btn.dataset.name;
+  document.getElementById('editVsStrasse').value = btn.dataset.strasse;
+  document.getElementById('editVsOrt').value = btn.dataset.ort;
+  document.getElementById('editVsTyp').value = btn.dataset.typ;
+  document.getElementById('editVsAnsprechpartner').value = btn.dataset.ansprechpartner;
+});
+</script>
 
 <!-- Modal: Display-Typ -->
 <div class="modal fade" id="modalDisplay" tabindex="-1">
