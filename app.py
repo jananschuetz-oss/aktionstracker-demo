@@ -2290,6 +2290,9 @@ def vs_neu_rep():
     ort             = request.form.get('ort',             '').strip()
     typ             = request.form.get('typ',             '').strip()
     ansprechpartner = request.form.get('ansprechpartner', '').strip()
+    if not name or not strasse or not ort:
+        flash('Name, Straße und Ort sind Pflichtfelder.', 'danger')
+        return redirect(url_for('neue_aktivitaet'))
     if name:
         # Duplikat-Check: gleicher Name + Ort (Groß-/Kleinschreibung egal)
         vorhanden = query(
@@ -2318,7 +2321,7 @@ def vs_neu_rep():
             )
         flash(f'Verkaufsstelle "{name}" wurde angelegt und ausgewählt.', 'success')
         return redirect(url_for('neue_aktivitaet', vs_id=new_id))
-    flash('Bitte einen Namen eingeben.', 'danger')
+    flash('Name, Straße und Ort sind Pflichtfelder.', 'danger')
     return redirect(url_for('neue_aktivitaet'))
 
 
