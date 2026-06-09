@@ -18,6 +18,7 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from werkzeug.utils import secure_filename
+from PIL import Image
 import urllib.request
 import urllib.parse
 import time as _time
@@ -287,6 +288,16 @@ def cleanup_alte_fotos():
     if alte_akte:
         db.commit()
     return count
+
+
+def komprimiere_foto(quelle, ziel_pfad: str, max_px: int = 1200, qualitaet: int = 75):
+    """Öffnet Foto aus Datei-Objekt oder bytes-Puffer, skaliert auf max_px (längste Seite)
+    und speichert als JPEG mit gegebener Qualität. Gibt Dateipfad zurück."""
+    img = Image.open(quelle)
+    img = img.convert("RGB")          # HEIC/PNG/WEBP → JPEG-kompatibel
+    img.thumbnail((max_px, max_px), Image.LANCZOS)
+    img.save(ziel_pfad, format="JPEG", quality=qualitaet, optimize=True)
+    return ziel_pfad
 
 
 def init_db():
@@ -1273,18 +1284,15 @@ def api_aktivitaet_offline_sync():
     if not datum or not vs_id:
         return jsonify({'ok': False, 'error': 'Datum und Verkaufsstelle fehlen'}), 400
 
-    # Foto dekodieren und speichern
+    # Foto dekodieren, komprimieren und speichern
     foto_pfad = None
     if foto_b64 and ',' in foto_b64:
         try:
-            header, b64data = foto_b64.split(',', 1)
-            ext = 'jpg'
-            if 'png'  in header: ext = 'png'
-            elif 'webp' in header: ext = 'webp'
+            _, b64data = foto_b64.split(',', 1)
             foto_bytes = base64.b64decode(b64data)
-            dateiname  = f"akt_{uuid.uuid4().hex}.{ext}"
-            with open(os.path.join(UPLOAD_FOLDER, dateiname), 'wb') as f:
-                f.write(foto_bytes)
+            dateiname  = f"akt_{uuid.uuid4().hex}.jpg"
+            ziel       = os.path.join(UPLOAD_FOLDER, dateiname)
+            komprimiere_foto(io.BytesIO(foto_bytes), ziel)
             foto_pfad = dateiname
         except Exception as exc:
             app.logger.warning(f"Offline-Sync Foto-Fehler: {exc}")
@@ -1399,13 +1407,23 @@ def neue_aktivitaet():
                 anzahl_displays += menge
                 disp_positionen.append((ds['id'], menge))
 
-        # Foto verarbeiten
+        # Foto verarbeiten + komprimieren
         foto_pfad = None
         if foto_file and foto_file.filename and allowed_file(foto_file.filename):
-            ext = foto_file.filename.rsplit('.', 1)[1].lower()
-            dateiname = f"akt_{uuid.uuid4().hex}.{ext}"
-            foto_file.save(os.path.join(UPLOAD_FOLDER, dateiname))
-            foto_pfad = dateiname
+            dateiname = f"akt_{uuid.uuid4().hex}.jpg"
+            ziel = os.path.join(UPLOAD_FOLDER, dateiname)
+            try:
+                komprimiere_foto(foto_file, ziel)
+                foto_pfad = dateiname
+            except Exception as exc:
+                app.logger.warning(f"Foto-Komprimierung fehlgeschlagen: {exc}")
+                # Fallback: unkomprimiert speichern
+                ext = foto_file.filename.rsplit('.', 1)[1].lower()
+                dateiname = f"akt_{uuid.uuid4().hex}.{ext}"
+                ziel = os.path.join(UPLOAD_FOLDER, dateiname)
+                foto_file.seek(0)
+                foto_file.save(ziel)
+                foto_pfad = dateiname
 
         akt_id = execute(
             "INSERT INTO aktivitaet (datum, mitarbeiter_id, verkaufsstelle_id, anzahl_displays, notizen, foto_pfad) VALUES (?,?,?,?,?,?)",
