@@ -145,7 +145,7 @@
               </tr>
             </thead>
             <tbody>
-              {% for row in kw_data %}
+              {% for row in kw_data|reverse %}
               <tr>
                 <td><span class="badge-kw">KW {{ '%02d'|format(row.kw_int) }}</span></td>
                 <td class="text-center fw-semibold">{{ row.displays or 0 }}</td>

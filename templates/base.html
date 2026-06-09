@@ -21,6 +21,7 @@
       --brand-gold: #c8860a;
       --brand-amber:#f5a623;
     }
+    html { overflow-x: hidden; }
     body { background: #f4f6fa; font-family: 'Segoe UI', sans-serif; overflow-x: hidden; }
 
     .navbar {
@@ -129,11 +130,11 @@
       padding-bottom: env(safe-area-inset-bottom);
     }
     .mobile-nav a {
-      flex: 1; display: flex; flex-direction: column;
+      flex: 1; min-width: 0; display: flex; flex-direction: column;
       align-items: center; justify-content: center;
       color: rgba(255,255,255,.65); text-decoration: none;
       padding: .5rem .25rem; font-size: .65rem; font-weight: 600;
-      transition: color .2s; min-height: 56px;
+      transition: color .2s; min-height: 56px; overflow: hidden;
     }
     .mobile-nav a i { font-size: 1.35rem; margin-bottom: 2px; }
     .mobile-nav a.active, .mobile-nav a:hover { color: var(--brand-amber); }
