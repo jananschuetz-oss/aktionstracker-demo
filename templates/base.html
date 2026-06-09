@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>{% block title %}Aktions Tracker – {{ company_short }}{% endblock %}</title>
   <!-- PWA -->
   <link rel="manifest" href="/manifest.json">
@@ -21,7 +21,7 @@
       --brand-gold: #c8860a;
       --brand-amber:#f5a623;
     }
-    body { background: #f4f6fa; font-family: 'Segoe UI', sans-serif; }
+    body { background: #f4f6fa; font-family: 'Segoe UI', sans-serif; overflow-x: hidden; }
 
     .navbar {
       background: linear-gradient(135deg, var(--brand-dark) 0%, var(--brand-mid) 100%);
