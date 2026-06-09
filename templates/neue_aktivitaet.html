@@ -432,11 +432,11 @@ document.querySelectorAll('.disp-input, .bier-input').forEach(el => {
 // ── VS-Suche ─────────────────────────────────────────────────────────────────
 const VS_DATA = [
   {% for vs in verkaufsstellen %}
-  { id: {{ vs.id }}, label: "{{ vs.name }}{% if vs.ort %} – {{ vs.ort }}{% endif %}{% if vs.typ %} ({{ vs.typ }}){% endif %}", gruppe: null },
+  { id: {{ vs.id }}, label: "{{ vs.name }}{% if vs.strasse %} – {{ vs.strasse }}{% if vs.ort %}, {{ vs.ort }}{% endif %}{% elif vs.ort %} – {{ vs.ort }}{% endif %}{% if vs.typ %} ({{ vs.typ }}){% endif %}", gruppe: null },
   {% endfor %}
   {% for gruppe in vertretungs_gruppen %}
     {% for vs in gruppe.vs %}
-  { id: {{ vs.id }}, label: "{{ vs.name }}{% if vs.ort %} – {{ vs.ort }}{% endif %}{% if vs.typ %} ({{ vs.typ }}){% endif %}", gruppe: "Vertretung: {{ gruppe.name }}" },
+  { id: {{ vs.id }}, label: "{{ vs.name }}{% if vs.strasse %} – {{ vs.strasse }}{% if vs.ort %}, {{ vs.ort }}{% endif %}{% elif vs.ort %} – {{ vs.ort }}{% endif %}{% if vs.typ %} ({{ vs.typ }}){% endif %}", gruppe: "Vertretung: {{ gruppe.name }}" },
     {% endfor %}
   {% endfor %}
 ];
