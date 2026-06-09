@@ -1,0 +1,106 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Running the Application
+
+```bash
+# Local development
+python app.py          # Starts Flask dev server on localhost:5000, auto-creates brewery.db with demo data
+
+# Production
+gunicorn app:app --timeout 120
+```
+
+The app auto-seeds demo users and activity data on first startup. No build step is required. There are no automated tests or linting tools configured.
+
+## Architecture
+
+**Aktionstracker** is a field sales activity tracker for German-speaking sales teams. The entire backend lives in a single file: `app.py` (~3,500 lines). There is no separate service layer, ORM, or routing module — everything from DB helpers to route handlers to scheduled jobs is in that one file.
+
+```
+Browser (PWA, offline-capable)
+    │
+Flask app.py
+    ├── 45+ @app.route handlers (server-side Jinja2 rendering + JSON APIs)
+    ├── SQLite helpers: query() / execute() thin wrappers
+    ├── APScheduler background jobs (backups, photo cleanup, email reports)
+    └── brewery.db (SQLite)
+```
+
+Templates live in `templates/` and extend `base.html`. Static assets including `sw.js` (Service Worker) are in `static/`.
+
+### Role-Based Access
+
+Three roles enforced via session checks at every route:
+
+| Role | German | Access |
+|---|---|---|
+| `admin` | Admin | Full system, user management |
+| `verkaufsleiter` | VKL | Team overview, reports, territory assignment |
+| `rep` | Außendienst | Own activities only |
+
+The admin account is authenticated against the `ADMIN_PASSWORD` env var (not the DB). Regular users authenticate via email, shorthand (`kuerzel`), or full name.
+
+### Database
+
+SQLite accessed directly with `sqlite3` (no ORM). All schema migrations run automatically at startup via idempotent `ALTER TABLE ... IF NOT EXISTS` checks. Foreign keys are enabled (`PRAGMA foreign_keys = ON`). Soft deletes use an `aktiv` column (0/1) — records are never hard-deleted when they have history.
+
+Key tables:
+- `mitarbeiter` — users/employees (name, kuerzel, role, team_id, password hash)
+- `aktivitaet` — sales visit logs (date, rep, location, displays, notes, photo_path)
+- `verkaufsstelle` — customer locations (address, coordinates, type)
+- `bestellposition` — order line items per visit (product, quantity)
+- `zielzahlen` — annual sales targets per employee
+- `vertretung` — rep coverage/substitution date ranges
+
+### Team Filtering
+
+VKLs only see data for their own team. This is enforced in SQL via two helper functions that inject `WHERE` clauses: `_team_ma_clause()` and `_team_m_clause()`. Any new route that exposes per-rep data must use these helpers.
+
+### Offline / PWA
+
+`static/sw.js` implements a Service Worker with cache-first for CDN assets and network-first for app pages. `static/offline.js` queues activity submissions in IndexedDB when offline and replays them via `POST /api/aktivitaet/offline-sync` (JSON with base64 photo) when reconnected.
+
+## Key Conventions
+
+**Language:** All UI strings, DB column names, route paths, and code comments are in German. New code should follow this convention (e.g. `verkaufsstelle`, not `sales_location`).
+
+**Route naming:** Use German kebab-case paths (`/aktivitaet/neu`, `/einstellungen/wochenbericht`). Admin routes are prefixed `/admin/`, APIs prefixed `/api/`.
+
+**JSON API responses:** Return `{"ok": true, "data": ...}` on success and `{"ok": false, "error": "..."}` on failure.
+
+**Photos:** Uploaded via form POST, compressed to JPEG via Pillow, stored in the filesystem. Auto-deleted after 4 weeks by a scheduled job. The column `photo_path` stores relative paths.
+
+**Excel exports:** Generated in-memory by `_build_excel_bytes()` using `openpyxl`. Multi-sheet workbooks with styled headers — extend this function to add new report sheets rather than creating new export functions.
+
+**Email:** Prefer Resend API (`RESEND_API_KEY`) over SMTP. Fallback to SMTP only when Resend key is absent. Both paths share the same call sites.
+
+## Configuration
+
+All configuration is via environment variables — no config files. Key variables:
+
+| Variable | Purpose |
+|---|---|
+| `DATABASE_PATH` | SQLite file path (default: `brewery.db`) |
+| `ADMIN_PASSWORD` | Admin account password |
+| `DEFAULT_PASSWORD` | Initial password for new user accounts |
+| `COMPANY_NAME` / `COMPANY_SHORT` | Branding displayed in UI and emails |
+| `LOGO_URL` | External logo URL; empty = serve local `static/logo.png` |
+| `KARTE_MODUS` | Map feature level: `aus`, `basis`, or `heatmap` |
+| `UNIT_LABEL` | Display unit label (e.g. `Kisten`, `Kartons`) |
+| `MAX_MITARBEITER` | Employee cap (0 = unlimited) |
+| `INIT_DEMO_USERS` | Auto-seed demo accounts on startup |
+| `RESEND_API_KEY` | Resend email service key |
+| `MAIL_SERVER` / `MAIL_PORT` / `MAIL_USERNAME` / `MAIL_PASSWORD` | SMTP fallback |
+| `EXPORT_EMAIL` | Recipient for automatic 4-week Excel exports |
+| `APP_BASE_URL` | Full URL used in outbound email links |
+
+## Background Jobs (APScheduler)
+
+All jobs run in Europe/Berlin timezone:
+
+- **Daily:** DB backup (keeps last 7), photo cleanup (>4 weeks old)
+- **Every 4 weeks:** Excel + photo ZIP sent to `EXPORT_EMAIL`
+- **Mondays 07:00:** Weekly HTML KPI report emailed to VKLs and configured recipients
+- **Sundays 23:30:** Demo data refresh (adds 5 activities per rep to keep demos current)
