@@ -2238,9 +2238,19 @@ def admin_vs_neu():
     typ              = request.form.get('typ',              '').strip()
     ansprechpartner  = request.form.get('ansprechpartner',  '').strip()
     if name:
-        execute("INSERT INTO verkaufsstelle (name, strasse, ort, typ, ansprechpartner) VALUES (?,?,?,?,?)",
-                (name, strasse, ort, typ, ansprechpartner))
-        flash(f'Verkaufsstelle "{name}" angelegt.', 'success')
+        new_id = execute(
+            "INSERT INTO verkaufsstelle (name, strasse, ort, typ, ansprechpartner) VALUES (?,?,?,?,?)",
+            (name, strasse, ort, typ, ansprechpartner)
+        )
+        if KARTE_MODUS != 'aus' and (strasse or ort):
+            lat, lng = _geocode_adresse(strasse, ort)
+            if lat is not None:
+                execute("UPDATE verkaufsstelle SET lat=?, lng=? WHERE id=?", (lat, lng, new_id))
+                flash(f'Verkaufsstelle "{name}" angelegt und auf Karte verortet.', 'success')
+            else:
+                flash(f'Verkaufsstelle "{name}" angelegt. Koordinaten konnten nicht automatisch ermittelt werden – bitte "Koordinaten ermitteln" auf der Karte nutzen.', 'warning')
+        else:
+            flash(f'Verkaufsstelle "{name}" angelegt.', 'success')
     return redirect(url_for('admin'))
 
 
@@ -3341,6 +3351,32 @@ def api_karte_zuordnung_aendern():
     return jsonify({'ok': True, 'stelle_name': stelle_name})
 
 
+def _geocode_adresse(strasse, ort, timeout=8):
+    """Koordinaten via Nominatim: erst Straße+Ort, dann nur Ort als Fallback.
+    Gibt (lat, lng) oder (None, None) zurück."""
+    kandidaten = []
+    if strasse and ort:
+        kandidaten.append(f"{strasse}, {ort}, Deutschland")
+    if ort:
+        kandidaten.append(f"{ort}, Deutschland")
+    for suchbegriff in kandidaten:
+        url = ('https://nominatim.openstreetmap.org/search?q='
+               + urllib.parse.quote(suchbegriff)
+               + '&format=json&limit=1&countrycodes=de')
+        try:
+            req = urllib.request.Request(
+                url, headers={'User-Agent': 'AktionsTracker/1.0 (anschuetz.info@gmail.com)'}
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                hits = json.loads(resp.read().decode())
+            if hits:
+                return float(hits[0]['lat']), float(hits[0]['lon'])
+        except Exception as exc:
+            app.logger.warning(f"Geocode '{suchbegriff}': {exc}")
+        _time.sleep(1.1)
+    return None, None
+
+
 @app.route('/api/karte/geocode', methods=['POST'])
 @manager_required
 def api_karte_geocode():
@@ -3348,7 +3384,8 @@ def api_karte_geocode():
         return jsonify({'error': 'Nicht verfügbar'}), 403
 
     stellen = query(
-        "SELECT id, name, strasse, ort FROM verkaufsstelle WHERE aktiv=1 AND (lat IS NULL OR lng IS NULL)"
+        "SELECT id, name, strasse, ort FROM verkaufsstelle "
+        "WHERE aktiv=1 AND (lat IS NULL OR lng IS NULL OR lat=0 OR lng=0)"
     )
     if not stellen:
         return jsonify({'geocoded': 0, 'total': 0, 'msg': 'Alle Stationen haben bereits Koordinaten.'})
@@ -3358,36 +3395,23 @@ def api_karte_geocode():
     def geocode_worker(items):
         import sqlite3 as _sqlite3
         conn = _sqlite3.connect(DATABASE)
+        ok = fail = 0
         try:
             for stelle in items:
-                teile = [stelle['name']]
-                if stelle.get('strasse'):
-                    teile.append(stelle['strasse'])
-                if stelle.get('ort'):
-                    teile.append(stelle['ort'])
-                teile.append('Deutschland')
-                url = ('https://nominatim.openstreetmap.org/search?q='
-                       + urllib.parse.quote(', '.join(teile))
-                       + '&format=json&limit=1&countrycodes=de')
-                try:
-                    req = urllib.request.Request(
-                        url,
-                        headers={'User-Agent': 'AktionsTracker/1.0 (anschuetz.info@gmail.com)'}
+                lat, lng = _geocode_adresse(stelle.get('strasse', ''), stelle.get('ort', ''))
+                if lat is not None:
+                    conn.execute(
+                        "UPDATE verkaufsstelle SET lat=?, lng=? WHERE id=?",
+                        (lat, lng, stelle['id'])
                     )
-                    with urllib.request.urlopen(req, timeout=8) as resp:
-                        hits = json.loads(resp.read().decode())
-                    if hits:
-                        conn.execute(
-                            "UPDATE verkaufsstelle SET lat=?, lng=? WHERE id=?",
-                            (float(hits[0]['lat']), float(hits[0]['lon']), stelle['id'])
-                        )
-                        conn.commit()
-                except Exception as exc:
-                    app.logger.warning(f"Geocode {stelle['name']}: {exc}")
-                _time.sleep(1.1)
+                    conn.commit()
+                    ok += 1
+                else:
+                    fail += 1
+                    app.logger.warning(f"Geocode fehlgeschlagen: {stelle['name']} ({stelle.get('ort')})")
         finally:
             conn.close()
-        app.logger.info(f"Geocodierung abgeschlossen: {len(items)} Stationen verarbeitet.")
+        app.logger.info(f"Geocodierung: {ok} erfolgreich, {fail} fehlgeschlagen.")
 
     t = threading.Thread(target=geocode_worker, args=(stellen_list,), daemon=True)
     t.start()
