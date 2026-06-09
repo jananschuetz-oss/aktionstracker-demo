@@ -145,7 +145,7 @@
               </tr>
             </thead>
             <tbody>
-              {% for row in kw_data %}
+              {% for row in kw_data|reverse %}
               <tr>
                 <td><span class="badge-kw">KW {{ '%02d'|format(row.kw_int) }}</span></td>
                 <td class="text-center fw-semibold">{{ row.displays or 0 }}</td>
@@ -223,6 +223,7 @@
     </a>
   </div>
   <div class="card-body p-0">
+    <div class="table-responsive">
     <table class="table table-striped table-hover mb-0">
       <thead>
         <tr>
@@ -236,8 +237,8 @@
       <tbody>
         {% for a in letzte %}
         <tr>
-          <td>
-            <span class="badge-kw" style="font-size:.7rem">KW {{ a.datum|isoweek }}</span>
+          <td style="white-space:nowrap">
+            <span class="badge-kw d-none d-sm-inline" style="font-size:.7rem">KW {{ a.datum|isoweek }}</span>
             {{ a.datum[8:10] }}.{{ a.datum[5:7] }}.{{ a.datum[2:4] }}
           </td>
           {% if is_manager %}<td><small>{{ a.mitarbeiter }}</small></td>{% endif %}
@@ -250,6 +251,7 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
   </div>
 </div>
 {% endblock %}
