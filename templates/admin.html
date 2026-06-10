@@ -35,7 +35,19 @@
             {% for m in mitarbeiter %}
             {% set ma_zuordnung = zuordnungen.get(m.id) or [] %}
             <tr>
-              <td>{{ m.name }}</td>
+              <td>
+                {{ m.name }}
+                <button class="btn btn-link btn-sm p-0 ms-1 text-muted"
+                        style="font-size:.75rem;vertical-align:middle"
+                        data-bs-toggle="modal"
+                        data-bs-target="#modalName"
+                        data-ma-id="{{ m.id }}"
+                        data-ma-name="{{ m.name }}"
+                        data-ma-kuerzel="{{ m.kuerzel }}"
+                        title="Name & Kürzel bearbeiten">
+                  <i class="bi bi-pencil"></i>
+                </button>
+              </td>
               <td><span class="badge" style="background:#1a3a5c">{{ m.kuerzel }}</span></td>
               <td>
                 {% if m.rolle == 'admin' %}
@@ -723,6 +735,66 @@ document.getElementById('modalRolle').addEventListener('show.bs.modal', function
   document.getElementById('formRolle').action = '/admin/mitarbeiter/' + maId + '/rolle';
   document.getElementById('rolleSelect').value = rolle;
 });
+</script>
+
+<!-- Modal: Name & Kürzel bearbeiten -->
+<div class="modal fade" id="modalName" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <form method="POST" id="formName">
+        <div class="modal-header" style="background:#1a3a5c;color:white">
+          <h6 class="modal-title mb-0"><i class="bi bi-person-vcard me-2"></i>Name &amp; Kürzel</h6>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Name <span class="text-danger">*</span></label>
+            <input type="text" name="name" id="nameInput" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Kürzel <span class="text-danger">*</span></label>
+            <input type="text" name="kuerzel" id="kuerzelInput" class="form-control text-uppercase" maxlength="5" required>
+            <div class="form-text">Wird automatisch generiert, kann angepasst werden.</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-check me-1"></i>Speichern</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+(function() {
+  const modal = document.getElementById('modalName');
+  const nameInput    = document.getElementById('nameInput');
+  const kuerzelInput = document.getElementById('kuerzelInput');
+  let kuerzelManual = false;
+
+  function autoKuerzel(name) {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length >= 2) return (parts[0][0] + parts[parts.length-1][0]).toUpperCase();
+    return name.slice(0, 2).toUpperCase();
+  }
+
+  modal.addEventListener('show.bs.modal', function(e) {
+    const btn = e.relatedTarget;
+    document.getElementById('formName').action = '/admin/mitarbeiter/' + btn.dataset.maId + '/name';
+    nameInput.value    = btn.dataset.maName;
+    kuerzelInput.value = btn.dataset.maKuerzel;
+    kuerzelManual = false;
+  });
+
+  nameInput.addEventListener('input', function() {
+    if (!kuerzelManual) kuerzelInput.value = autoKuerzel(this.value);
+  });
+  kuerzelInput.addEventListener('input', function() {
+    this.value = this.value.toUpperCase();
+    kuerzelManual = true;
+  });
+  modal.addEventListener('hidden.bs.modal', function() { kuerzelManual = false; });
+})();
 </script>
 
 <!-- Modal: Verkaufsstelle -->

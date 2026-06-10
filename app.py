@@ -2135,6 +2135,30 @@ def admin_mitarbeiter_email(ma_id):
     return redirect(url_for('admin'))
 
 
+@app.route('/admin/mitarbeiter/<int:ma_id>/name', methods=['POST'])
+@admin_required
+def admin_mitarbeiter_name(ma_id):
+    ma = query("SELECT * FROM mitarbeiter WHERE id=?", (ma_id,), one=True)
+    if not ma:
+        flash('Mitarbeiter nicht gefunden.', 'danger')
+        return redirect(url_for('admin'))
+    name    = request.form.get('name', '').strip()
+    kuerzel = request.form.get('kuerzel', '').strip().upper()
+    if not name or not kuerzel:
+        flash('Name und Kürzel sind Pflichtfelder.', 'danger')
+        return redirect(url_for('admin'))
+    existing = query(
+        "SELECT id FROM mitarbeiter WHERE UPPER(kuerzel)=? AND id!=?",
+        (kuerzel, ma_id), one=True
+    )
+    if existing:
+        flash(f'Das Kürzel „{kuerzel}" ist bereits vergeben.', 'danger')
+        return redirect(url_for('admin'))
+    execute("UPDATE mitarbeiter SET name=?, kuerzel=? WHERE id=?", (name, kuerzel, ma_id))
+    flash(f'Name und Kürzel aktualisiert: „{name}" ({kuerzel}).', 'success')
+    return redirect(url_for('admin'))
+
+
 @app.route('/admin/mitarbeiter/<int:ma_id>/zuordnung', methods=['POST'])
 @admin_required
 def admin_mitarbeiter_zuordnung(ma_id):
