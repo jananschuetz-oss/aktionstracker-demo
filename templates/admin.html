@@ -609,6 +609,7 @@
   </div>
 </div>
 
+{% if session.kuerzel == 'ADMIN' %}
 <!-- Rechtliche Dokumente -->
 <div class="card mt-4">
   <div class="card-header" style="background:linear-gradient(135deg,#2c3e50,#4a6fa5)">
@@ -635,6 +636,7 @@
     </div>
   </div>
 </div>
+{% endif %}
 
 <!-- Info Box -->
 <div class="alert mt-4" style="background:#eef4fb;border:1px solid #2e6da4;border-radius:.75rem">
