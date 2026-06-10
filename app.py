@@ -735,6 +735,23 @@ def init_db():
             db.commit()
             app.logger.info(f"Migration: {_updated} Verkaufsstellen-Adressen eingetragen.")
 
+        # Migration: Doppelten "Demo-Zugang"-Account löschen und Demo-Kürzel normalisieren
+        _dup = db.execute(
+            "SELECT id FROM mitarbeiter WHERE name='Demo-Zugang' OR (kuerzel='Demo' AND name != 'Demo Leitung')"
+        ).fetchall()
+        if _dup:
+            for (_dup_id,) in _dup:
+                db.execute("DELETE FROM mitarbeiter WHERE id=?", (_dup_id,))
+            db.commit()
+            app.logger.info(f"Migration: {len(_dup)} doppelten Demo-Account(s) geloescht.")
+        _kuerzel_fix = db.execute(
+            "SELECT id FROM mitarbeiter WHERE name='Demo Leitung' AND kuerzel != 'Demo'"
+        ).fetchone()
+        if _kuerzel_fix:
+            db.execute("UPDATE mitarbeiter SET kuerzel='Demo' WHERE id=?", (_kuerzel_fix[0],))
+            db.commit()
+            app.logger.info("Migration: Demo Leitung Kuerzel auf 'Demo' gesetzt.")
+
         # Alte Fotos beim Start bereinigen
         cleanup_alte_fotos()
 
