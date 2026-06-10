@@ -619,6 +619,29 @@ def init_db():
             db.commit()
             app.logger.info(f"Demo-Koordinaten: {gesetzt}/{len(ohne_coords)} Stationen mit Stadtkoordinaten gesetzt.")
 
+        # Migration: Aktivitäten dem geografisch zugeordneten Mitarbeiter zuweisen (idempotent)
+        _falsch_n = db.execute("""
+            SELECT COUNT(*) FROM aktivitaet a
+            JOIN mitarbeiter_verkaufsstelle mv ON mv.verkaufsstelle_id = a.verkaufsstelle_id
+            WHERE a.mitarbeiter_id != mv.mitarbeiter_id
+        """).fetchone()[0]
+        if _falsch_n > 0:
+            db.execute("""
+                UPDATE aktivitaet
+                SET mitarbeiter_id = (
+                    SELECT mv.mitarbeiter_id
+                    FROM mitarbeiter_verkaufsstelle mv
+                    WHERE mv.verkaufsstelle_id = aktivitaet.verkaufsstelle_id
+                )
+                WHERE EXISTS (
+                    SELECT 1 FROM mitarbeiter_verkaufsstelle mv
+                    WHERE mv.verkaufsstelle_id = aktivitaet.verkaufsstelle_id
+                      AND mv.mitarbeiter_id != aktivitaet.mitarbeiter_id
+                )
+            """)
+            db.commit()
+            app.logger.info(f"Demo-Migration: {_falsch_n} Aktivitaeten dem richtigen Mitarbeiter zugeordnet.")
+
         # Alte Fotos beim Start bereinigen
         cleanup_alte_fotos()
 
