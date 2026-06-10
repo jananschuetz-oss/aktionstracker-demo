@@ -3531,33 +3531,74 @@ def api_karte_geocode():
 def api_karte_heatmap():
     if KARTE_MODUS != 'heatmap':
         return jsonify({'error': 'Heatmap nicht verfügbar'}), 403
-    jahr = request.args.get('jahr', date.today().year, type=int)
+    jahr       = request.args.get('jahr', date.today().year, type=int)
+    ma_raw     = request.args.get('ma', '', type=str)
+    ma_ids     = [x.strip() for x in ma_raw.split(',') if x.strip()] if ma_raw else []
+    monate_raw = request.args.get('monate', '', type=str)
+    monate_ids = [int(x.strip()) for x in monate_raw.split(',') if x.strip()] if monate_raw else []
 
-    stellen = query("""
-        SELECT v.id, v.name, v.ort, v.lat, v.lng,
-               COUNT(a.id) AS anzahl
-        FROM verkaufsstelle v
-        LEFT JOIN aktivitaet a
-          ON a.verkaufsstelle_id = v.id
-         AND strftime('%Y', a.datum) = ?
-        WHERE v.aktiv = 1
-          AND v.lat IS NOT NULL AND v.lng IS NOT NULL
-        GROUP BY v.id
-        ORDER BY anzahl DESC
-    """, (str(jahr),))
+    join_conds  = ["a.verkaufsstelle_id = v.id", "strftime('%Y', a.datum) = ?"]
+    join_params = [str(jahr)]
+    if monate_ids:
+        ph = ','.join('?' * len(monate_ids))
+        join_conds.append(f"CAST(strftime('%m', a.datum) AS INTEGER) IN ({ph})")
+        join_params.extend(str(m) for m in monate_ids)
+    if ma_ids:
+        ph = ','.join('?' * len(ma_ids))
+        join_conds.append(f"a.mitarbeiter_id IN ({ph})")
+        join_params.extend(ma_ids)
 
-    jahre_raw = query("""
-        SELECT DISTINCT strftime('%Y', datum) AS jahr
-        FROM aktivitaet
-        ORDER BY jahr DESC
-    """)
+    where_conds  = ["v.aktiv = 1", "v.lat IS NOT NULL", "v.lng IS NOT NULL"]
+    where_params = []
+    if ma_ids:
+        ph = ','.join('?' * len(ma_ids))
+        where_conds.append(f"v.id IN (SELECT verkaufsstelle_id FROM mitarbeiter_verkaufsstelle WHERE mitarbeiter_id IN ({ph}))")
+        where_params.extend(ma_ids)
 
+    stellen = query(
+        f"SELECT v.id, v.name, v.ort, v.lat, v.lng, COUNT(a.id) AS anzahl "
+        f"FROM verkaufsstelle v "
+        f"LEFT JOIN aktivitaet a ON {' AND '.join(join_conds)} "
+        f"WHERE {' AND '.join(where_conds)} "
+        f"GROUP BY v.id ORDER BY anzahl DESC",
+        tuple(join_params + where_params)
+    )
+    jahre_raw = query("SELECT DISTINCT strftime('%Y', datum) AS jahr FROM aktivitaet ORDER BY jahr DESC")
     return jsonify({
         'stellen': [{'id': s['id'], 'name': s['name'], 'ort': s['ort'] or '',
                      'lat': s['lat'], 'lng': s['lng'], 'anzahl': s['anzahl']} for s in stellen],
         'jahre':   [j['jahr'] for j in jahre_raw],
         'jahr':    jahr,
     })
+
+
+@app.route('/api/karte/besuche-zeitraum')
+@login_required
+def api_karte_besuche_zeitraum():
+    """Welche Verkaufsstellen wurden im Zeitraum (Jahr + Monate + MA) besucht?"""
+    jahr       = request.args.get('jahr', date.today().year, type=int)
+    monate_raw = request.args.get('monate', '', type=str)
+    monate_ids = [int(x.strip()) for x in monate_raw.split(',') if x.strip()] if monate_raw else []
+    ma_raw     = request.args.get('ma', '', type=str)
+    ma_ids     = [x.strip() for x in ma_raw.split(',') if x.strip()] if ma_raw else []
+
+    conds  = ["strftime('%Y', a.datum) = ?"]
+    params = [str(jahr)]
+    if monate_ids:
+        ph = ','.join('?' * len(monate_ids))
+        conds.append(f"CAST(strftime('%m', a.datum) AS INTEGER) IN ({ph})")
+        params.extend(str(m) for m in monate_ids)
+    if ma_ids:
+        ph = ','.join('?' * len(ma_ids))
+        conds.append(f"a.mitarbeiter_id IN ({ph})")
+        params.extend(ma_ids)
+
+    rows = query(
+        f"SELECT a.verkaufsstelle_id AS vid, COUNT(a.id) AS anzahl "
+        f"FROM aktivitaet a WHERE {' AND '.join(conds)} GROUP BY a.verkaufsstelle_id",
+        tuple(params)
+    )
+    return jsonify({'besuche': {str(r['vid']): r['anzahl'] for r in rows}})
 
 
 @app.route('/api/karte/benachrichtigung-quittieren', methods=['POST'])

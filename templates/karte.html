@@ -59,6 +59,28 @@
         {% endfor %}
       </div>
     </div>
+    <!-- Monatsfilter -->
+    <div class="dropdown">
+      <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle"
+              data-bs-toggle="dropdown" data-bs-auto-close="outside"
+              id="monatsFilterBtn" style="min-width:130px;text-align:left">
+        Alle Monate
+      </button>
+      <div class="dropdown-menu p-2 shadow" style="min-width:170px;max-height:320px;overflow-y:auto">
+        <div class="form-check py-1 border-bottom mb-1">
+          <input class="form-check-input" type="checkbox" id="karte_mon_alle" checked>
+          <label class="form-check-label fw-semibold" for="karte_mon_alle">Alle auswählen</label>
+        </div>
+        {% set mon_k = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'] %}
+        {% for i in range(1, 13) %}
+        <div class="form-check py-1">
+          <input class="form-check-input karte-mon-cb" type="checkbox"
+                 value="{{ i }}" id="karte_mon_{{ i }}" checked>
+          <label class="form-check-label" for="karte_mon_{{ i }}">{{ mon_k[loop.index0] }}</label>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
     <button id="btnGeocode" class="btn btn-sm btn-outline-secondary">
       <i class="bi bi-geo-alt me-1"></i>Koordinaten ermitteln
     </button>
@@ -161,7 +183,9 @@ let alleStellen = [];
 let alleReps    = [];
 let markers     = {};          // id → L.circleMarker
 let aktiverStelleId = null;
-let repFilter   = [];          // [] = alle; sonst Array von rep-IDs (strings)
+let repFilter        = [];   // [] = alle; sonst Array von rep-IDs (strings)
+let monateFilter     = [];   // [] = alle; sonst Array von Monatsnummern (strings)
+let besuchtStationen = {};   // station_id → Besuchsanzahl im Zeitraum
 
 /* ── Karte ──────────────────────────────────────────────────────────────────── */
 const map = L.map('map', { zoomControl: true });
@@ -206,22 +230,26 @@ function renderMarkers() {
       return;
     }
 
-    const farbe  = stelleFarbe(s);
-    const mehrfach = s.zuordnungen.length > 1;
+    const hatBesuche = !monateFilter.length || (besuchtStationen[String(s.id)] || 0) > 0;
+    const farbe      = hatBesuche ? stelleFarbe(s) : '#adb5bd';
+    const mehrfach   = s.zuordnungen.length > 1;
 
     const m = L.circleMarker([s.lat, s.lng], {
-      radius:      9,
+      radius:      hatBesuche ? 9 : 6,
       fillColor:   farbe,
-      color:       mehrfach ? '#fff' : 'white',
+      color:       hatBesuche ? (mehrfach ? '#fff' : 'white') : '#868e96',
       weight:      mehrfach ? 3 : 2,
-      dashArray:   mehrfach ? '4,3' : null,
-      opacity:     1,
-      fillOpacity: 0.92,
+      dashArray:   (!hatBesuche || mehrfach) ? '4,3' : null,
+      opacity:     hatBesuche ? 1 : 0.7,
+      fillOpacity: hatBesuche ? 0.92 : 0.35,
     }).addTo(map);
 
     const namenListe = s.zuordnungen.map(r => r.name).join(', ') || '–';
-    m.bindTooltip(`<strong>${s.name}</strong><br><small>${s.ort} · ${s.typ}</small><br><small>${namenListe}</small>`,
-                  { direction: 'top', offset: [0, -8] });
+    const keinBesuch = (monateFilter.length && !hatBesuche)
+      ? '<br><small style="color:#adb5bd">Kein Besuch im Zeitraum</small>' : '';
+    m.bindTooltip(
+      `<strong>${s.name}</strong><br><small>${s.ort} · ${s.typ}</small><br><small>${namenListe}</small>${keinBesuch}`,
+      { direction: 'top', offset: [0, -8] });
 
     m.on('click', () => openStationModal(s.id));
     markers[s.id] = m;
@@ -394,7 +422,13 @@ document.getElementById('btnSaveZuordnung').addEventListener('click', async func
   function applyFilter() {
     const checked = Array.from(einzelnCbs).filter(c => c.checked);
     repFilter = checked.length === einzelnCbs.length ? [] : checked.map(c => c.value);
-    renderMarkers();
+    if (typeof heatmapAktiv !== 'undefined' && heatmapAktiv) {
+      ladeHeatmap(document.getElementById('heatmapJahr').value || '{{ now.year }}');
+    } else if (monateFilter.length) {
+      ladeBesuche();
+    } else {
+      renderMarkers();
+    }
   }
 
   allesCb.addEventListener('change', function () {
@@ -408,6 +442,64 @@ document.getElementById('btnSaveZuordnung').addEventListener('click', async func
     if (!Array.from(einzelnCbs).some(c => c.checked)) this.checked = true;
     syncAlles();
     applyFilter();
+  }));
+})();
+{% endif %}
+
+/* ── Besuche-Daten & Monats-Filter ───────────────────────────────────────────── */
+{% if is_manager %}
+async function ladeBesuche() {
+  if (!monateFilter.length) {
+    besuchtStationen = {};
+    renderMarkers();
+    return;
+  }
+  const params = new URLSearchParams({ jahr: new Date().getFullYear(), monate: monateFilter.join(',') });
+  if (repFilter.length) params.set('ma', repFilter.join(','));
+  try {
+    const resp = await fetch(`/api/karte/besuche-zeitraum?${params}`);
+    const data = await resp.json();
+    besuchtStationen = data.besuche || {};
+  } catch(e) { besuchtStationen = {}; }
+  renderMarkers();
+}
+
+const M_NAMEN_KURZ = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+(function () {
+  const allesCb    = document.getElementById('karte_mon_alle');
+  const einzelnCbs = document.querySelectorAll('.karte-mon-cb');
+  const btn        = document.getElementById('monatsFilterBtn');
+
+  function syncAlles() {
+    const n = Array.from(einzelnCbs).filter(c => c.checked).length;
+    allesCb.checked       = n === einzelnCbs.length;
+    allesCb.indeterminate = n > 0 && n < einzelnCbs.length;
+    if (n === einzelnCbs.length)
+      btn.textContent = 'Alle Monate';
+    else if (n === 1)
+      btn.textContent = M_NAMEN_KURZ[parseInt(Array.from(einzelnCbs).find(c => c.checked).value) - 1];
+    else
+      btn.textContent = n + ' Monate';
+  }
+
+  function applyMonatsFilter() {
+    const checked = Array.from(einzelnCbs).filter(c => c.checked);
+    monateFilter = checked.length === einzelnCbs.length ? [] : checked.map(c => c.value);
+    if (typeof heatmapAktiv !== 'undefined' && heatmapAktiv) {
+      ladeHeatmap(document.getElementById('heatmapJahr').value || '{{ now.year }}');
+    } else {
+      ladeBesuche();
+    }
+  }
+
+  allesCb.addEventListener('change', function () {
+    einzelnCbs.forEach(cb => cb.checked = this.checked);
+    if (!this.checked) einzelnCbs[0] && (einzelnCbs[0].checked = true);
+    syncAlles(); applyMonatsFilter();
+  });
+  einzelnCbs.forEach(cb => cb.addEventListener('change', function () {
+    if (!Array.from(einzelnCbs).some(c => c.checked)) this.checked = true;
+    syncAlles(); applyMonatsFilter();
   }));
 })();
 {% endif %}
@@ -466,7 +558,9 @@ async function ladeHeatmap(jahr) {
   heatmapLayer.clearLayers();
   let data;
   try {
-    const resp = await fetch(`/api/karte/heatmap?jahr=${jahr}`);
+    const maParam     = repFilter.length     ? `&ma=${repFilter.join(',')}`     : '';
+    const monateParam = monateFilter.length  ? `&monate=${monateFilter.join(',')}` : '';
+    const resp = await fetch(`/api/karte/heatmap?jahr=${jahr}${maParam}${monateParam}`);
     data = await resp.json();
   } catch (e) { console.error('Heatmap laden fehlgeschlagen:', e); return; }
 
@@ -579,6 +673,7 @@ function deaktiviereHeatmap() {
   document.getElementById('btnViewHeatmap').classList.replace('btn-danger','btn-outline-danger');
   document.getElementById('heatmapJahr').classList.add('d-none');
   buildLegende();
+  if (monateFilter.length) ladeBesuche();
 }
 
 document.getElementById('btnViewHeatmap').addEventListener('click', aktiviereHeatmap);
