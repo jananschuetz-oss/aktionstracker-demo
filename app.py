@@ -693,42 +693,42 @@ def init_db():
             db.commit()
             app.logger.info(f"Migration: {_n_2025} Aktivitaeten aus 2025 geloescht.")
 
-        # Migration: Straßenadressen für Demo-Verkaufsstellen eintragen
+        # Migration: Straßenadressen für Demo-Verkaufsstellen eintragen (name-basiert)
         _vs_adressen = [
-            (1,  'Alexanderplatz 1'),
-            (2,  'Moekenbeergstr. 7'),
-            (3,  'Marienplatz 8'),
-            (4,  'Zeil 15'),
-            (5,  'Schildergasse 22'),
-            (6,  'Bahnhofstrasse 3'),
-            (7,  'Schillerplatz 5'),
-            (8,  'Augustusplatz 9'),
-            (9,  'Hauptmarkt 14'),
-            (10, 'Kroepke 6'),
-            (11, 'Wasserturmplatz 4'),
-            (12, 'Bockenheimer Landstr. 18'),
-            (13, 'Westenhellweg 12'),
-            (14, 'Am Markt 9'),
-            (15, 'Ruettenscheider Str. 3'),
-            (16, 'Wilhelmstrasse 11'),
-            (17, 'Muensterplatz 2'),
-            (18, 'Muensterplatz 7'),
-            (19, 'Koenigstrasse 26'),
-            (20, 'List 5'),
-            (21, 'Planken 8'),
-            (22, 'Grossmarkthalle 3'),
-            (23, 'Unionstrasse 11'),
-            (24, 'Schlachte 17'),
-            (25, 'Vereinsweg 4'),
-            (26, 'Schuetzenstrasse 6'),
-            (27, 'Vereinsstrasse 12'),
-            (28, 'Schwarzwaldstrasse 20'),
+            ('Supermarkt Mitte',           'Alexanderplatz 1'),
+            ('Fachmarkt Nord',             'Moekenbeergstr. 7'),
+            ('Restaurant Zur Post',        'Marienplatz 8'),
+            ('Hotel Stadtblick',           'Zeil 15'),
+            ('Großhandel Meyer',           'Schildergasse 22'),
+            ('Kiosk am Bahnhof',           'Bahnhofstrasse 3'),
+            ('Sportverein 1902',           'Schillerplatz 5'),
+            ('Café Central',               'Augustusplatz 9'),
+            ('Restaurant Zum Marktplatz',  'Hauptmarkt 14'),
+            ('Bistro Central',             'Kroepke 6'),
+            ('Ristorante Bella Vista',     'Wasserturmplatz 4'),
+            ('Steakhouse Westend',         'Bockenheimer Landstr. 18'),
+            ('Café Metropol',              'Westenhellweg 12'),
+            ('Pizzeria Napoli',            'Am Markt 9'),
+            ('Imbiss Am Stadtpark',        'Ruettenscheider Str. 3'),
+            ('Gasthaus Lindenhof',         'Wilhelmstrasse 11'),
+            ('Stadthotel am Ring',         'Muensterplatz 2'),
+            ('Pension Garni Sonnenhof',    'Muensterplatz 7'),
+            ('Supermarkt Stadtmitte',      'Koenigstrasse 26'),
+            ('Verbrauchermarkt Nord',      'List 5'),
+            ('Discountmarkt Westend',      'Planken 8'),
+            ('Großhandel Fischer',         'Grossmarkthalle 3'),
+            ('Cash & Carry Zentrum',       'Unionstrasse 11'),
+            ('Handelskontor Weber',        'Schlachte 17'),
+            ('Sportverein Blau-Weiß',      'Vereinsweg 4'),
+            ('Schützengesellschaft 1888',  'Schuetzenstrasse 6'),
+            ('TSG Vereinsheim',            'Vereinsstrasse 12'),
+            ('Stadionkiosk SV Mitte',      'Schwarzwaldstrasse 20'),
         ]
         _updated = 0
-        for _vs_id, _strasse in _vs_adressen:
+        for _vs_name, _strasse in _vs_adressen:
             _r = db.execute(
-                "UPDATE verkaufsstelle SET strasse=? WHERE id=? AND (strasse IS NULL OR strasse='')",
-                (_strasse, _vs_id)
+                "UPDATE verkaufsstelle SET strasse=? WHERE name=? AND (strasse IS NULL OR strasse='')",
+                (_strasse, _vs_name)
             ).rowcount
             _updated += _r
         if _updated:
