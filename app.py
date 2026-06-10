@@ -439,10 +439,8 @@ def init_db():
         # Admin + Verkaufsleiter (Passwort via ENV ADMIN_PASSWORD konfigurierbar)
         db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Administrator', 'ADMIN', 'admin', ?)", (ADMIN_PASSWORD,))
         db.execute("UPDATE mitarbeiter SET passwort=? WHERE kuerzel='ADMIN'", (ADMIN_PASSWORD,))
-        # Demo-Accounts: sichtbar in der Mitarbeiterliste als Beispiel
-        db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Demo Leitung', 'DL', 'admin', ?)", (DEFAULT_PASSWORD,))
-        # Öffentlicher Demo-Zugang für Interessenten (Leitungs-/GF-Vollsicht, Login: Demo)
-        db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Demo-Zugang', 'Demo', 'admin', ?)", (os.environ.get('DEMO_PASSWORT', 'demo2026'),))
+        # Demo Leitung (Login: Demo) – einziger Demo-GF-Zugang für Interessenten
+        db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Demo Leitung', 'Demo', 'admin', ?)", (os.environ.get('DEMO_PASSWORT', 'demo2026'),))
         db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Verkaufsleiter', 'VKL', 'verkaufsleiter', ?)", (DEFAULT_PASSWORD,))
 
         # Beispiel-Mitarbeiter (nur bei INIT_DEMO_USERS=true)
@@ -735,22 +733,24 @@ def init_db():
             db.commit()
             app.logger.info(f"Migration: {_updated} Verkaufsstellen-Adressen eingetragen.")
 
-        # Migration: Doppelten "Demo-Zugang"-Account löschen und Demo-Kürzel normalisieren
-        _dup = db.execute(
-            "SELECT id FROM mitarbeiter WHERE name='Demo-Zugang' OR (kuerzel='Demo' AND name != 'Demo Leitung')"
-        ).fetchall()
-        if _dup:
-            for (_dup_id,) in _dup:
-                db.execute("DELETE FROM mitarbeiter WHERE id=?", (_dup_id,))
-            db.commit()
-            app.logger.info(f"Migration: {len(_dup)} doppelten Demo-Account(s) geloescht.")
-        _kuerzel_fix = db.execute(
-            "SELECT id FROM mitarbeiter WHERE name='Demo Leitung' AND kuerzel != 'Demo'"
+        # Migration: Demo-Konten zusammenführen → ein "Demo Leitung" (kuerzel='Demo')
+        _old_dl = db.execute(
+            "SELECT id FROM mitarbeiter WHERE name='Demo Leitung' AND kuerzel='DL'"
         ).fetchone()
-        if _kuerzel_fix:
-            db.execute("UPDATE mitarbeiter SET kuerzel='Demo' WHERE id=?", (_kuerzel_fix[0],))
+        if _old_dl:
+            db.execute("DELETE FROM aktivitaet WHERE mitarbeiter_id=?", (_old_dl[0],))
+            db.execute("DELETE FROM mitarbeiter_verkaufsstelle WHERE mitarbeiter_id=?", (_old_dl[0],))
+            db.execute("DELETE FROM zielzahlen WHERE mitarbeiter_id=?", (_old_dl[0],))
+            db.execute("DELETE FROM mitarbeiter WHERE id=?", (_old_dl[0],))
             db.commit()
-            app.logger.info("Migration: Demo Leitung Kuerzel auf 'Demo' gesetzt.")
+            app.logger.info("Migration: Altes Demo Leitung (DL) entfernt.")
+        _demo_zugang = db.execute(
+            "SELECT id FROM mitarbeiter WHERE name='Demo-Zugang'"
+        ).fetchone()
+        if _demo_zugang:
+            db.execute("UPDATE mitarbeiter SET name='Demo Leitung' WHERE id=?", (_demo_zugang[0],))
+            db.commit()
+            app.logger.info("Migration: Demo-Zugang zu 'Demo Leitung' umbenannt.")
 
         # Alte Fotos beim Start bereinigen
         cleanup_alte_fotos()
