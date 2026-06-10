@@ -39,12 +39,26 @@
     {% endif %}
 
     {% if is_manager %}
-    <select id="repFilter" class="form-select form-select-sm" style="width:auto;min-width:180px">
-      <option value="">Alle Mitarbeiter</option>
-      {% for rep in reps %}
-      <option value="{{ rep.id }}">{{ rep.name }}</option>
-      {% endfor %}
-    </select>
+    <div class="dropdown">
+      <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle"
+              data-bs-toggle="dropdown" data-bs-auto-close="outside"
+              id="repFilterBtn" style="min-width:160px;text-align:left">
+        Alle Mitarbeiter
+      </button>
+      <div class="dropdown-menu p-2 shadow" style="min-width:210px">
+        <div class="form-check py-1 border-bottom mb-1">
+          <input class="form-check-input" type="checkbox" id="karte_ma_alle" checked>
+          <label class="form-check-label fw-semibold" for="karte_ma_alle">Alle auswählen</label>
+        </div>
+        {% for rep in reps %}
+        <div class="form-check py-1">
+          <input class="form-check-input karte-ma-cb" type="checkbox"
+                 value="{{ rep.id }}" id="karte_ma_{{ rep.id }}" checked>
+          <label class="form-check-label" for="karte_ma_{{ rep.id }}">{{ rep.name }}</label>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
     <button id="btnGeocode" class="btn btn-sm btn-outline-secondary">
       <i class="bi bi-geo-alt me-1"></i>Koordinaten ermitteln
     </button>
@@ -147,7 +161,7 @@ let alleStellen = [];
 let alleReps    = [];
 let markers     = {};          // id → L.circleMarker
 let aktiverStelleId = null;
-let repFilter   = '';
+let repFilter   = [];          // [] = alle; sonst Array von rep-IDs (strings)
 
 /* ── Karte ──────────────────────────────────────────────────────────────────── */
 const map = L.map('map', { zoomControl: true });
@@ -172,8 +186,8 @@ function stelleFarbe(stelle) {
 }
 
 function stelleIstSichtbar(stelle) {
-  if (!repFilter) return true;
-  return stelle.zuordnungen.some(r => String(r.id) === String(repFilter));
+  if (!repFilter.length) return true;
+  return stelle.zuordnungen.some(r => repFilter.includes(String(r.id)));
 }
 
 /* ── Marker rendern ─────────────────────────────────────────────────────────── */
@@ -356,12 +370,46 @@ document.getElementById('btnSaveZuordnung').addEventListener('click', async func
 });
 {% endif %}
 
-/* ── Rep-Filter ──────────────────────────────────────────────────────────────── */
+/* ── Rep-Filter (Multi-Checkbox) ─────────────────────────────────────────────── */
 {% if is_manager %}
-document.getElementById('repFilter').addEventListener('change', function () {
-  repFilter = this.value;
-  renderMarkers();
-});
+(function () {
+  const allesCb    = document.getElementById('karte_ma_alle');
+  const einzelnCbs = document.querySelectorAll('.karte-ma-cb');
+  const btn        = document.getElementById('repFilterBtn');
+
+  function syncAlles() {
+    const n = Array.from(einzelnCbs).filter(c => c.checked).length;
+    allesCb.checked       = n === einzelnCbs.length;
+    allesCb.indeterminate = n > 0 && n < einzelnCbs.length;
+    if (n === einzelnCbs.length) {
+      btn.textContent = 'Alle Mitarbeiter';
+    } else if (n === 1) {
+      btn.textContent = Array.from(einzelnCbs).find(c => c.checked)
+                          .nextElementSibling.textContent.trim();
+    } else {
+      btn.textContent = n + ' Mitarbeiter';
+    }
+  }
+
+  function applyFilter() {
+    const checked = Array.from(einzelnCbs).filter(c => c.checked);
+    repFilter = checked.length === einzelnCbs.length ? [] : checked.map(c => c.value);
+    renderMarkers();
+  }
+
+  allesCb.addEventListener('change', function () {
+    einzelnCbs.forEach(cb => cb.checked = this.checked);
+    if (!this.checked) einzelnCbs[0] && (einzelnCbs[0].checked = true);
+    syncAlles();
+    applyFilter();
+  });
+
+  einzelnCbs.forEach(cb => cb.addEventListener('change', function () {
+    if (!Array.from(einzelnCbs).some(c => c.checked)) this.checked = true;
+    syncAlles();
+    applyFilter();
+  }));
+})();
 {% endif %}
 
 /* ── Geocodierung ────────────────────────────────────────────────────────────── */
