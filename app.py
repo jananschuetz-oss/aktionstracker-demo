@@ -693,6 +693,48 @@ def init_db():
             db.commit()
             app.logger.info(f"Migration: {_n_2025} Aktivitaeten aus 2025 geloescht.")
 
+        # Migration: Straßenadressen für Demo-Verkaufsstellen eintragen
+        _vs_adressen = [
+            (1,  'Alexanderplatz 1'),
+            (2,  'Moekenbeergstr. 7'),
+            (3,  'Marienplatz 8'),
+            (4,  'Zeil 15'),
+            (5,  'Schildergasse 22'),
+            (6,  'Bahnhofstrasse 3'),
+            (7,  'Schillerplatz 5'),
+            (8,  'Augustusplatz 9'),
+            (9,  'Hauptmarkt 14'),
+            (10, 'Kroepke 6'),
+            (11, 'Wasserturmplatz 4'),
+            (12, 'Bockenheimer Landstr. 18'),
+            (13, 'Westenhellweg 12'),
+            (14, 'Am Markt 9'),
+            (15, 'Ruettenscheider Str. 3'),
+            (16, 'Wilhelmstrasse 11'),
+            (17, 'Muensterplatz 2'),
+            (18, 'Muensterplatz 7'),
+            (19, 'Koenigstrasse 26'),
+            (20, 'List 5'),
+            (21, 'Planken 8'),
+            (22, 'Grossmarkthalle 3'),
+            (23, 'Unionstrasse 11'),
+            (24, 'Schlachte 17'),
+            (25, 'Vereinsweg 4'),
+            (26, 'Schuetzenstrasse 6'),
+            (27, 'Vereinsstrasse 12'),
+            (28, 'Schwarzwaldstrasse 20'),
+        ]
+        _updated = 0
+        for _vs_id, _strasse in _vs_adressen:
+            _r = db.execute(
+                "UPDATE verkaufsstelle SET strasse=? WHERE id=? AND (strasse IS NULL OR strasse='')",
+                (_strasse, _vs_id)
+            ).rowcount
+            _updated += _r
+        if _updated:
+            db.commit()
+            app.logger.info(f"Migration: {_updated} Verkaufsstellen-Adressen eingetragen.")
+
         # Alte Fotos beim Start bereinigen
         cleanup_alte_fotos()
 
