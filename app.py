@@ -684,6 +684,15 @@ def init_db():
             db.commit()
             app.logger.info(f"Demo-Migration: {_gesamt_juni} Aktivitaeten fuer KW23 (02.-06. Juni 2026) eingefuegt.")
 
+        # Migration: 2025-Daten entfernen (kein weiterer Dateneingang erwartet)
+        _n_2025 = db.execute(
+            "SELECT COUNT(*) FROM aktivitaet WHERE strftime('%Y', datum) = '2025'"
+        ).fetchone()[0]
+        if _n_2025 > 0:
+            db.execute("DELETE FROM aktivitaet WHERE strftime('%Y', datum) = '2025'")
+            db.commit()
+            app.logger.info(f"Migration: {_n_2025} Aktivitaeten aus 2025 geloescht.")
+
         # Alte Fotos beim Start bereinigen
         cleanup_alte_fotos()
 
