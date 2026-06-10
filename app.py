@@ -642,6 +642,48 @@ def init_db():
             db.commit()
             app.logger.info(f"Demo-Migration: {_falsch_n} Aktivitaeten dem richtigen Mitarbeiter zugeordnet.")
 
+        # Migration: Aktivitäten für 02.–06. Juni 2026 nachfüllen (einmalig, KW 23 fehlt vor Sonntags-Job)
+        _juni_n = db.execute(
+            "SELECT COUNT(*) FROM aktivitaet WHERE datum BETWEEN '2026-06-02' AND '2026-06-06'"
+        ).fetchone()[0]
+        if _juni_n == 0:
+            import random as _rnd_juni
+            _rnd_juni.seed(20260601)
+            _reps_juni = db.execute("SELECT id FROM mitarbeiter WHERE rolle='rep'").fetchall()
+            _biere_juni = [r['id'] for r in db.execute("SELECT id FROM biersorte WHERE aktiv=1").fetchall()]
+            _NOTIZEN_J = ['', '', '', '',
+                          'Sonderaktion vereinbart', 'Kunde sehr zufrieden',
+                          'Neues Kuehlregal besprochen', 'Stammkunde, laeuft sehr gut',
+                          'Termin fuer Herbstaktion vereinbart', 'Probierpaket mitgenommen']
+            _WERKTAGE_J = ['2026-06-02', '2026-06-03', '2026-06-04', '2026-06-05', '2026-06-06']
+            _gesamt_juni = 0
+            for _rep_j in _reps_juni:
+                _zugewiesen_j = db.execute("""
+                    SELECT v.id FROM verkaufsstelle v
+                    JOIN mitarbeiter_verkaufsstelle mv ON mv.verkaufsstelle_id = v.id
+                    WHERE mv.mitarbeiter_id = ? AND v.aktiv = 1
+                """, (_rep_j['id'],)).fetchall()
+                if not _zugewiesen_j:
+                    continue
+                _tage_j   = _rnd_juni.sample(_WERKTAGE_J, k=5)
+                _stellen_j = _rnd_juni.sample(list(_zugewiesen_j), k=min(5, len(_zugewiesen_j)))
+                for _i_j, _datum_j in enumerate(_tage_j):
+                    _vs_j    = _stellen_j[_i_j % len(_stellen_j)]
+                    _disp_j  = _rnd_juni.choices([0,1,2,3,4], weights=[25,30,25,15,5])[0]
+                    _cur_j   = db.execute(
+                        "INSERT INTO aktivitaet (datum,mitarbeiter_id,verkaufsstelle_id,anzahl_displays,notizen) "
+                        "VALUES (?,?,?,?,?)",
+                        (_datum_j, _rep_j['id'], _vs_j['id'], _disp_j, _rnd_juni.choice(_NOTIZEN_J))
+                    )
+                    if _biere_juni and _rnd_juni.random() > 0.35:
+                        db.execute(
+                            "INSERT INTO bestellposition (aktivitaet_id,biersorte_id,kisten_anzahl) VALUES (?,?,?)",
+                            (_cur_j.lastrowid, _rnd_juni.choice(_biere_juni), _rnd_juni.randint(1, 10))
+                        )
+                    _gesamt_juni += 1
+            db.commit()
+            app.logger.info(f"Demo-Migration: {_gesamt_juni} Aktivitaeten fuer KW23 (02.-06. Juni 2026) eingefuegt.")
+
         # Alte Fotos beim Start bereinigen
         cleanup_alte_fotos()
 
