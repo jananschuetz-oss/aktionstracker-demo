@@ -252,6 +252,9 @@
             <li><a class="dropdown-item" href="{{ url_for('vergleich') }}">
               <i class="bi bi-people me-2"></i>Mitarbeiter-Vergleich
             </a></li>
+            <li><a class="dropdown-item {% if request.endpoint == 'bestellungen_uebersicht' %}active{% endif %}" href="{{ url_for('bestellungen_uebersicht') }}">
+              <i class="bi bi-clipboard-check me-2"></i>Bestellungen
+            </a></li>
             <li><a class="dropdown-item" href="{{ url_for('zielzahlen') }}">
               <i class="bi bi-bullseye me-2"></i>Zielzahlen setzen
             </a></li>

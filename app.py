@@ -410,6 +410,7 @@ def init_db():
             # KONZEPT-V2 Phase 2: Lebenszyklus offener Bestellungen
             "ALTER TABLE aktivitaet    ADD COLUMN bestell_status     TEXT",   # offen|aufgebaut|storniert (nur Bestellung)
             "ALTER TABLE aktivitaet    ADD COLUMN storno_grund       TEXT",
+            "ALTER TABLE aktivitaet    ADD COLUMN realisiert_am      TEXT",   # Phase 3: wann Bestellung aufgebaut/storniert wurde
             # Bestand: bereits vorhandene Bestellungen als 'offen' markieren
             "UPDATE aktivitaet SET bestell_status='offen' WHERE aktionstyp='Bestellung' AND bestell_status IS NULL",
             "ALTER TABLE mitarbeiter   ADD COLUMN email               TEXT",
@@ -1241,11 +1242,10 @@ def dashboard():
             WHERE strftime('%Y', a.datum) = ? AND a.mitarbeiter_id = ?
         ''', (str(jahr), session['user_id']), one=True)
 
-    # KONZEPT-V2: Pipeline – Anzahl OFFENER Bestellungen (jahresunabhängig: was hängt noch?)
+    # KONZEPT-V2: Pipeline-Kennzahlen (Manager: Teaser mit Link; Rep: nur eigene offene)
+    p_aufgebaut = p_storniert = p_ueberfaellig = 0
     if is_manager:
-        vorgemerkt = query(
-            f"SELECT COUNT(*) AS n FROM aktivitaet a WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen' {ma_clause}{t_ma_sql}",
-            ma_params + t_ma_p, one=True)['n']
+        vorgemerkt, p_aufgebaut, p_storniert, p_ueberfaellig = _bestell_kennzahlen()
     else:
         vorgemerkt = query(
             "SELECT COUNT(*) AS n FROM aktivitaet a WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen' AND a.mitarbeiter_id=?",
@@ -1345,6 +1345,9 @@ def dashboard():
         ma_filter=ma_filter,
         alle_ma=alle_ma,
         vorgemerkt=vorgemerkt,
+        p_aufgebaut=p_aufgebaut,
+        p_storniert=p_storniert,
+        p_ueberfaellig=p_ueberfaellig,
     )
 
 
@@ -1474,8 +1477,72 @@ def aktivitaet_stornieren(akt_id):
         "AND COALESCE(bestell_status,'offen')='offen'", (akt_id,), one=True)
     if not best:
         return jsonify({'ok': False, 'error': 'Offene Bestellung nicht gefunden'}), 404
-    execute("UPDATE aktivitaet SET bestell_status='storniert', storno_grund=? WHERE id=?", (grund, akt_id))
+    execute("UPDATE aktivitaet SET bestell_status='storniert', storno_grund=?, realisiert_am=datetime('now','localtime') WHERE id=?", (grund, akt_id))
     return jsonify({'ok': True})
+
+
+# ─── KONZEPT-V2 Phase 3: Pipeline-Übersicht für VKL/Leitung ───────────────────
+
+def _bestell_kennzahlen():
+    """Pipeline-Kennzahlen team-scoped (VKL: eigenes Team, Leitung: alles)."""
+    t_sql, t_p = _team_ma_clause('a')
+    base = f"FROM aktivitaet a WHERE a.aktionstyp='Bestellung'{t_sql}"
+    offen     = query(f"SELECT COUNT(*) AS n {base} AND COALESCE(a.bestell_status,'offen')='offen'", t_p, one=True)['n']
+    aufgebaut = query(f"SELECT COUNT(*) AS n {base} AND a.bestell_status='aufgebaut'", t_p, one=True)['n']
+    storniert = query(f"SELECT COUNT(*) AS n {base} AND a.bestell_status='storniert'", t_p, one=True)['n']
+    ueberfaellig = query(
+        f"SELECT COUNT(*) AS n {base} AND COALESCE(a.bestell_status,'offen')='offen' "
+        f"AND julianday('now') - julianday(a.datum) > 28", t_p, one=True)['n']
+    return offen, aufgebaut, storniert, ueberfaellig
+
+
+@app.route('/bestellungen')
+@login_required
+def bestellungen_uebersicht():
+    if session.get('rolle') not in ('admin', 'verkaufsleiter'):
+        return redirect(url_for('dashboard'))
+    t_sql, t_p = _team_ma_clause('a')
+    base = f"FROM aktivitaet a WHERE a.aktionstyp='Bestellung'{t_sql}"
+
+    offen, aufgebaut, storniert, _ = _bestell_kennzahlen()
+    gesamt = offen + aufgebaut + storniert
+    quote  = round(aufgebaut / gesamt * 100) if gesamt else 0
+
+    dl = query(
+        f"SELECT AVG(julianday(a.realisiert_am) - julianday(a.datum)) AS d {base} "
+        f"AND a.bestell_status='aufgebaut' AND a.realisiert_am IS NOT NULL", t_p, one=True)['d']
+    durchlauf = round(dl) if dl is not None else None
+
+    gruende = query(
+        f"SELECT a.storno_grund AS grund, COUNT(*) AS n {base} "
+        f"AND a.bestell_status='storniert' AND a.storno_grund IS NOT NULL "
+        f"GROUP BY a.storno_grund ORDER BY n DESC", t_p)
+    storno_max = max([g['n'] for g in gruende], default=0)
+
+    rows = query(f'''
+        SELECT a.id, a.datum, v.name AS station, m.name AS rep, a.anzahl_displays,
+               CAST(julianday('now') - julianday(a.datum) AS INTEGER) AS tage
+        FROM aktivitaet a
+        JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id
+        JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
+        WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen'
+          AND julianday('now') - julianday(a.datum) > 28{t_sql}
+        ORDER BY tage DESC
+    ''', t_p)
+    ueberfaellig = []
+    for u in rows:
+        k = query("SELECT COALESCE(SUM(kisten_anzahl),0) AS s FROM bestellposition WHERE aktivitaet_id=?",
+                  (u['id'],), one=True)['s']
+        teile = []
+        if u['anzahl_displays']: teile.append(f"{u['anzahl_displays']} Displays")
+        if k: teile.append(f"{k} {UNIT_LABEL}")
+        ueberfaellig.append({'station': u['station'], 'rep': u['rep'], 'tage': u['tage'],
+                             'menge': ' · '.join(teile) if teile else '–'})
+
+    return render_template('bestellungen.html',
+        offen=offen, aufgebaut=aufgebaut, storniert=storniert, gesamt=gesamt,
+        quote=quote, durchlauf=durchlauf, gruende=gruende, storno_max=storno_max,
+        ueberfaellig=ueberfaellig)
 
 
 @app.route('/api/aktivitaet/offline-sync', methods=['POST'])
@@ -1669,7 +1736,7 @@ def neue_aktivitaet():
             erledigt = request.form.get('erledigt_bestellung_ids', '')
             for bid in [x.strip() for x in erledigt.split(',') if x.strip().isdigit()]:
                 execute(
-                    "UPDATE aktivitaet SET bestell_status='aufgebaut' "
+                    "UPDATE aktivitaet SET bestell_status='aufgebaut', realisiert_am=datetime('now','localtime') "
                     "WHERE id=? AND aktionstyp='Bestellung' AND COALESCE(bestell_status,'offen')='offen'",
                     (bid,)
                 )

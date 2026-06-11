@@ -83,7 +83,27 @@
   </div>
 </div>
 
-<!-- KONZEPT-V2: Pipeline-Hinweis (offene Bestellungen) -->
+<!-- KONZEPT-V2: Pipeline-Teaser (Manager) / Hinweis (Rep) -->
+{% if is_manager %}
+<div class="mb-4">
+  <div class="card">
+    <div class="card-body py-3">
+      <div class="d-flex flex-wrap align-items-center gap-3">
+        <span class="fw-semibold" style="color:#1a3a5c"><i class="bi bi-clipboard-check me-1"></i>Bestellungen &amp; Pipeline</span>
+        <span><span class="fw-bold text-warning fs-5">{{ vorgemerkt or 0 }}</span> <span class="text-muted small">offen</span></span>
+        <span><span class="fw-bold text-success fs-5">{{ p_aufgebaut or 0 }}</span> <span class="text-muted small">aufgebaut</span></span>
+        <span><span class="fw-bold fs-5" style="color:#6c757d">{{ p_storniert or 0 }}</span> <span class="text-muted small">storniert</span></span>
+        {% if p_ueberfaellig and p_ueberfaellig > 0 %}
+        <span class="badge" style="background:#fdecc8;color:#8a5a00"><i class="bi bi-exclamation-triangle me-1"></i>{{ p_ueberfaellig }} überfällig</span>
+        {% endif %}
+        <a href="{{ url_for('bestellungen_uebersicht') }}" class="btn btn-sm btn-outline-primary ms-auto">
+          Alle ansehen <i class="bi bi-arrow-right"></i>
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+{% else %}
 <div class="mb-4">
   <div class="d-flex align-items-center gap-2 px-3 py-2 rounded-3"
        style="background:#fffbf0;border:1px solid #f0c674;font-size:.9rem">
@@ -92,6 +112,7 @@
       <span class="text-muted">— für später bestellt, noch nicht aufgebaut (zählt nicht im IST)</span></span>
   </div>
 </div>
+{% endif %}
 
 <!-- Charts Row -->
 <div class="row g-3 mb-4">

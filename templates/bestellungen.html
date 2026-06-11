@@ -1,0 +1,114 @@
+{% extends 'base.html' %}
+{% block title %}Bestellungen – Aktions Tracker {{ company_short }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1><i class="bi bi-clipboard-check me-2"></i>Bestellungen &amp; Pipeline</h1>
+  <p>Offene, aufgebaute und stornierte Bestellungen im Überblick</p>
+</div>
+
+<!-- Kennzahlen -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-lg-3">
+    <div class="stat-card amber h-100">
+      <p><i class="bi bi-clock-history me-1"></i>Offen (vorgemerkt)</p>
+      <h2>{{ offen }}</h2>
+      <p style="font-size:.8rem;margin-top:.25rem">Noch nicht aufgebaut</p>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="stat-card green h-100">
+      <p><i class="bi bi-check2-circle me-1"></i>Aufgebaut</p>
+      <h2>{{ aufgebaut }}</h2>
+      <p style="font-size:.8rem;margin-top:.25rem">Realisiert</p>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="stat-card h-100" style="background:#6c757d">
+      <p><i class="bi bi-x-circle me-1"></i>Storniert</p>
+      <h2>{{ storniert }}</h2>
+      <p style="font-size:.8rem;margin-top:.25rem">Geschlossen ohne Aufbau</p>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="stat-card blue h-100">
+      <p><i class="bi bi-graph-up-arrow me-1"></i>Umwandlungsquote</p>
+      <h2>{{ quote }} %</h2>
+      <p style="font-size:.8rem;margin-top:.25rem">
+        Ø Durchlauf: {{ durchlauf if durchlauf is not none else '–' }}{{ ' Tage' if durchlauf is not none else '' }}
+      </p>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4">
+  <!-- Storno-Gründe -->
+  <div class="col-lg-5">
+    <div class="card h-100">
+      <div class="card-header"><i class="bi bi-pie-chart me-2"></i>Storno-Gründe</div>
+      <div class="card-body">
+        {% if gruende %}
+          {% for g in gruende %}
+          <div class="mb-3">
+            <div class="d-flex justify-content-between small mb-1">
+              <span>{{ g.grund }}{% if g.grund == 'Fehleingabe' %}
+                <span class="text-muted" style="font-size:.78rem">(kein echter Verlust)</span>{% endif %}</span>
+              <span class="fw-semibold">{{ g.n }}</span>
+            </div>
+            <div class="progress" style="height:10px">
+              <div class="progress-bar {% if g.grund == 'Fehleingabe' %}bg-secondary{% else %}bg-danger{% endif %}"
+                   style="width:{{ (g.n / storno_max * 100) if storno_max else 0 }}%"></div>
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="text-center text-muted py-4">
+            <i class="bi bi-emoji-smile" style="font-size:2rem"></i>
+            <p class="mt-2 mb-0">Keine Stornos – alle Zusagen leben noch.</p>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Überfällige offene Bestellungen -->
+  <div class="col-lg-7">
+    <div class="card h-100">
+      <div class="card-header" style="background:linear-gradient(135deg,#c8860a,#f5a623)">
+        <i class="bi bi-exclamation-triangle me-2"></i>Überfällig – offen seit über 4 Wochen
+      </div>
+      <div class="card-body p-0">
+        {% if ueberfaellig %}
+        <table class="table table-hover mb-0">
+          <thead class="table-light">
+            <tr>
+              <th class="ps-3">Station</th>
+              <th>Menge</th>
+              <th>Rep</th>
+              <th class="text-end pe-3">Offen seit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for u in ueberfaellig %}
+            <tr>
+              <td class="ps-3 fw-semibold">{{ u.station }}</td>
+              <td class="text-muted">{{ u.menge }}</td>
+              <td>{{ u.rep }}</td>
+              <td class="text-end pe-3">
+                <span class="badge" style="background:#fdecc8;color:#8a5a00">{{ u.tage }} Tage</span>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center text-muted py-5">
+          <i class="bi bi-check-circle" style="font-size:2.5rem;color:#27ae60"></i>
+          <p class="mt-2 mb-0">Nichts überfällig – alle offenen Bestellungen sind frisch.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
