@@ -1,6 +1,11 @@
 from flask import Flask, render_template, request, redirect, url_for, session, send_file, g, flash, jsonify
 import sqlite3
 import os
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 import uuid
 import secrets
 import shutil
