@@ -31,6 +31,21 @@
         <i class="bi bi-fire me-1"></i>Aktivitäten
       </button>
     </div>
+    <!-- Ebenen-Auswahl (nur sichtbar wenn Heatmap aktiv) -->
+    <div id="heatmapEbenen" class="btn-group btn-group-sm d-none" role="group">
+      <button class="btn btn-sm btn-dark ebene-btn" data-ebene="betreuung" title="Alle Aktivitäten pro Station">
+        <i class="bi bi-people me-1"></i>Betreuung
+      </button>
+      <button class="btn btn-sm btn-outline-dark ebene-btn" data-ebene="aufbauten" title="Aufgebaute Displays">
+        <i class="bi bi-hammer me-1"></i>Aufbauten
+      </button>
+      <button class="btn btn-sm btn-outline-dark ebene-btn" data-ebene="volumen" title="{{ unit_label }} pro Station">
+        <i class="bi bi-box-seam me-1"></i>Volumen
+      </button>
+      <button class="btn btn-sm btn-outline-dark ebene-btn" data-ebene="offene_bestellungen" title="Offene Bestellungen (aktuell)">
+        <i class="bi bi-clock-history me-1"></i>Offen
+      </button>
+    </div>
     <!-- Jahresfilter Heatmap -->
     <select id="heatmapJahr" class="form-select form-select-sm d-none" style="width:auto">
       <option value="{{ now.year }}">{{ now.year }}</option>
@@ -553,26 +568,51 @@ document.getElementById('btnGeocode').addEventListener('click', async function (
 
 let heatmapLayer = L.layerGroup();
 let heatmapAktiv = false;
+let heatmapEbene = 'betreuung';
+
+const EBENE_CFG = {
+  betreuung:           { leerText: 'Keine Aktivitäten', einzel: 'Aktivität', mehr: 'Aktivitäten' },
+  aufbauten:           { leerText: 'Kein Aufbau',       einzel: 'Aufbau',    mehr: 'Aufbauten'   },
+  volumen:             { leerText: 'Kein Volumen',       einzel: '{{ unit_label }}', mehr: '{{ unit_label }}' },
+  offene_bestellungen: { leerText: 'Keine offene Bestellung', einzel: 'Offene Bestellung', mehr: 'Offene Bestellungen' },
+};
+
+function _heatmapLegende() {
+  const leg = document.getElementById('legendeInline');
+  if (!leg) return;
+  if (heatmapEbene === 'offene_bestellungen') {
+    leg.innerHTML =
+      '<span class="ms-2 me-2"><i class="bi bi-circle-fill" style="color:#adb5bd"></i> Keine</span>' +
+      '<span class="me-2"><i class="bi bi-circle-fill" style="color:#c8860a"></i> 1+</span>' +
+      '<span class="me-2"><i class="bi bi-circle-fill" style="color:#e74c3c"></i> Mehrere</span>' +
+      '<span class="text-muted" style="font-size:.75rem">(offene Bestellungen)</span>';
+  } else {
+    leg.innerHTML =
+      '<span class="ms-2 me-2"><i class="bi bi-circle-fill" style="color:#adb5bd"></i> Kein Eintrag</span>' +
+      '<span class="me-2"><i class="bi bi-circle-fill" style="color:#e74c3c"></i> Wenig</span>' +
+      '<span class="me-2"><i class="bi bi-circle-fill" style="color:#f39c12"></i> Mittel</span>' +
+      '<span class="me-2"><i class="bi bi-circle-fill" style="color:#27ae60"></i> Häufig</span>' +
+      '<span class="text-muted" style="font-size:.75rem">(relativ)</span>';
+  }
+}
 
 async function ladeHeatmap(jahr) {
   heatmapLayer.clearLayers();
   let data;
   try {
-    const maParam     = repFilter.length     ? `&ma=${repFilter.join(',')}`     : '';
-    const monateParam = monateFilter.length  ? `&monate=${monateFilter.join(',')}` : '';
-    const resp = await fetch(`/api/karte/heatmap?jahr=${jahr}${maParam}${monateParam}`);
+    const maParam     = repFilter.length    ? `&ma=${repFilter.join(',')}`        : '';
+    const monateParam = monateFilter.length ? `&monate=${monateFilter.join(',')}` : '';
+    const ebeneParam  = `&ebene=${heatmapEbene}`;
+    const resp = await fetch(`/api/karte/heatmap?jahr=${jahr}${maParam}${monateParam}${ebeneParam}`);
     data = await resp.json();
   } catch (e) { console.error('Heatmap laden fehlgeschlagen:', e); return; }
 
-  const stellen   = data.stellen || [];
-  const maxAnzahl = Math.max(...stellen.map(s => s.anzahl), 1);
+  const stellen    = data.stellen || [];
+  const maxAnzahl  = Math.max(...stellen.map(s => s.anzahl), 1);
+  const cfg        = EBENE_CFG[heatmapEbene] || EBENE_CFG.betreuung;
+  const jahrLabel  = heatmapEbene === 'offene_bestellungen' ? 'aktuell' : String(jahr);
 
-  // Prozentrang-Schwellen: relativ zu allen besuchten Stationen
-  // → Skala passt sich automatisch an (auch am Jahresanfang sinnvoll)
-  const besuchtZahlen = stellen
-    .filter(s => s.anzahl > 0)
-    .map(s => s.anzahl)
-    .sort((a, b) => a - b);
+  const besuchtZahlen = stellen.filter(s => s.anzahl > 0).map(s => s.anzahl).sort((a, b) => a - b);
   const nBesucht = besuchtZahlen.length;
 
   stellen.forEach(s => {
@@ -580,56 +620,33 @@ async function ladeHeatmap(jahr) {
 
     let radius, fillColor, borderColor, opac, tooltipColor;
     if (s.anzahl === 0) {
-      // ⚫ Kein Besuch → grau (weißer Fleck)
-      radius       = 5;
-      fillColor    = '#adb5bd';
-      borderColor  = '#868e96';
-      opac         = 0.55;
-      tooltipColor = '#868e96';
+      radius = 5; fillColor = '#adb5bd'; borderColor = '#868e96'; opac = 0.55; tooltipColor = '#868e96';
     } else {
-      // Größe: kontinuierlich nach Wurzel-Scaling
       const norm = Math.sqrt(s.anzahl / maxAnzahl);
-      radius = Math.round(5 + norm * 11);   // 5–16 px
-      opac   = 0.65 + norm * 0.25;          // 0.65–0.90
+      radius = Math.round(5 + norm * 11);
+      opac   = 0.65 + norm * 0.25;
 
-      // Farbe: Prozentrang im Vergleich zu allen besuchten Stationen
-      // gleiche Besuchszahl wie andere → im oberen Drittel (alle gleich = alle grün)
-      const rang = nBesucht > 0
-        ? besuchtZahlen.filter(x => x <= s.anzahl).length / nBesucht
-        : 1;
-
-      if (rang <= 0.33) {
-        // 🔴 Unteres Drittel – zu selten angefahren
-        fillColor   = '#e74c3c';
-        borderColor = '#c0392b';
-        tooltipColor = '#e74c3c';
-      } else if (rang <= 0.67) {
-        // 🟡 Mittleres Drittel – ausbaufähig
-        fillColor   = '#f39c12';
-        borderColor = '#d68910';
-        tooltipColor = '#d68910';
+      if (heatmapEbene === 'offene_bestellungen') {
+        // Offene Bestellungen: amber → rot je nach Anzahl
+        const rang = nBesucht > 0 ? besuchtZahlen.filter(x => x <= s.anzahl).length / nBesucht : 1;
+        if (rang <= 0.5) { fillColor = '#c8860a'; borderColor = '#a0660a'; tooltipColor = '#c8860a'; }
+        else             { fillColor = '#e74c3c'; borderColor = '#c0392b'; tooltipColor = '#e74c3c'; }
       } else {
-        // 🟢 Oberes Drittel – gut versorgt
-        fillColor   = '#27ae60';
-        borderColor = '#1e8449';
-        tooltipColor = '#27ae60';
+        const rang = nBesucht > 0 ? besuchtZahlen.filter(x => x <= s.anzahl).length / nBesucht : 1;
+        if      (rang <= 0.33) { fillColor = '#e74c3c'; borderColor = '#c0392b'; tooltipColor = '#e74c3c'; }
+        else if (rang <= 0.67) { fillColor = '#f39c12'; borderColor = '#d68910'; tooltipColor = '#d68910'; }
+        else                   { fillColor = '#27ae60'; borderColor = '#1e8449'; tooltipColor = '#27ae60'; }
       }
     }
 
+    const tipLeer = `<b style="color:#868e96">${cfg.leerText} (${jahrLabel})</b>`;
+    const tipWert = `<b style="color:${tooltipColor}">${s.anzahl} ${s.anzahl === 1 ? cfg.einzel : cfg.mehr} (${jahrLabel})</b>`;
+
     L.circleMarker([s.lat, s.lng], {
-      radius,
-      fillColor,
-      color:     borderColor,
-      weight:    1,
-      opacity:   0.7,
-      fillOpacity: opac,
-      pane: 'shadowPane',
+      radius, fillColor, color: borderColor, weight: 1, opacity: 0.7, fillOpacity: opac, pane: 'shadowPane',
     })
     .bindTooltip(
-      `<strong>${s.name}</strong><br><small>${s.ort}</small><br>` +
-      (s.anzahl === 0
-        ? `<b style="color:#868e96">Noch kein Besuch in ${jahr}</b>`
-        : `<b style="color:${tooltipColor}">${s.anzahl} Aktivität${s.anzahl !== 1 ? 'en' : ''} in ${jahr}</b>`),
+      `<strong>${s.name}</strong><br><small>${s.ort}</small><br>${s.anzahl === 0 ? tipLeer : tipWert}`,
       { direction: 'top', offset: [0, -6] }
     )
     .addTo(heatmapLayer);
@@ -643,25 +660,35 @@ async function ladeHeatmap(jahr) {
       .map(j => `<option value="${j}"${j === aktuell ? ' selected' : ''}>${j}</option>`)
       .join('');
   }
+  _heatmapLegende();
+}
+
+function _setEbene(ebene) {
+  heatmapEbene = ebene;
+  document.querySelectorAll('.ebene-btn').forEach(btn => {
+    const aktiv = btn.dataset.ebene === ebene;
+    btn.className = aktiv
+      ? 'btn btn-sm btn-dark ebene-btn'
+      : 'btn btn-sm btn-outline-dark ebene-btn';
+  });
+  // Jahresfilter bei "Offene Bestellungen" ausblenden (zeitlos)
+  const jahrSel = document.getElementById('heatmapJahr');
+  if (jahrSel) jahrSel.classList.toggle('d-none', ebene === 'offene_bestellungen');
+  const jahr = jahrSel && !jahrSel.classList.contains('d-none') ? jahrSel.value : '{{ now.year }}';
+  ladeHeatmap(jahr);
 }
 
 function aktiviereHeatmap() {
   heatmapAktiv = true;
   Object.values(markers).forEach(m => m.setStyle({ fillOpacity: 0.18, opacity: 0.3 }));
   heatmapLayer.addTo(map);
-  const jahr = document.getElementById('heatmapJahr').value || '{{ now.year }}';
-  ladeHeatmap(jahr);
 
-  document.getElementById('btnViewGebiete').classList.replace('btn-primary',      'btn-outline-primary');
-  document.getElementById('btnViewHeatmap').classList.replace('btn-outline-danger','btn-danger');
+  document.getElementById('btnViewGebiete').classList.replace('btn-primary',       'btn-outline-primary');
+  document.getElementById('btnViewHeatmap').classList.replace('btn-outline-danger', 'btn-danger');
+  document.getElementById('heatmapEbenen').classList.remove('d-none');
   document.getElementById('heatmapJahr').classList.remove('d-none');
-  const leg = document.getElementById('legendeInline');
-  if (leg) leg.innerHTML =
-    '<span class="ms-2 me-2"><i class="bi bi-circle-fill" style="color:#adb5bd"></i> Kein Besuch</span>' +
-    '<span class="me-2"><i class="bi bi-circle-fill" style="color:#e74c3c"></i> Wenig</span>' +
-    '<span class="me-2"><i class="bi bi-circle-fill" style="color:#f39c12"></i> Mittel</span>' +
-    '<span class="me-2"><i class="bi bi-circle-fill" style="color:#27ae60"></i> Häufig</span>' +
-    '<span class="text-muted" style="font-size:.75rem">(relativ zu anderen Stationen)</span>';
+
+  _setEbene(heatmapEbene);
 }
 
 function deaktiviereHeatmap() {
@@ -669,8 +696,9 @@ function deaktiviereHeatmap() {
   map.removeLayer(heatmapLayer);
   Object.values(markers).forEach(m => m.setStyle({ fillOpacity: 0.92, opacity: 1 }));
 
-  document.getElementById('btnViewGebiete').classList.replace('btn-outline-primary','btn-primary');
-  document.getElementById('btnViewHeatmap').classList.replace('btn-danger','btn-outline-danger');
+  document.getElementById('btnViewGebiete').classList.replace('btn-outline-primary', 'btn-primary');
+  document.getElementById('btnViewHeatmap').classList.replace('btn-danger',           'btn-outline-danger');
+  document.getElementById('heatmapEbenen').classList.add('d-none');
   document.getElementById('heatmapJahr').classList.add('d-none');
   buildLegende();
   if (monateFilter.length) ladeBesuche();
@@ -680,6 +708,9 @@ document.getElementById('btnViewHeatmap').addEventListener('click', aktiviereHea
 document.getElementById('btnViewGebiete').addEventListener('click', deaktiviereHeatmap);
 document.getElementById('heatmapJahr').addEventListener('change', function () {
   if (heatmapAktiv) ladeHeatmap(this.value);
+});
+document.querySelectorAll('.ebene-btn').forEach(btn => {
+  btn.addEventListener('click', () => _setEbene(btn.dataset.ebene));
 });
 
 {% endif %}

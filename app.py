@@ -3358,9 +3358,15 @@ def _do_send_wochenbericht(force=False):
 
             def stats(von, bis):
                 return query('''
-                    SELECT COUNT(DISTINCT a.id)          AS besuche,
-                           COALESCE(SUM(bp.kisten_anzahl),0) AS kisten,
-                           COALESCE(SUM(a.anzahl_displays),0) AS displays
+                    SELECT COUNT(DISTINCT a.id) AS besuche,
+                           COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                               THEN a.id END) AS aufbauten,
+                           COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung'
+                                               THEN a.id END) AS bestellungen,
+                           COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                             THEN bp.kisten_anzahl END), 0) AS kisten,
+                           COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                             THEN a.anzahl_displays END), 0) AS displays
                     FROM aktivitaet a
                     LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
                     WHERE a.datum BETWEEN ? AND ?
@@ -3370,9 +3376,14 @@ def _do_send_wochenbericht(force=False):
             letzte = stats(montag_letzte, sonntag_letzte)
 
             rep_stats = query('''
-                SELECT m.name,
-                       COUNT(DISTINCT a.id)              AS besuche,
-                       COALESCE(SUM(bp.kisten_anzahl),0) AS kisten
+                SELECT m.id AS mitarbeiter_id, m.name,
+                       COUNT(DISTINCT a.id) AS besuche,
+                       COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung'
+                                           THEN a.id END) AS bestellungen,
+                       COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                           THEN a.id END) AS aufbauten,
+                       COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                         THEN bp.kisten_anzahl END), 0) AS kisten
                 FROM aktivitaet a
                 JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
                 LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
@@ -3380,6 +3391,21 @@ def _do_send_wochenbericht(force=False):
                 GROUP BY m.id, m.name
                 ORDER BY kisten DESC
             ''', (montag_diese.isoformat(), sonntag_diese.isoformat()))
+
+            # Offene Bestellungen pro Rep (nicht wochengefiltert – aktueller Stand)
+            offene_map = {r['mitarbeiter_id']: r['n'] for r in query(
+                "SELECT a.mitarbeiter_id, COUNT(*) AS n FROM aktivitaet a "
+                "JOIN mitarbeiter m ON m.id=a.mitarbeiter_id "
+                "WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen' "
+                "AND m.rolle='rep' GROUP BY a.mitarbeiter_id"
+            )}
+            pipeline = query(
+                "SELECT COALESCE(SUM(CASE WHEN COALESCE(bestell_status,'offen')='offen' THEN 1 END),0) AS offen,"
+                "       COALESCE(SUM(CASE WHEN bestell_status='aufgebaut' THEN 1 END),0) AS aufgebaut,"
+                "       COALESCE(SUM(CASE WHEN bestell_status='storniert' THEN 1 END),0) AS storniert "
+                "FROM aktivitaet WHERE aktionstyp='Bestellung'",
+                one=True
+            )
 
             def trend_str(neu, alt):
                 diff = neu - alt
@@ -3392,13 +3418,21 @@ def _do_send_wochenbericht(force=False):
                 if neu < alt: return '#c0392b'
                 return '#888'
 
+            def _offen_col(n):
+                if n > 0:
+                    return f'<span style="color:#c8860a;font-weight:bold">{n}</span>'
+                return f'<span style="color:#aaa">0</span>'
+
             rep_rows = ''.join(f'''
                 <tr>
-                  <td style="padding:9px 14px;border-bottom:1px solid #f0f0f0">{r["name"]}</td>
-                  <td style="padding:9px 14px;border-bottom:1px solid #f0f0f0;text-align:center">{r["besuche"]}</td>
-                  <td style="padding:9px 14px;border-bottom:1px solid #f0f0f0;text-align:center;font-weight:600;color:#c8860a">{r["kisten"]}</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px">{r["name"]}</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["bestellungen"]}</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{_offen_col(offene_map.get(r["mitarbeiter_id"], 0))}</td>
                 </tr>''' for r in rep_stats) or \
-                '<tr><td colspan="3" style="padding:12px 14px;color:#999;text-align:center">Keine Aktivitäten diese Woche</td></tr>'
+                '<tr><td colspan="6" style="padding:12px 14px;color:#999;text-align:center">Keine Aktivitäten diese Woche</td></tr>'
 
             dashboard_link = APP_URL or '#'
 
@@ -3437,14 +3471,28 @@ def _do_send_wochenbericht(force=False):
     </table>
   </div>
 
+  <div style="padding:16px 32px;background:#fffbf0;border-top:1px solid #f0c674">
+    <span style="font-size:13px;font-weight:bold;color:#1a3a5c">Bestellungen Pipeline:</span>
+    <span style="margin-left:14px;font-size:13px">
+      <span style="color:#c8860a;font-weight:bold">{pipeline["offen"]}</span><span style="color:#777"> offen</span>
+      &nbsp;&nbsp;·&nbsp;&nbsp;
+      <span style="color:#27ae60;font-weight:bold">{pipeline["aufgebaut"]}</span><span style="color:#777"> aufgebaut</span>
+      &nbsp;&nbsp;·&nbsp;&nbsp;
+      <span style="color:#6c757d;font-weight:bold">{pipeline["storniert"]}</span><span style="color:#777"> storniert</span>
+    </span>
+  </div>
+
   <div style="padding:24px 32px">
     <div style="font-size:15px;font-weight:bold;color:#1a3a5c;margin-bottom:12px">Mitarbeiter diese Woche</div>
     <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e4eaf0;border-radius:8px;overflow:hidden">
       <thead>
         <tr style="background:#edf2f7">
-          <th style="padding:9px 14px;text-align:left;font-size:11px;color:#666;font-weight:600;letter-spacing:.5px">MITARBEITER</th>
-          <th style="padding:9px 14px;text-align:center;font-size:11px;color:#666;font-weight:600;letter-spacing:.5px">BESUCHE</th>
-          <th style="padding:9px 14px;text-align:center;font-size:11px;color:#666;font-weight:600;letter-spacing:.5px">{UNIT_LABEL.upper()}</th>
+          <th style="padding:8px 10px;text-align:left;font-size:10px;color:#666;font-weight:600;letter-spacing:.5px">MITARBEITER</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#666;font-weight:600;letter-spacing:.5px">BESUCHE</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#2e6da4;font-weight:600;letter-spacing:.5px">BESTELL.</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#27ae60;font-weight:600;letter-spacing:.5px">AUFBAUT.</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#c8860a;font-weight:600;letter-spacing:.5px">{UNIT_LABEL.upper()[:7]}</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#c8860a;font-weight:600;letter-spacing:.5px">OFFEN</th>
         </tr>
       </thead>
       <tbody>{rep_rows}</tbody>
@@ -3838,29 +3886,57 @@ def api_karte_heatmap():
     ma_ids     = [x.strip() for x in ma_raw.split(',') if x.strip()] if ma_raw else []
     monate_raw = request.args.get('monate', '', type=str)
     monate_ids = [int(x.strip()) for x in monate_raw.split(',') if x.strip()] if monate_raw else []
-
-    join_conds  = ["a.verkaufsstelle_id = v.id", "strftime('%Y', a.datum) = ?"]
-    join_params = [str(jahr)]
-    if monate_ids:
-        ph = ','.join('?' * len(monate_ids))
-        join_conds.append(f"CAST(strftime('%m', a.datum) AS INTEGER) IN ({ph})")
-        join_params.extend(str(m) for m in monate_ids)
-    if ma_ids:
-        ph = ','.join('?' * len(ma_ids))
-        join_conds.append(f"a.mitarbeiter_id IN ({ph})")
-        join_params.extend(ma_ids)
+    # betreuung (alle Aktivitäten) | aufbauten | volumen (Einheiten) | offene_bestellungen
+    ebene      = request.args.get('ebene', 'betreuung')
 
     where_conds  = ["v.aktiv = 1", "v.lat IS NOT NULL", "v.lng IS NOT NULL"]
     where_params = []
     if ma_ids:
         ph = ','.join('?' * len(ma_ids))
-        where_conds.append(f"v.id IN (SELECT verkaufsstelle_id FROM mitarbeiter_verkaufsstelle WHERE mitarbeiter_id IN ({ph}))")
+        where_conds.append(
+            f"v.id IN (SELECT verkaufsstelle_id FROM mitarbeiter_verkaufsstelle "
+            f"WHERE mitarbeiter_id IN ({ph}))")
         where_params.extend(ma_ids)
 
+    if ebene == 'offene_bestellungen':
+        # Zeigt aktuelle offene Bestellungen – kein Jahresfilter
+        join_conds  = ["a.verkaufsstelle_id = v.id",
+                       "a.aktionstyp = 'Bestellung'",
+                       "COALESCE(a.bestell_status,'offen') = 'offen'"]
+        join_params = []
+        if ma_ids:
+            ph = ','.join('?' * len(ma_ids))
+            join_conds.append(f"a.mitarbeiter_id IN ({ph})")
+            join_params.extend(ma_ids)
+        metric     = "COUNT(a.id) AS anzahl"
+        extra_join = ""
+    else:
+        join_conds  = ["a.verkaufsstelle_id = v.id", "strftime('%Y', a.datum) = ?"]
+        join_params = [str(jahr)]
+        if monate_ids:
+            ph = ','.join('?' * len(monate_ids))
+            join_conds.append(f"CAST(strftime('%m', a.datum) AS INTEGER) IN ({ph})")
+            join_params.extend(str(m) for m in monate_ids)
+        if ma_ids:
+            ph = ','.join('?' * len(ma_ids))
+            join_conds.append(f"a.mitarbeiter_id IN ({ph})")
+            join_params.extend(ma_ids)
+        if ebene == 'aufbauten':
+            metric     = "COUNT(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN 1 END) AS anzahl"
+            extra_join = ""
+        elif ebene == 'volumen':
+            metric     = ("COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' "
+                          "THEN bp.kisten_anzahl END), 0) AS anzahl")
+            extra_join = "LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id"
+        else:  # betreuung
+            metric     = "COUNT(a.id) AS anzahl"
+            extra_join = ""
+
     stellen = query(
-        f"SELECT v.id, v.name, v.ort, v.lat, v.lng, COUNT(a.id) AS anzahl "
+        f"SELECT v.id, v.name, v.ort, v.lat, v.lng, {metric} "
         f"FROM verkaufsstelle v "
         f"LEFT JOIN aktivitaet a ON {' AND '.join(join_conds)} "
+        f"{extra_join + ' ' if extra_join else ''}"
         f"WHERE {' AND '.join(where_conds)} "
         f"GROUP BY v.id ORDER BY anzahl DESC",
         tuple(join_params + where_params)
@@ -3871,6 +3947,7 @@ def api_karte_heatmap():
                      'lat': s['lat'], 'lng': s['lng'], 'anzahl': s['anzahl']} for s in stellen],
         'jahre':   [j['jahr'] for j in jahre_raw],
         'jahr':    jahr,
+        'ebene':   ebene,
     })
 
 
