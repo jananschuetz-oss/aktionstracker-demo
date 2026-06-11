@@ -405,6 +405,8 @@ def init_db():
         # Migrationen für bestehende DBs
         for migration in [
             "ALTER TABLE aktivitaet    ADD COLUMN foto_pfad          TEXT",
+            # KONZEPT-V2: Aktivitätstyp (Aufbau/Bestellung/Besuch). Bestand → 'Aufbau'.
+            "ALTER TABLE aktivitaet    ADD COLUMN aktionstyp         TEXT DEFAULT 'Aufbau'",
             "ALTER TABLE mitarbeiter   ADD COLUMN email               TEXT",
             "ALTER TABLE mitarbeiter   ADD COLUMN reset_token         TEXT",
             "ALTER TABLE mitarbeiter   ADD COLUMN reset_token_ablauf  DATETIME",
@@ -1178,6 +1180,11 @@ def dashboard():
     # Subquery: Kisten pro Aktivität voraggregieren → verhindert Duplikation von anzahl_displays
     BP = "(SELECT aktivitaet_id, SUM(kisten_anzahl) AS kisten_total FROM bestellposition GROUP BY aktivitaet_id)"
 
+    # KONZEPT-V2: Mengen zählen nur bei Aufbau (Bestand/NULL → 'Aufbau'). Bestellung/Besuch nicht.
+    _AUF     = "COALESCE(a.aktionstyp,'Aufbau')='Aufbau'"
+    DISP_IST = f"SUM(CASE WHEN {_AUF} THEN a.anzahl_displays ELSE 0 END)"
+    KIST_IST = f"COALESCE(SUM(CASE WHEN {_AUF} THEN b.kisten_total ELSE 0 END), 0)"
+
     # Team-Filter (VKL mit zugewiesenem Team sieht nur eigene Team-Mitglieder)
     t_ma_sql, t_ma_p = _team_ma_clause('a')
 
@@ -1185,8 +1192,8 @@ def dashboard():
         kw_data = query(f'''
             SELECT strftime('%W', a.datum) AS kw,
                    CAST(strftime('%W', a.datum) AS INTEGER) AS kw_int,
-                   SUM(a.anzahl_displays) AS displays,
-                   COALESCE(SUM(b.kisten_total), 0) AS kisten,
+                   {DISP_IST} AS displays,
+                   {KIST_IST} AS kisten,
                    COUNT(a.id) AS besuche
             FROM aktivitaet a
             LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
@@ -1198,8 +1205,8 @@ def dashboard():
         kw_data = query(f'''
             SELECT strftime('%W', a.datum) AS kw,
                    CAST(strftime('%W', a.datum) AS INTEGER) AS kw_int,
-                   SUM(a.anzahl_displays) AS displays,
-                   COALESCE(SUM(b.kisten_total), 0) AS kisten,
+                   {DISP_IST} AS displays,
+                   {KIST_IST} AS kisten,
                    COUNT(a.id) AS besuche
             FROM aktivitaet a
             LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
@@ -1211,8 +1218,8 @@ def dashboard():
     # Jahresgesamtwerte
     if is_manager:
         jahres = query(f'''
-            SELECT SUM(a.anzahl_displays) AS displays,
-                   COALESCE(SUM(b.kisten_total), 0) AS kisten,
+            SELECT {DISP_IST} AS displays,
+                   {KIST_IST} AS kisten,
                    COUNT(a.id) AS besuche,
                    COUNT(DISTINCT a.mitarbeiter_id) AS mitarbeiter_aktiv
             FROM aktivitaet a
@@ -1221,13 +1228,23 @@ def dashboard():
         ''', (str(jahr),) + ma_params + t_ma_p, one=True)
     else:
         jahres = query(f'''
-            SELECT SUM(a.anzahl_displays) AS displays,
-                   COALESCE(SUM(b.kisten_total), 0) AS kisten,
+            SELECT {DISP_IST} AS displays,
+                   {KIST_IST} AS kisten,
                    COUNT(a.id) AS besuche
             FROM aktivitaet a
             LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
             WHERE strftime('%Y', a.datum) = ? AND a.mitarbeiter_id = ?
         ''', (str(jahr), session['user_id']), one=True)
+
+    # KONZEPT-V2: Pipeline (offene Bestellungen) – Anzahl im Jahr
+    if is_manager:
+        vorgemerkt = query(
+            f"SELECT COUNT(*) AS n FROM aktivitaet a WHERE strftime('%Y', a.datum)=? AND a.aktionstyp='Bestellung' {ma_clause}{t_ma_sql}",
+            (str(jahr),) + ma_params + t_ma_p, one=True)['n']
+    else:
+        vorgemerkt = query(
+            "SELECT COUNT(*) AS n FROM aktivitaet a WHERE strftime('%Y', a.datum)=? AND a.aktionstyp='Bestellung' AND a.mitarbeiter_id=?",
+            (str(jahr), session['user_id']), one=True)['n']
 
     # Top Biersorten – direkt über bestellposition, kein Display-Problem hier
     if is_manager:
@@ -1236,7 +1253,7 @@ def dashboard():
             FROM bestellposition bp
             JOIN biersorte bs ON bs.id = bp.biersorte_id
             JOIN aktivitaet a ON a.id = bp.aktivitaet_id
-            WHERE strftime('%Y', a.datum) = ? {ma_clause}{t_ma_sql}
+            WHERE strftime('%Y', a.datum) = ? AND COALESCE(a.aktionstyp,'Aufbau')='Aufbau' {ma_clause}{t_ma_sql}
             GROUP BY bs.id ORDER BY kisten DESC LIMIT 6
         ''', (str(jahr),) + ma_params + t_ma_p)
     else:
@@ -1245,7 +1262,7 @@ def dashboard():
             FROM bestellposition bp
             JOIN biersorte bs ON bs.id = bp.biersorte_id
             JOIN aktivitaet a ON a.id = bp.aktivitaet_id
-            WHERE strftime('%Y', a.datum) = ? AND a.mitarbeiter_id = ?
+            WHERE strftime('%Y', a.datum) = ? AND a.mitarbeiter_id = ? AND COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
             GROUP BY bs.id ORDER BY kisten DESC LIMIT 6
         ''', (str(jahr), session['user_id']))
 
@@ -1255,8 +1272,8 @@ def dashboard():
     if is_manager and not ma_filter:
         rep_stats = query(f'''
             SELECT m.name, m.kuerzel,
-                   SUM(a.anzahl_displays) AS displays,
-                   COALESCE(SUM(b.kisten_total), 0) AS kisten,
+                   {DISP_IST} AS displays,
+                   {KIST_IST} AS kisten,
                    COUNT(a.id) AS besuche
             FROM mitarbeiter m
             JOIN aktivitaet a ON a.mitarbeiter_id = m.id
@@ -1322,6 +1339,7 @@ def dashboard():
         is_manager=is_manager,
         ma_filter=ma_filter,
         alle_ma=alle_ma,
+        vorgemerkt=vorgemerkt,
     )
 
 
@@ -1518,13 +1536,18 @@ def neue_aktivitaet():
         datum   = request.form.get('datum')
         vs_id   = request.form.get('verkaufsstelle_id')
         notizen = request.form.get('notizen', '')
+        aktionstyp = request.form.get('aktionstyp', 'Aufbau')
+        if aktionstyp not in ('Aufbau', 'Bestellung', 'Besuch'):
+            aktionstyp = 'Aufbau'
 
         foto_file = request.files.get('foto')
-        if not foto_file or not foto_file.filename:
-            flash('Bitte ein Foto hochladen – das Foto ist ein Pflichtfeld.', 'danger')
+        # KONZEPT-V2: Foto ist nur beim Aufbau Pflicht
+        if aktionstyp == 'Aufbau' and (not foto_file or not foto_file.filename):
+            flash('Bitte ein Foto hochladen – beim Aufbau ist das Foto Pflicht.', 'danger')
             return render_template('neue_aktivitaet.html',
                 verkaufsstellen=verkaufsstellen, biersorten=biersorten,
-                displaysorte=displaysorte, heute=date.today().isoformat())
+                displaysorte=displaysorte, vertretungs_gruppen=vertretungs_gruppen,
+                heute=date.today().isoformat())
 
         if not datum or not vs_id:
             flash('Datum und Verkaufsstelle sind Pflichtfelder.', 'danger')
@@ -1561,8 +1584,8 @@ def neue_aktivitaet():
                 foto_pfad = dateiname
 
         akt_id = execute(
-            "INSERT INTO aktivitaet (datum, mitarbeiter_id, verkaufsstelle_id, anzahl_displays, notizen, foto_pfad) VALUES (?,?,?,?,?,?)",
-            (datum, session['user_id'], vs_id, anzahl_displays, notizen, foto_pfad)
+            "INSERT INTO aktivitaet (datum, mitarbeiter_id, verkaufsstelle_id, anzahl_displays, notizen, foto_pfad, aktionstyp) VALUES (?,?,?,?,?,?,?)",
+            (datum, session['user_id'], vs_id, anzahl_displays, notizen, foto_pfad, aktionstyp)
         )
 
         # Displaypositionen speichern

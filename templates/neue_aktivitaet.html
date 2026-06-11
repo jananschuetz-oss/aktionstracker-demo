@@ -9,6 +9,28 @@
 
 <form method="POST" id="aktivForm" enctype="multipart/form-data">
 
+  <!-- KONZEPT-V2: Aktivitätstyp -->
+  <input type="hidden" name="aktionstyp" id="aktionstyp" value="Aufbau">
+  <div class="card mb-4">
+    <div class="card-header"><i class="bi bi-tag me-2"></i>Was war hier?</div>
+    <div class="card-body">
+      <div class="btn-group w-100" role="group" id="typBtns">
+        <button type="button" class="btn btn-primary" data-typ="Aufbau" onclick="setTyp('Aufbau')">
+          <i class="bi bi-hammer me-1"></i>Aufbau
+        </button>
+        <button type="button" class="btn btn-outline-primary" data-typ="Bestellung" onclick="setTyp('Bestellung')">
+          <i class="bi bi-cart-plus me-1"></i>Bestellung
+        </button>
+        <button type="button" class="btn btn-outline-primary" data-typ="Besuch" onclick="setTyp('Besuch')">
+          <i class="bi bi-person-walking me-1"></i>Besuch
+        </button>
+      </div>
+      <p class="text-muted small mb-0 mt-2" id="typHint">
+        <i class="bi bi-info-circle me-1"></i>Aufbau realisiert — Mengen zählen sofort, Foto ist Pflicht.
+      </p>
+    </div>
+  </div>
+
   <!-- Obere Zeile: Datum + Verkaufsstelle -->
   <div class="card mb-4">
     <div class="card-header"><i class="bi bi-info-circle me-2"></i>Grunddaten</div>
@@ -53,8 +75,8 @@
       </div>
 
       <!-- Foto-Upload -->
-      <div class="mt-3">
-        <label class="form-label"><i class="bi bi-camera me-1"></i>Foto <span class="text-danger">*</span> <small class="text-muted fw-normal">(Pflichtfeld)</small></label>
+      <div class="mt-3" id="fotoBlock">
+        <label class="form-label"><i class="bi bi-camera me-1"></i>Foto <span class="text-danger" id="fotoPflichtStern">*</span> <small class="text-muted fw-normal" id="fotoPflichtHint">(Pflichtfeld)</small></label>
         <div class="d-flex gap-3 align-items-start flex-wrap">
           <div class="flex-grow-1">
             <!-- Zwei explizite Buttons: Kamera + Galerie -->
@@ -102,7 +124,7 @@
   </div>
 
   <!-- Hauptbereich: Displays | Kisten nebeneinander -->
-  <div class="row g-4">
+  <div class="row g-4" id="mengenBlock">
 
     <!-- LINKS: Displays nach Typ -->
     <div class="col-lg-5">
@@ -335,6 +357,42 @@ function fotoEntfernen() {
   document.getElementById('fotoGalerieBtn').value = '';
   document.getElementById('fotoPreviewWrap').style.display = 'none';
   document.getElementById('fotoBtns').style.display = 'flex';
+}
+
+// ── KONZEPT-V2: Aktivitätstyp steuert die sichtbaren Felder ────────────────────
+function setTyp(t) {
+  document.getElementById('aktionstyp').value = t;
+  document.querySelectorAll('#typBtns button').forEach(b => {
+    const active = b.dataset.typ === t;
+    b.classList.toggle('btn-primary', active);
+    b.classList.toggle('btn-outline-primary', !active);
+  });
+  const foto       = document.getElementById('fotoInput');
+  const fotoBlock  = document.getElementById('fotoBlock');
+  const mengenBlock= document.getElementById('mengenBlock');
+  const hint       = document.getElementById('typHint');
+  const stern      = document.getElementById('fotoPflichtStern');
+  const pHint      = document.getElementById('fotoPflichtHint');
+  if (t === 'Aufbau') {
+    mengenBlock.style.display = '';
+    fotoBlock.style.display   = '';
+    foto.required = true;
+    stern.style.display = '';
+    pHint.textContent = '(Pflichtfeld)';
+    hint.innerHTML = '<i class="bi bi-info-circle me-1"></i>Aufbau realisiert — Mengen zählen sofort, Foto ist Pflicht.';
+  } else if (t === 'Bestellung') {
+    mengenBlock.style.display = '';
+    fotoBlock.style.display   = '';
+    foto.required = false;
+    stern.style.display = 'none';
+    pHint.textContent = '(optional)';
+    hint.innerHTML = '<i class="bi bi-info-circle me-1"></i>Für später bestellt — zählt als „Vorgemerkt“, noch nicht im IST. Foto optional.';
+  } else { // Besuch
+    mengenBlock.style.display = 'none';
+    fotoBlock.style.display   = 'none';
+    foto.required = false;
+    hint.innerHTML = '<i class="bi bi-info-circle me-1"></i>War da, kein Geschäft — nur Notiz. Kein Foto, keine Mengen.';
+  }
 }
 
 // ── Display-Funktionen ──────────────────────────────────────────────────────
@@ -663,8 +721,9 @@ document.getElementById('aktivForm').addEventListener('submit', async function(e
     return;
   }
 
+  const aktTyp = document.getElementById('aktionstyp').value;
   const fotoFile = document.getElementById('fotoInput').files[0];
-  if (!fotoFile) {
+  if (aktTyp === 'Aufbau' && !fotoFile) {
     const lbl = document.getElementById('fotoLabel');
     if (lbl) { lbl.style.borderColor = '#dc3545'; lbl.style.background = '#fff5f5'; }
     lbl.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -684,7 +743,7 @@ document.getElementById('aktivForm').addEventListener('submit', async function(e
   const saveBtn = document.querySelector('#aktivForm button[type=submit]');
   if (saveBtn) { saveBtn.disabled = true; saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Wird gespeichert…'; }
 
-  const fotoB64 = await window.OQ.compressImage(fotoFile);
+  const fotoB64 = fotoFile ? await window.OQ.compressImage(fotoFile) : null;
 
   // Formular-Daten sammeln
   const datum   = document.querySelector('[name="datum"]').value;
@@ -704,7 +763,7 @@ document.getElementById('aktivForm').addEventListener('submit', async function(e
 
   // In IndexedDB speichern
   await window.OQ.save({
-    data: { datum, verkaufsstelle_id: vsId, notizen, foto: fotoB64, displays, bier },
+    data: { datum, verkaufsstelle_id: vsId, notizen, foto: fotoB64, displays, bier, aktionstyp: aktTyp },
     vs_label: vsLabel,
     saved_at: new Date().toISOString(),
   });

@@ -83,6 +83,16 @@
   </div>
 </div>
 
+<!-- KONZEPT-V2: Pipeline-Hinweis (offene Bestellungen) -->
+<div class="mb-4">
+  <div class="d-flex align-items-center gap-2 px-3 py-2 rounded-3"
+       style="background:#fffbf0;border:1px solid #f0c674;font-size:.9rem">
+    <i class="bi bi-clock-history" style="color:#c8860a"></i>
+    <span><strong>{{ vorgemerkt or 0 }}</strong> vorgemerkte Bestellung{{ '' if vorgemerkt == 1 else 'en' }}
+      <span class="text-muted">— für später bestellt, noch nicht aufgebaut (zählt nicht im IST)</span></span>
+  </div>
+</div>
+
 <!-- Charts Row -->
 <div class="row g-3 mb-4">
   <div class="col-lg-8">
