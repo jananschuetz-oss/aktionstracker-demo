@@ -11,6 +11,7 @@
 
   <!-- KONZEPT-V2: Aktivitätstyp -->
   <input type="hidden" name="aktionstyp" id="aktionstyp" value="Aufbau">
+  <input type="hidden" name="erledigt_bestellung_ids" id="erledigtIds" value="">
   <div class="card mb-4">
     <div class="card-header"><i class="bi bi-tag me-2"></i>Was war hier?</div>
     <div class="card-body">
@@ -57,6 +58,8 @@
                  style="max-height:280px;overflow-y:auto;display:none;position:absolute;z-index:1055">
             </div>
           </div>
+          <!-- KONZEPT-V2: Offene Bestellungen (Zone 1, handlungsfähig) -->
+          <div id="offeneBestellungen" class="mt-2" style="display:none"></div>
           <!-- Letzter Besuch Info-Box (wird per JS befüllt) -->
           <div id="vsLetzterBesuch" class="mt-2" style="display:none"></div>
         </div>
@@ -509,8 +512,110 @@ const vsClear    = document.getElementById('vsClear');
   if (pre) {
     const found = VS_DATA.find(v => v.id == pre);
     if (found) { vsSearch.value = found.label; vsClear.classList.remove('d-none'); }
+    vsShowOffeneBestellungen(pre);
   }
 })();
+
+// ── KONZEPT-V2: Offene Bestellungen der Station (Zone 1) ───────────────────────
+window._offeneBest = {};
+function vsShowOffeneBestellungen(id) {
+  const box = document.getElementById('offeneBestellungen');
+  fetch(`/api/offene-bestellungen/${id}`)
+    .then(r => r.json())
+    .then(data => {
+      const best = data.bestellungen || [];
+      window._offeneBest = {};
+      if (!best.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+      let rows = '';
+      best.forEach(b => {
+        window._offeneBest[b.id] = b;
+        const warn = b.ueberfaellig
+          ? `<span class="badge ms-1" style="background:#f0ad4e;color:#5c3c00">überfällig · ${b.tage_ago} Tage</span>` : '';
+        rows += `
+          <div class="d-flex justify-content-between align-items-center px-2 py-2"
+               style="border-top:1px solid #f0c674">
+            <div>
+              <span class="fw-semibold" style="color:#8a5a00">${b.zusammenfassung}</span> ${warn}
+              <div class="text-muted" style="font-size:.78rem">bestellt ${b.datum} · ${b.mitarbeiter}</div>
+            </div>
+            <div class="d-flex gap-1">
+              <button type="button" class="btn btn-sm btn-warning fw-semibold" style="white-space:nowrap"
+                      onclick="uebernehmenBestellung(${b.id})">
+                <i class="bi bi-hammer"></i> Aufbauen
+              </button>
+              <button type="button" class="btn btn-sm btn-outline-secondary"
+                      onclick="stornoToggle(${b.id})" title="Stornieren">
+                <i class="bi bi-x-lg"></i>
+              </button>
+            </div>
+          </div>
+          <div id="stornoBox_${b.id}" class="px-2 py-2" style="display:none;background:#fff5f5;border-top:1px solid #f0c674">
+            <div class="small text-muted mb-1">Grund für Storno:</div>
+            <div class="d-flex flex-wrap gap-1">
+              <button type="button" class="btn btn-sm btn-outline-danger" onclick="stornoBestellung(${b.id},'Nicht/falsch geliefert')">Nicht/falsch geliefert</button>
+              <button type="button" class="btn btn-sm btn-outline-danger" onclick="stornoBestellung(${b.id},'Fehleingabe')">Fehleingabe</button>
+              <button type="button" class="btn btn-sm btn-outline-danger" onclick="stornoBestellung(${b.id},'Kunde abgesprungen')">Kunde abgesprungen</button>
+            </div>
+          </div>`;
+      });
+      box.innerHTML = `
+        <div class="rounded-3" style="background:#fffbf0;border:1px solid #f0c674;overflow:hidden">
+          <div class="px-2 py-1 small fw-semibold" style="background:#fdecc8;color:#8a5a00">
+            <i class="bi bi-clock-history"></i> Offene Bestellungen (${best.length})
+            <span class="fw-normal text-muted">— beim Aufbauen Menge übernehmen</span>
+          </div>
+          ${rows}
+        </div>`;
+      box.style.display = 'block';
+    })
+    .catch(() => { box.style.display = 'none'; });
+}
+
+function uebernehmenBestellung(bid) {
+  const b = window._offeneBest[bid];
+  if (!b) return;
+  setTyp('Aufbau');
+  if (b.bier) Object.entries(b.bier).forEach(([id, m]) => {
+    const el = document.getElementById('bier_' + id);
+    if (el) { el.value = m || ''; el.dispatchEvent(new Event('input')); }
+  });
+  if (b.displays) Object.entries(b.displays).forEach(([id, m]) => {
+    const el = document.getElementById('disp_' + id);
+    if (el) { el.value = m || ''; el.dispatchEvent(new Event('input')); }
+  });
+  updateGesamt(); updateDispGesamt(); updateMobileSummary();
+  // Bestellung-ID merken → wird beim Speichern als 'aufgebaut' geschlossen
+  const ids = document.getElementById('erledigtIds');
+  const set = new Set(ids.value.split(',').filter(Boolean));
+  set.add(String(bid));
+  ids.value = [...set].join(',');
+  // Markieren in der Box
+  const card = document.querySelector(`#offeneBestellungen [onclick="uebernehmenBestellung(${bid})"]`);
+  if (card) { card.innerHTML = '<i class="bi bi-check2"></i> Übernommen'; card.classList.remove('btn-warning'); card.classList.add('btn-success'); card.disabled = true; }
+  document.querySelector('.bier-input')?.closest('.card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function stornoToggle(bid) {
+  const el = document.getElementById('stornoBox_' + bid);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function stornoBestellung(bid, grund) {
+  const fd = new FormData(); fd.append('grund', grund);
+  fetch(`/aktivitaet/${bid}/stornieren`, { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        // Aus erledigtIds entfernen, Box neu laden
+        const ids = document.getElementById('erledigtIds');
+        ids.value = ids.value.split(',').filter(x => x && x !== String(bid)).join(',');
+        if (vsId.value) vsShowOffeneBestellungen(vsId.value);
+      } else {
+        alert(d.error || 'Storno fehlgeschlagen');
+      }
+    })
+    .catch(() => alert('Storno fehlgeschlagen'));
+}
 
 function vsRenderDropdown(term) {
   const t = term.toLowerCase().trim();
@@ -539,6 +644,7 @@ function vsSelect(id, label) {
   vsDropdown.style.display = 'none';
   vsClear.classList.remove('d-none');
   vsShowLetzterBesuch(id);
+  vsShowOffeneBestellungen(id);
 }
 
 function vsClearSelection() {
@@ -547,6 +653,8 @@ function vsClearSelection() {
   vsClear.classList.add('d-none');
   vsDropdown.style.display = 'none';
   document.getElementById('vsLetzterBesuch').style.display = 'none';
+  document.getElementById('offeneBestellungen').style.display = 'none';
+  document.getElementById('erledigtIds').value = '';
   vsSearch.focus();
 }
 
@@ -594,8 +702,8 @@ function vsShowLetzterBesuch(id) {
       const lb = besuche[0].letzte_bestellung;
       window._letzteBestellung = lb || null;
 
-      // Button nur zeigen wenn Positionen vorhanden
-      const hatPositionen = lb && (Object.keys(lb.bier||{}).length + Object.keys(lb.displays||{}).length) > 0;
+      // KONZEPT-V2: alter Pauschal-Button entfernt — ersetzt durch „Offene Bestellungen"
+      const hatPositionen = false;
       const btnHtml = hatPositionen ? `
         <button type="button" onclick="letzteBestellungUebernehmen()"
           class="btn btn-sm d-flex align-items-center gap-1"

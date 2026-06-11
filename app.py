@@ -407,6 +407,11 @@ def init_db():
             "ALTER TABLE aktivitaet    ADD COLUMN foto_pfad          TEXT",
             # KONZEPT-V2: Aktivitätstyp (Aufbau/Bestellung/Besuch). Bestand → 'Aufbau'.
             "ALTER TABLE aktivitaet    ADD COLUMN aktionstyp         TEXT DEFAULT 'Aufbau'",
+            # KONZEPT-V2 Phase 2: Lebenszyklus offener Bestellungen
+            "ALTER TABLE aktivitaet    ADD COLUMN bestell_status     TEXT",   # offen|aufgebaut|storniert (nur Bestellung)
+            "ALTER TABLE aktivitaet    ADD COLUMN storno_grund       TEXT",
+            # Bestand: bereits vorhandene Bestellungen als 'offen' markieren
+            "UPDATE aktivitaet SET bestell_status='offen' WHERE aktionstyp='Bestellung' AND bestell_status IS NULL",
             "ALTER TABLE mitarbeiter   ADD COLUMN email               TEXT",
             "ALTER TABLE mitarbeiter   ADD COLUMN reset_token         TEXT",
             "ALTER TABLE mitarbeiter   ADD COLUMN reset_token_ablauf  DATETIME",
@@ -1236,15 +1241,15 @@ def dashboard():
             WHERE strftime('%Y', a.datum) = ? AND a.mitarbeiter_id = ?
         ''', (str(jahr), session['user_id']), one=True)
 
-    # KONZEPT-V2: Pipeline (offene Bestellungen) – Anzahl im Jahr
+    # KONZEPT-V2: Pipeline – Anzahl OFFENER Bestellungen (jahresunabhängig: was hängt noch?)
     if is_manager:
         vorgemerkt = query(
-            f"SELECT COUNT(*) AS n FROM aktivitaet a WHERE strftime('%Y', a.datum)=? AND a.aktionstyp='Bestellung' {ma_clause}{t_ma_sql}",
-            (str(jahr),) + ma_params + t_ma_p, one=True)['n']
+            f"SELECT COUNT(*) AS n FROM aktivitaet a WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen' {ma_clause}{t_ma_sql}",
+            ma_params + t_ma_p, one=True)['n']
     else:
         vorgemerkt = query(
-            "SELECT COUNT(*) AS n FROM aktivitaet a WHERE strftime('%Y', a.datum)=? AND a.aktionstyp='Bestellung' AND a.mitarbeiter_id=?",
-            (str(jahr), session['user_id']), one=True)['n']
+            "SELECT COUNT(*) AS n FROM aktivitaet a WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen' AND a.mitarbeiter_id=?",
+            (session['user_id'],), one=True)['n']
 
     # Top Biersorten – direkt über bestellposition, kein Display-Problem hier
     if is_manager:
@@ -1419,6 +1424,60 @@ def api_letzter_besuch(vs_id):
     return jsonify({'besuche': besuche})
 
 
+# ─── KONZEPT-V2: Offene Bestellungen einer Station (Pipeline) ──────────────────
+
+@app.route('/api/offene-bestellungen/<int:vs_id>')
+@login_required
+def api_offene_bestellungen(vs_id):
+    """Offene (noch nicht aufgebaute/stornierte) Bestellungen dieser Station."""
+    rows = query('''
+        SELECT a.id, a.datum, m.name AS mitarbeiter
+        FROM aktivitaet a
+        JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
+        WHERE a.verkaufsstelle_id = ?
+          AND a.aktionstyp = 'Bestellung'
+          AND COALESCE(a.bestell_status, 'offen') = 'offen'
+        ORDER BY a.datum ASC, a.id ASC
+    ''', (vs_id,))
+    ergebnis = []
+    for r in rows:
+        bier = {str(b['biersorte_id']): b['kisten_anzahl'] for b in query(
+            "SELECT biersorte_id, kisten_anzahl FROM bestellposition WHERE aktivitaet_id=?", (r['id'],))}
+        disp = {str(d['displaysorte_id']): d['anzahl'] for d in query(
+            "SELECT displaysorte_id, anzahl FROM displayposition WHERE aktivitaet_id=?", (r['id'],))}
+        d_sum, k_sum = sum(disp.values()), sum(bier.values())
+        teile = []
+        if d_sum: teile.append(f"{d_sum} Display" + ("s" if d_sum != 1 else ""))
+        if k_sum: teile.append(f"{k_sum} {UNIT_LABEL}")
+        try:
+            tage = (date.today() - datetime.strptime(r['datum'], '%Y-%m-%d').date()).days
+        except Exception:
+            tage = 0
+        ergebnis.append({
+            'id': r['id'], 'datum': r['datum'], 'tage_ago': tage,
+            'mitarbeiter': r['mitarbeiter'], 'bier': bier, 'displays': disp,
+            'zusammenfassung': ' · '.join(teile) if teile else 'ohne Mengen',
+            'ueberfaellig': tage > 28,
+        })
+    return jsonify({'bestellungen': ergebnis})
+
+
+@app.route('/aktivitaet/<int:akt_id>/stornieren', methods=['POST'])
+@login_required
+def aktivitaet_stornieren(akt_id):
+    """Soft-Close: offene Bestellung ohne Aufbau schließen, mit Grund."""
+    grund = request.form.get('grund', '').strip()
+    if grund not in ('Nicht/falsch geliefert', 'Fehleingabe', 'Kunde abgesprungen'):
+        return jsonify({'ok': False, 'error': 'Ungültiger Grund'}), 400
+    best = query(
+        "SELECT id FROM aktivitaet WHERE id=? AND aktionstyp='Bestellung' "
+        "AND COALESCE(bestell_status,'offen')='offen'", (akt_id,), one=True)
+    if not best:
+        return jsonify({'ok': False, 'error': 'Offene Bestellung nicht gefunden'}), 404
+    execute("UPDATE aktivitaet SET bestell_status='storniert', storno_grund=? WHERE id=?", (grund, akt_id))
+    return jsonify({'ok': True})
+
+
 @app.route('/api/aktivitaet/offline-sync', methods=['POST'])
 @login_required
 def api_aktivitaet_offline_sync():
@@ -1583,9 +1642,10 @@ def neue_aktivitaet():
                 foto_file.save(ziel)
                 foto_pfad = dateiname
 
+        bestell_status = 'offen' if aktionstyp == 'Bestellung' else None
         akt_id = execute(
-            "INSERT INTO aktivitaet (datum, mitarbeiter_id, verkaufsstelle_id, anzahl_displays, notizen, foto_pfad, aktionstyp) VALUES (?,?,?,?,?,?,?)",
-            (datum, session['user_id'], vs_id, anzahl_displays, notizen, foto_pfad, aktionstyp)
+            "INSERT INTO aktivitaet (datum, mitarbeiter_id, verkaufsstelle_id, anzahl_displays, notizen, foto_pfad, aktionstyp, bestell_status) VALUES (?,?,?,?,?,?,?,?)",
+            (datum, session['user_id'], vs_id, anzahl_displays, notizen, foto_pfad, aktionstyp, bestell_status)
         )
 
         # Displaypositionen speichern
@@ -1602,6 +1662,16 @@ def neue_aktivitaet():
                 execute(
                     "INSERT INTO bestellposition (aktivitaet_id, biersorte_id, kisten_anzahl) VALUES (?,?,?)",
                     (akt_id, bier['id'], int(menge))
+                )
+
+        # KONZEPT-V2: aus offenen Bestellungen aufgebaut → diese Bestellungen schließen
+        if aktionstyp == 'Aufbau':
+            erledigt = request.form.get('erledigt_bestellung_ids', '')
+            for bid in [x.strip() for x in erledigt.split(',') if x.strip().isdigit()]:
+                execute(
+                    "UPDATE aktivitaet SET bestell_status='aufgebaut' "
+                    "WHERE id=? AND aktionstyp='Bestellung' AND COALESCE(bestell_status,'offen')='offen'",
+                    (bid,)
                 )
 
         if foto_pfad:
