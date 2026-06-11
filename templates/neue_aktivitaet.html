@@ -102,8 +102,8 @@
               <input type="file" id="fotoGalerieBtn" accept="image/*"
                      class="d-none" onchange="fotoGewaehlt(this)">
             </div>
-            <!-- Verstecktes Master-Input für Form-Submission -->
-            <input type="file" name="foto" id="fotoInput" accept="image/*" class="d-none" required>
+            <!-- Verstecktes Master-Input für Form-Submission (KONZEPT-V2: kein 'required' auf hidden Input – würde Submit still blockieren; Prüfung per JS + Server) -->
+            <input type="file" name="foto" id="fotoInput" accept="image/*" class="d-none">
             <div class="form-text">JPG, PNG, WebP, GIF – max. 16 MB &nbsp;·&nbsp;
               <i class="bi bi-clock-history"></i> Fotos werden nach <strong>8 Wochen</strong> automatisch gelöscht
             </div>
@@ -757,6 +757,22 @@ document.getElementById('aktivForm').addEventListener('submit', function(e) {
     vsSearch.classList.add('is-invalid');
     vsSearch.focus();
     vsSearch.scrollIntoView({behavior:'smooth', block:'center'});
+    return;
+  }
+  // KONZEPT-V2: Foto nur beim Aufbau Pflicht (sichtbar prüfen statt still blockieren)
+  const typ = document.getElementById('aktionstyp').value;
+  if (typ === 'Aufbau' && !document.getElementById('fotoInput').files.length) {
+    e.preventDefault();
+    const block = document.getElementById('fotoBlock');
+    let hint = document.getElementById('fotoPflichtFehler');
+    if (!hint) {
+      hint = document.createElement('div');
+      hint.id = 'fotoPflichtFehler';
+      hint.className = 'alert alert-danger py-2 mt-2 mb-0';
+      hint.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>Beim <strong>Aufbau</strong> ist ein Foto Pflicht. Bitte Kamera oder Galerie nutzen.';
+      block.appendChild(hint);
+    }
+    block.scrollIntoView({behavior:'smooth', block:'center'});
   }
 });
 vsSearch.addEventListener('input', function() { vsSearch.classList.remove('is-invalid'); });
