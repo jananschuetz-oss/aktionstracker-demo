@@ -225,7 +225,16 @@
 
           <!-- Verkaufsstelle -->
           <div class="col">
-            <div class="fw-bold" style="color:#1a3a5c;font-size:1rem">{{ a.verkaufsstelle }}</div>
+            <div class="fw-bold" style="color:#1a3a5c;font-size:1rem">
+              {{ a.verkaufsstelle }}
+              {% if a.aktionstyp == 'Bestellung' %}
+              <span class="badge ms-1" style="background:#fdecc8;color:#8a5a00;font-size:.65rem;font-weight:600;vertical-align:middle">Bestellung</span>
+              {% elif a.aktionstyp == 'Besuch' %}
+              <span class="badge ms-1" style="background:#e9ecef;color:#495057;font-size:.65rem;font-weight:600;vertical-align:middle">Besuch</span>
+              {% else %}
+              <span class="badge ms-1" style="background:#d4edda;color:#155724;font-size:.65rem;font-weight:600;vertical-align:middle">Aufbau</span>
+              {% endif %}
+            </div>
             <small class="text-muted">
               <i class="bi bi-geo-alt me-1"></i>{{ a.ort or '–' }}
               &nbsp;·&nbsp;

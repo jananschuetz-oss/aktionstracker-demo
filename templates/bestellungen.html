@@ -7,27 +7,46 @@
   <p>Offene, aufgebaute und stornierte Bestellungen im Überblick</p>
 </div>
 
-<!-- Kennzahlen -->
-<div class="row g-3 mb-4">
+<!-- Kennzahlen (klickbar) -->
+<div class="row g-3 mb-3">
   <div class="col-6 col-lg-3">
-    <div class="stat-card amber h-100">
+    <div class="stat-card amber h-100" id="kachel_offen"
+         role="button" style="cursor:pointer;user-select:none;transition:filter .15s"
+         onmouseenter="this.style.filter='brightness(.93)'" onmouseleave="this.style.filter=''"
+         onclick="zeigeListe('offen')">
       <p><i class="bi bi-clock-history me-1"></i>Offen (vorgemerkt)</p>
       <h2>{{ offen }}</h2>
-      <p style="font-size:.8rem;margin-top:.25rem">Noch nicht aufgebaut</p>
+      <p style="font-size:.8rem;margin-top:.25rem">
+        Noch nicht aufgebaut
+        <i class="bi bi-chevron-down" style="float:right;opacity:.55;font-size:.9rem;margin-top:.05rem"></i>
+      </p>
     </div>
   </div>
   <div class="col-6 col-lg-3">
-    <div class="stat-card green h-100">
+    <div class="stat-card green h-100" id="kachel_aufgebaut"
+         role="button" style="cursor:pointer;user-select:none;transition:filter .15s"
+         onmouseenter="this.style.filter='brightness(.93)'" onmouseleave="this.style.filter=''"
+         onclick="zeigeListe('aufgebaut')">
       <p><i class="bi bi-check2-circle me-1"></i>Aufgebaut</p>
       <h2>{{ aufgebaut }}</h2>
-      <p style="font-size:.8rem;margin-top:.25rem">Realisiert</p>
+      <p style="font-size:.8rem;margin-top:.25rem">
+        Realisiert
+        <i class="bi bi-chevron-down" style="float:right;opacity:.55;font-size:.9rem;margin-top:.05rem"></i>
+      </p>
     </div>
   </div>
   <div class="col-6 col-lg-3">
-    <div class="stat-card h-100" style="background:#6c757d">
+    <div class="stat-card h-100" id="kachel_storniert"
+         style="background:#6c757d;cursor:pointer;user-select:none;transition:filter .15s"
+         role="button"
+         onmouseenter="this.style.filter='brightness(.9)'" onmouseleave="this.style.filter=''"
+         onclick="zeigeListe('storniert')">
       <p><i class="bi bi-x-circle me-1"></i>Storniert</p>
       <h2>{{ storniert }}</h2>
-      <p style="font-size:.8rem;margin-top:.25rem">Geschlossen ohne Aufbau</p>
+      <p style="font-size:.8rem;margin-top:.25rem">
+        Geschlossen ohne Aufbau
+        <i class="bi bi-chevron-down" style="float:right;opacity:.55;font-size:.9rem;margin-top:.05rem"></i>
+      </p>
     </div>
   </div>
   <div class="col-6 col-lg-3">
@@ -38,6 +57,160 @@
         Ø Durchlauf: {{ durchlauf if durchlauf is not none else '–' }}{{ ' Tage' if durchlauf is not none else '' }}
       </p>
     </div>
+  </div>
+</div>
+
+<!-- Drill-down Detailbereich -->
+<div id="detailBereich" class="card mb-4" style="display:none">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span id="detailTitel" class="fw-semibold"></span>
+    <button class="btn btn-sm btn-outline-secondary" onclick="verbergeListe()" title="Schließen">
+      <i class="bi bi-x-lg"></i>
+    </button>
+  </div>
+  <div class="card-body p-0">
+
+    <!-- Offen-Liste -->
+    <div id="tbl_offen" style="display:none">
+      {% if liste_offen %}
+      <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead class="table-light">
+          <tr>
+            <th class="ps-3">Station</th>
+            <th>Menge</th>
+            <th>Rep</th>
+            <th>Bestellt am</th>
+            <th class="text-center">Offen seit</th>
+            <th class="pe-3"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in liste_offen %}
+          <tr id="row_offen_{{ r.id }}">
+            <td class="ps-3 fw-semibold">{{ r.station }}</td>
+            <td class="text-muted">{{ r.menge }}</td>
+            <td><small>{{ r.rep }}</small></td>
+            <td><small>{{ r.datum[8:10] }}.{{ r.datum[5:7] }}.{{ r.datum[2:4] }}</small></td>
+            <td class="text-center">
+              {% if r.tage > 28 %}
+              <span class="badge" style="background:#fdecc8;color:#8a5a00">{{ r.tage }} Tage</span>
+              {% else %}
+              <span class="text-muted small">{{ r.tage }} Tage</span>
+              {% endif %}
+            </td>
+            <td class="pe-3 text-end">
+              <div class="dropdown">
+                <button class="btn btn-sm btn-outline-danger dropdown-toggle" data-bs-toggle="dropdown" style="font-size:.78rem">
+                  Stornieren
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                  <li><span class="dropdown-header small">Grund wählen:</span></li>
+                  <li><button class="dropdown-item small" onclick="stornoAusfuehren({{ r.id }}, 'Fehleingabe')">Fehleingabe <span class="text-muted">(kein Verlust)</span></button></li>
+                  <li><button class="dropdown-item small" onclick="stornoAusfuehren({{ r.id }}, 'Kunde abgesprungen')">Kunde abgesprungen</button></li>
+                  <li><button class="dropdown-item small" onclick="stornoAusfuehren({{ r.id }}, 'Nicht/falsch geliefert')">Nicht/falsch geliefert</button></li>
+                </ul>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      {% else %}
+      <div class="text-center text-muted py-4">
+        <i class="bi bi-check-circle" style="font-size:2rem;color:#27ae60"></i>
+        <p class="mt-2 mb-0">Keine offenen Bestellungen.</p>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Aufgebaut-Liste -->
+    <div id="tbl_aufgebaut" style="display:none">
+      {% if liste_aufgebaut %}
+      <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead class="table-light">
+          <tr>
+            <th class="ps-3">Station</th>
+            <th>Menge</th>
+            <th>Rep</th>
+            <th>Bestellt am</th>
+            <th>Aufgebaut am</th>
+            <th class="text-center pe-3">Durchlauf</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in liste_aufgebaut %}
+          <tr>
+            <td class="ps-3 fw-semibold">{{ r.station }}</td>
+            <td class="text-muted">{{ r.menge }}</td>
+            <td><small>{{ r.rep }}</small></td>
+            <td><small>{{ r.datum[8:10] }}.{{ r.datum[5:7] }}.{{ r.datum[2:4] }}</small></td>
+            <td>
+              {% if r.realisiert_am %}
+              <small>{{ r.realisiert_am[8:10] }}.{{ r.realisiert_am[5:7] }}.{{ r.realisiert_am[2:4] }}</small>
+              {% else %}<small class="text-muted">–</small>{% endif %}
+            </td>
+            <td class="text-center pe-3">
+              {% if r.durchlauf_tage is not none %}
+              <span class="badge" style="background:#d4edda;color:#155724">{{ r.durchlauf_tage }} T</span>
+              {% else %}<span class="text-muted">–</span>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      {% else %}
+      <div class="text-center text-muted py-4">
+        <i class="bi bi-inbox" style="font-size:2rem"></i>
+        <p class="mt-2 mb-0">Noch keine aufgebauten Bestellungen.</p>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Storniert-Liste -->
+    <div id="tbl_storniert" style="display:none">
+      {% if liste_storniert %}
+      <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead class="table-light">
+          <tr>
+            <th class="ps-3">Station</th>
+            <th>Menge</th>
+            <th>Rep</th>
+            <th>Datum</th>
+            <th class="pe-3">Storno-Grund</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in liste_storniert %}
+          <tr>
+            <td class="ps-3 fw-semibold">{{ r.station }}</td>
+            <td class="text-muted">{{ r.menge }}</td>
+            <td><small>{{ r.rep }}</small></td>
+            <td><small>{{ r.datum[8:10] }}.{{ r.datum[5:7] }}.{{ r.datum[2:4] }}</small></td>
+            <td class="pe-3">
+              {% if r.storno_grund == 'Fehleingabe' %}
+              <span class="badge bg-secondary">{{ r.storno_grund }}</span>
+              {% else %}
+              <span class="badge bg-danger">{{ r.storno_grund or '–' }}</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      {% else %}
+      <div class="text-center text-muted py-4">
+        <i class="bi bi-emoji-smile" style="font-size:2rem"></i>
+        <p class="mt-2 mb-0">Keine Stornos.</p>
+      </div>
+      {% endif %}
+    </div>
+
   </div>
 </div>
 
@@ -111,4 +284,77 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let aktiveListe = null;
+
+const KACHEL_IDS = ['offen', 'aufgebaut', 'storniert'];
+const TITEL = {
+  offen:     '<i class="bi bi-clock-history me-2 text-warning"></i>Offene Bestellungen',
+  aufgebaut: '<i class="bi bi-check2-circle me-2 text-success"></i>Aufgebaute Bestellungen',
+  storniert: '<i class="bi bi-x-circle me-2" style="color:#6c757d"></i>Stornierte Bestellungen',
+};
+
+function zeigeListe(typ) {
+  if (aktiveListe === typ) {
+    verbergeListe();
+    return;
+  }
+  aktiveListe = typ;
+  KACHEL_IDS.forEach(k => {
+    const tbl = document.getElementById('tbl_' + k);
+    if (tbl) tbl.style.display = k === typ ? 'block' : 'none';
+    const kachel = document.getElementById('kachel_' + k);
+    if (kachel) {
+      const chevron = kachel.querySelector('.bi-chevron-down, .bi-chevron-up');
+      if (chevron) {
+        chevron.className = 'bi ' + (k === typ ? 'bi-chevron-up' : 'bi-chevron-down');
+        chevron.style.float = 'right';
+        chevron.style.opacity = k === typ ? '1' : '.55';
+        chevron.style.fontSize = '.9rem';
+        chevron.style.marginTop = '.05rem';
+      }
+    }
+  });
+  document.getElementById('detailTitel').innerHTML = TITEL[typ];
+  const bereich = document.getElementById('detailBereich');
+  bereich.style.display = 'block';
+  bereich.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function verbergeListe() {
+  aktiveListe = null;
+  document.getElementById('detailBereich').style.display = 'none';
+  KACHEL_IDS.forEach(k => {
+    const tbl = document.getElementById('tbl_' + k);
+    if (tbl) tbl.style.display = 'none';
+    const kachel = document.getElementById('kachel_' + k);
+    if (kachel) {
+      const chevron = kachel.querySelector('.bi-chevron-up, .bi-chevron-down');
+      if (chevron) {
+        chevron.className = 'bi bi-chevron-down';
+        chevron.style.opacity = '.55';
+      }
+    }
+  });
+}
+
+async function stornoAusfuehren(id, grund) {
+  const fd = new FormData();
+  fd.append('grund', grund);
+  try {
+    const r = await fetch(`/aktivitaet/${id}/stornieren`, { method: 'POST', body: fd });
+    const data = await r.json();
+    if (data.ok) {
+      location.reload();
+    } else {
+      alert(data.error || 'Storno fehlgeschlagen');
+    }
+  } catch {
+    alert('Storno fehlgeschlagen');
+  }
+}
+</script>
 {% endblock %}

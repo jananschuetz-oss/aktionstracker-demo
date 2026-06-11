@@ -1539,10 +1539,59 @@ def bestellungen_uebersicht():
         ueberfaellig.append({'station': u['station'], 'rep': u['rep'], 'tage': u['tage'],
                              'menge': ' · '.join(teile) if teile else '–'})
 
+    def _menge(d, k):
+        t = []
+        if d: t.append(f"{d} Displays")
+        if k: t.append(f"{k} {UNIT_LABEL}")
+        return ' · '.join(t) if t else '–'
+
+    raw = query(f'''
+        SELECT a.id, a.datum, v.name AS station, m.name AS rep, a.anzahl_displays,
+               CAST(julianday('now')-julianday(a.datum) AS INTEGER) AS tage,
+               COALESCE((SELECT SUM(kisten_anzahl) FROM bestellposition WHERE aktivitaet_id=a.id),0) AS kisten
+        FROM aktivitaet a JOIN verkaufsstelle v ON v.id=a.verkaufsstelle_id
+        JOIN mitarbeiter m ON m.id=a.mitarbeiter_id
+        WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen'{t_sql}
+        ORDER BY a.datum ASC
+    ''', t_p)
+    liste_offen = [{'id': r['id'], 'datum': r['datum'], 'station': r['station'],
+                    'rep': r['rep'], 'tage': r['tage'],
+                    'menge': _menge(r['anzahl_displays'], r['kisten'])} for r in raw]
+
+    raw = query(f'''
+        SELECT a.id, a.datum, a.realisiert_am, v.name AS station, m.name AS rep,
+               a.anzahl_displays,
+               CAST(julianday(COALESCE(a.realisiert_am,datetime('now')))-julianday(a.datum) AS INTEGER) AS durchlauf_tage,
+               COALESCE((SELECT SUM(kisten_anzahl) FROM bestellposition WHERE aktivitaet_id=a.id),0) AS kisten
+        FROM aktivitaet a JOIN verkaufsstelle v ON v.id=a.verkaufsstelle_id
+        JOIN mitarbeiter m ON m.id=a.mitarbeiter_id
+        WHERE a.aktionstyp='Bestellung' AND a.bestell_status='aufgebaut'{t_sql}
+        ORDER BY a.realisiert_am DESC
+    ''', t_p)
+    liste_aufgebaut = [{'id': r['id'], 'datum': r['datum'], 'realisiert_am': r['realisiert_am'],
+                        'station': r['station'], 'rep': r['rep'],
+                        'durchlauf_tage': r['durchlauf_tage'],
+                        'menge': _menge(r['anzahl_displays'], r['kisten'])} for r in raw]
+
+    raw = query(f'''
+        SELECT a.id, a.datum, v.name AS station, m.name AS rep, a.anzahl_displays,
+               a.storno_grund,
+               COALESCE((SELECT SUM(kisten_anzahl) FROM bestellposition WHERE aktivitaet_id=a.id),0) AS kisten
+        FROM aktivitaet a JOIN verkaufsstelle v ON v.id=a.verkaufsstelle_id
+        JOIN mitarbeiter m ON m.id=a.mitarbeiter_id
+        WHERE a.aktionstyp='Bestellung' AND a.bestell_status='storniert'{t_sql}
+        ORDER BY a.datum DESC
+    ''', t_p)
+    liste_storniert = [{'id': r['id'], 'datum': r['datum'], 'station': r['station'],
+                        'rep': r['rep'], 'storno_grund': r['storno_grund'],
+                        'menge': _menge(r['anzahl_displays'], r['kisten'])} for r in raw]
+
     return render_template('bestellungen.html',
         offen=offen, aufgebaut=aufgebaut, storniert=storniert, gesamt=gesamt,
         quote=quote, durchlauf=durchlauf, gruende=gruende, storno_max=storno_max,
-        ueberfaellig=ueberfaellig)
+        ueberfaellig=ueberfaellig,
+        liste_offen=liste_offen, liste_aufgebaut=liste_aufgebaut,
+        liste_storniert=liste_storniert)
 
 
 @app.route('/api/aktivitaet/offline-sync', methods=['POST'])
@@ -1775,6 +1824,7 @@ def aktivitaeten_liste():
                v.name AS verkaufsstelle, v.id AS verkaufsstelle_id,
                v.ort, v.typ, a.anzahl_displays, a.notizen, a.erstellt_am,
                a.foto_pfad,
+               COALESCE(a.aktionstyp, 'Aufbau') AS aktionstyp,
                COALESCE(SUM(b.kisten_anzahl), 0) AS kisten_gesamt
         FROM aktivitaet a
         JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
