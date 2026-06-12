@@ -3612,13 +3612,28 @@ def _do_demo_woche_nachfuellen():
             WHERE mv.mitarbeiter_id = ? AND v.aktiv = 1
         """, (rep['id'],)).fetchall()
         rep_stellen = list(zugewiesen) if len(zugewiesen) >= 2 else list(stellen)
-        tage = sorted(rnd.sample(range(5), k=5))          # Mo–Fr, 5 verschiedene Tage
-        vs_woche = rnd.sample(rep_stellen, k=min(5, len(rep_stellen)))  # 5 Stellen aus der Region
-        for i, tag in enumerate(tage):
-            datum  = (letzter_mo + timedelta(days=tag)).isoformat()
-            vs     = vs_woche[i]
-            typ    = rnd.choices(['Aufbau', 'Bestellung', 'Besuch'], weights=[40, 30, 30])[0]
-            displays      = rnd.choices([0,1,2,3,4,5], weights=[30,25,20,12,8,5])[0] if typ == 'Aufbau' else 0
+
+        # Zusammensetzung pro Rep und Woche: ~10 Aktivitäten
+        n_aufbau     = rnd.randint(4, 5)
+        n_bestellung = rnd.randint(3, 4)
+        n_besuch     = rnd.randint(1, 2)
+        typen = ['Aufbau'] * n_aufbau + ['Bestellung'] * n_bestellung + ['Besuch'] * n_besuch
+        rnd.shuffle(typen)
+        n_total = len(typen)
+
+        # Tage Mo–Fr mit Wiederholung (je ~2 Aktivitäten pro Tag)
+        tage = sorted(rnd.choices(range(5), k=n_total))
+
+        # Verkaufsstellen mit Wiederholung falls nötig
+        if len(rep_stellen) >= n_total:
+            vs_woche = rnd.sample(rep_stellen, k=n_total)
+        else:
+            vs_woche = [rnd.choice(rep_stellen) for _ in range(n_total)]
+
+        for i, (tag, typ) in enumerate(zip(tage, typen)):
+            datum          = (letzter_mo + timedelta(days=tag)).isoformat()
+            vs             = vs_woche[i]
+            displays       = rnd.choices([0,1,2,3,4,5], weights=[30,25,20,12,8,5])[0] if typ == 'Aufbau' else 0
             bestell_status = 'offen' if typ == 'Bestellung' else None
             if typ == 'Aufbau':
                 notiz = rnd.choice(NOTIZEN_AUFBAU)
@@ -3626,6 +3641,7 @@ def _do_demo_woche_nachfuellen():
                 notiz = rnd.choice(NOTIZEN_BESTELLUNG)
             else:
                 notiz = rnd.choice(NOTIZEN_BESUCH)
+
             cur = db.execute(
                 "INSERT INTO aktivitaet "
                 "(datum,mitarbeiter_id,verkaufsstelle_id,anzahl_displays,notizen,aktionstyp,bestell_status) "
@@ -3633,7 +3649,22 @@ def _do_demo_woche_nachfuellen():
                 (datum, rep['id'], vs['id'], displays, notiz, typ, bestell_status)
             )
             aid = cur.lastrowid
-            # Bestellpositionen: bei Aufbau und Bestellung (Kisten), nicht bei reinem Besuch
+
+            # Aufbau: älteste offene Bestellung des Reps schließen (~75% der Aufbauten = 3-4 pro Woche)
+            if typ == 'Aufbau' and rnd.random() < 0.75:
+                offene = db.execute(
+                    "SELECT id FROM aktivitaet "
+                    "WHERE aktionstyp='Bestellung' AND COALESCE(bestell_status,'offen')='offen' "
+                    "AND mitarbeiter_id=? ORDER BY datum ASC LIMIT 1",
+                    (rep['id'],)
+                ).fetchone()
+                if offene:
+                    db.execute(
+                        "UPDATE aktivitaet SET bestell_status='aufgebaut', realisiert_am=? WHERE id=?",
+                        (datum, offene['id'])
+                    )
+
+            # Bestellpositionen: bei Aufbau und Bestellung, nicht bei Besuch
             if typ in ('Aufbau', 'Bestellung'):
                 for bier_id in rnd.sample(bier_ids, k=rnd.randint(2, min(4, len(bier_ids)))):
                     db.execute(
@@ -3641,8 +3672,9 @@ def _do_demo_woche_nachfuellen():
                         (aid, bier_id, rnd.randint(3, 50))
                     )
             gesamt += 1
+
     db.commit()
-    app.logger.info(f"Demo-Seed KW {kw}/{letzter_mo.year}: {gesamt} neue Aktivitäten eingefügt (Mix Aufbau/Bestellung/Besuch).")
+    app.logger.info(f"Demo-Seed KW {kw}/{letzter_mo.year}: {gesamt} neue Aktivitäten eingefügt (Aufbau/Bestellung/Besuch).")
 
 
 def demo_woche_nachfuellen():
