@@ -1418,7 +1418,7 @@ def dashboard():
         inaktiv_reps = query(
             f"""SELECT m.id, m.name, m.kuerzel
                 FROM mitarbeiter m
-                WHERE m.rolle = 'rep' AND m.aktiv = 1 {_t_sql}
+                WHERE m.rolle = 'rep' {_t_sql}
                 AND m.id NOT IN (
                     SELECT DISTINCT mitarbeiter_id FROM aktivitaet
                     WHERE datum >= ?
