@@ -246,17 +246,17 @@ function renderMarkers() {
     }
 
     const hatBesuche = !monateFilter.length || (besuchtStationen[String(s.id)] || 0) > 0;
-    const farbe      = hatBesuche ? stelleFarbe(s) : '#adb5bd';
+    const farbe      = hatBesuche ? stelleFarbe(s) : '#6c757d';
     const mehrfach   = s.zuordnungen.length > 1;
 
     const m = L.circleMarker([s.lat, s.lng], {
       radius:      hatBesuche ? 9 : 6,
       fillColor:   farbe,
-      color:       hatBesuche ? (mehrfach ? '#fff' : 'white') : '#868e96',
+      color:       hatBesuche ? (mehrfach ? '#fff' : 'white') : '#495057',
       weight:      mehrfach ? 3 : 2,
       dashArray:   (!hatBesuche || mehrfach) ? '4,3' : null,
-      opacity:     hatBesuche ? 1 : 0.7,
-      fillOpacity: hatBesuche ? 0.92 : 0.35,
+      opacity:     hatBesuche ? 1 : 0.9,
+      fillOpacity: hatBesuche ? 0.92 : 0.72,
     }).addTo(map);
 
     const namenListe = s.zuordnungen.map(r => r.name).join(', ') || '–';
@@ -582,13 +582,13 @@ function _heatmapLegende() {
   if (!leg) return;
   if (heatmapEbene === 'offene_bestellungen') {
     leg.innerHTML =
-      '<span class="ms-2 me-2"><i class="bi bi-circle-fill" style="color:#adb5bd"></i> Keine</span>' +
+      '<span class="ms-2 me-2"><i class="bi bi-circle-fill" style="color:#6c757d"></i> Keine</span>' +
       '<span class="me-2"><i class="bi bi-circle-fill" style="color:#c8860a"></i> 1+</span>' +
       '<span class="me-2"><i class="bi bi-circle-fill" style="color:#e74c3c"></i> Mehrere</span>' +
       '<span class="text-muted" style="font-size:.75rem">(offene Bestellungen)</span>';
   } else {
     leg.innerHTML =
-      '<span class="ms-2 me-2"><i class="bi bi-circle-fill" style="color:#adb5bd"></i> Kein Eintrag</span>' +
+      '<span class="ms-2 me-2"><i class="bi bi-circle-fill" style="color:#6c757d"></i> Kein Eintrag</span>' +
       '<span class="me-2"><i class="bi bi-circle-fill" style="color:#e74c3c"></i> Wenig</span>' +
       '<span class="me-2"><i class="bi bi-circle-fill" style="color:#f39c12"></i> Mittel</span>' +
       '<span class="me-2"><i class="bi bi-circle-fill" style="color:#27ae60"></i> Häufig</span>' +
@@ -620,7 +620,7 @@ async function ladeHeatmap(jahr) {
 
     let radius, fillColor, borderColor, opac, tooltipColor;
     if (s.anzahl === 0) {
-      radius = 5; fillColor = '#adb5bd'; borderColor = '#868e96'; opac = 0.55; tooltipColor = '#868e96';
+      radius = 6; fillColor = '#6c757d'; borderColor = '#495057'; opac = 0.82; tooltipColor = '#495057';
     } else {
       const norm = Math.sqrt(s.anzahl / maxAnzahl);
       radius = Math.round(5 + norm * 11);

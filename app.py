@@ -1369,6 +1369,7 @@ def api_letzter_besuch(vs_id):
         rows = query('''
             SELECT a.id, a.datum, a.anzahl_displays, a.notizen,
                    m.name AS mitarbeiter,
+                   COALESCE(a.aktionstyp, 'Aufbau') AS aktionstyp,
                    COALESCE((SELECT SUM(bp.kisten_anzahl) FROM bestellposition bp
                              WHERE bp.aktivitaet_id = a.id), 0) AS kisten_gesamt
             FROM aktivitaet a
@@ -1380,6 +1381,7 @@ def api_letzter_besuch(vs_id):
         rows = query('''
             SELECT a.id, a.datum, a.anzahl_displays, a.notizen,
                    NULL AS mitarbeiter,
+                   COALESCE(a.aktionstyp, 'Aufbau') AS aktionstyp,
                    COALESCE((SELECT SUM(bp.kisten_anzahl) FROM bestellposition bp
                              WHERE bp.aktivitaet_id = a.id), 0) AS kisten_gesamt
             FROM aktivitaet a
@@ -1425,6 +1427,7 @@ def api_letzter_besuch(vs_id):
             'kisten':      row['kisten_gesamt']   or 0,
             'notizen':     notizen,
             'mitarbeiter': row['mitarbeiter'] or None,
+            'aktionstyp':  row['aktionstyp'] or 'Aufbau',
         }
         if i == 0:
             entry['letzte_bestellung'] = letzte_bestellung
@@ -3316,7 +3319,6 @@ def auto_export_job():
 
 # ─── Wochenbericht ───────────────────────────────────────────────────────────
 
-APP_URL    = os.environ.get('APP_URL', '')
 FIRMA_NAME = os.environ.get('FIRMA_NAME', '')
 
 def _do_send_wochenbericht(force=False):
@@ -3439,7 +3441,7 @@ def _do_send_wochenbericht(force=False):
                 </tr>''' for r in rep_stats) or \
                 '<tr><td colspan="6" style="padding:12px 14px;color:#999;text-align:center">Keine Aktivitäten diese Woche</td></tr>'
 
-            dashboard_link = APP_URL or '#'
+            dashboard_link = APP_BASE_URL or '#'
 
             html = f'''<!DOCTYPE html>
 <html><head><meta charset="utf-8"></head>
@@ -3672,6 +3674,168 @@ def einstellungen_wochenbericht():
     return render_template('einstellungen_wochenbericht.html',
                            config=config, vkl=vkl,
                            is_manager=True, is_admin=session.get('rolle')=='admin')
+
+
+@app.route('/einstellungen/wochenbericht/vorschau')
+@login_required
+def wochenbericht_vorschau():
+    """Rendert die Wochenbericht-E-Mail als HTML direkt im Browser (kein Versand)."""
+    if session.get('rolle') not in ('admin', 'verkaufsleiter'):
+        return redirect(url_for('dashboard'))
+
+    heute          = date.today()
+    montag_diese   = heute - timedelta(days=heute.weekday())
+    sonntag_diese  = montag_diese + timedelta(days=6)
+    montag_letzte  = montag_diese - timedelta(days=7)
+    sonntag_letzte = montag_letzte + timedelta(days=6)
+    kw_nr   = montag_diese.strftime('%V')
+    datum_von = montag_diese.strftime('%d.%m.')
+    datum_bis = sonntag_diese.strftime('%d.%m.%Y')
+
+    def _stats(von, bis):
+        return query('''
+            SELECT COUNT(DISTINCT a.id) AS besuche,
+                   COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                       THEN a.id END) AS aufbauten,
+                   COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung'
+                                       THEN a.id END) AS bestellungen,
+                   COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                     THEN bp.kisten_anzahl END), 0) AS kisten,
+                   COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                     THEN a.anzahl_displays END), 0) AS displays
+            FROM aktivitaet a
+            LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
+            WHERE a.datum BETWEEN ? AND ?
+        ''', (von.isoformat(), bis.isoformat()), one=True)
+
+    diese  = _stats(montag_diese,  sonntag_diese)
+    letzte = _stats(montag_letzte, sonntag_letzte)
+
+    rep_stats = query('''
+        SELECT m.id AS mitarbeiter_id, m.name,
+               COUNT(DISTINCT a.id) AS besuche,
+               COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung' THEN a.id END) AS bestellungen,
+               COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.id END) AS aufbauten,
+               COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                 THEN bp.kisten_anzahl END), 0) AS kisten
+        FROM aktivitaet a
+        JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
+        LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
+        WHERE a.datum BETWEEN ? AND ? AND m.rolle = 'rep'
+        GROUP BY m.id, m.name ORDER BY kisten DESC
+    ''', (montag_diese.isoformat(), sonntag_diese.isoformat()))
+
+    offene_map = {r['mitarbeiter_id']: r['n'] for r in query(
+        "SELECT a.mitarbeiter_id, COUNT(*) AS n FROM aktivitaet a "
+        "JOIN mitarbeiter m ON m.id=a.mitarbeiter_id "
+        "WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen' "
+        "AND m.rolle='rep' GROUP BY a.mitarbeiter_id"
+    )}
+    pipeline = query(
+        "SELECT COALESCE(SUM(CASE WHEN COALESCE(bestell_status,'offen')='offen' THEN 1 END),0) AS offen,"
+        "       COALESCE(SUM(CASE WHEN bestell_status='aufgebaut' THEN 1 END),0) AS aufgebaut,"
+        "       COALESCE(SUM(CASE WHEN bestell_status='storniert' THEN 1 END),0) AS storniert "
+        "FROM aktivitaet WHERE aktionstyp='Bestellung'",
+        one=True
+    )
+
+    def trend_str(neu, alt):
+        d = neu - alt
+        return f'+{d}' if d > 0 else (str(d) if d < 0 else '±0')
+    def trend_col(neu, alt):
+        return '#2d8a4e' if neu > alt else ('#c0392b' if neu < alt else '#888')
+
+    def _offen_col(n):
+        return (f'<span style="color:#c8860a;font-weight:bold">{n}</span>'
+                if n > 0 else f'<span style="color:#aaa">0</span>')
+
+    rep_rows = ''.join(f'''
+        <tr>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px">{r["name"]}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["bestellungen"]}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{_offen_col(offene_map.get(r["mitarbeiter_id"], 0))}</td>
+        </tr>''' for r in rep_stats) or \
+        '<tr><td colspan="6" style="padding:12px;color:#999;text-align:center">Keine Aktivitäten diese Woche</td></tr>'
+
+    dashboard_link = APP_BASE_URL or 'http://localhost:5000'
+
+    html = f'''<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>body{{margin:0;padding:0;background:#f0f4f8;font-family:Arial,Helvetica,sans-serif}}</style>
+</head>
+<body>
+<div style="background:#fffbf0;border:2px dashed #c8860a;padding:10px 24px;text-align:center;font-size:13px;color:#8a5a00">
+  <strong>Vorschau-Modus</strong> – Diese E-Mail wird nicht versendet &nbsp;·&nbsp;
+  KW {kw_nr} ({datum_von} – {datum_bis})
+</div>
+<div style="max-width:600px;margin:24px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.10)">
+  <div style="background:#1a3a5c;padding:26px 32px">
+    <div style="color:#fff;font-size:20px;font-weight:bold;letter-spacing:.3px">Aktions Tracker</div>
+    <div style="color:#90b8d8;font-size:13px;margin-top:5px">Wochenbericht KW {kw_nr} &nbsp;·&nbsp; {datum_von} – {datum_bis}</div>
+  </div>
+  <div style="padding:28px 32px 8px">
+    <div style="font-size:15px;font-weight:bold;color:#1a3a5c;margin-bottom:16px">Gesamtübersicht</div>
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
+          <div style="font-size:30px;font-weight:bold;color:#1a3a5c">{diese["besuche"]}</div>
+          <div style="font-size:12px;color:#666;margin-top:3px">Besuche</div>
+          <div style="font-size:11px;font-weight:bold;color:{trend_col(diese["besuche"],letzte["besuche"])};margin-top:5px">{trend_str(diese["besuche"],letzte["besuche"])} ggü. Vorwoche</div>
+        </td>
+        <td width="12"></td>
+        <td style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
+          <div style="font-size:30px;font-weight:bold;color:#c8860a">{diese["kisten"]}</div>
+          <div style="font-size:12px;color:#666;margin-top:3px">{UNIT_LABEL}</div>
+          <div style="font-size:11px;font-weight:bold;color:{trend_col(diese["kisten"],letzte["kisten"])};margin-top:5px">{trend_str(diese["kisten"],letzte["kisten"])} ggü. Vorwoche</div>
+        </td>
+        <td width="12"></td>
+        <td style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
+          <div style="font-size:30px;font-weight:bold;color:#2e6da4">{diese["displays"]}</div>
+          <div style="font-size:12px;color:#666;margin-top:3px">Displays</div>
+          <div style="font-size:11px;font-weight:bold;color:{trend_col(diese["displays"],letzte["displays"])};margin-top:5px">{trend_str(diese["displays"],letzte["displays"])} ggü. Vorwoche</div>
+        </td>
+      </tr>
+    </table>
+  </div>
+  <div style="padding:16px 32px;background:#fffbf0;border-top:1px solid #f0c674">
+    <span style="font-size:13px;font-weight:bold;color:#1a3a5c">Bestellungen Pipeline:</span>
+    <span style="margin-left:14px;font-size:13px">
+      <span style="color:#c8860a;font-weight:bold">{pipeline["offen"]}</span><span style="color:#777"> offen</span>
+      &nbsp;&nbsp;·&nbsp;&nbsp;
+      <span style="color:#27ae60;font-weight:bold">{pipeline["aufgebaut"]}</span><span style="color:#777"> aufgebaut</span>
+      &nbsp;&nbsp;·&nbsp;&nbsp;
+      <span style="color:#6c757d;font-weight:bold">{pipeline["storniert"]}</span><span style="color:#777"> storniert</span>
+    </span>
+  </div>
+  <div style="padding:24px 32px">
+    <div style="font-size:15px;font-weight:bold;color:#1a3a5c;margin-bottom:12px">Mitarbeiter diese Woche</div>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e4eaf0;border-radius:8px;overflow:hidden">
+      <thead>
+        <tr style="background:#edf2f7">
+          <th style="padding:8px 10px;text-align:left;font-size:10px;color:#666;font-weight:600;letter-spacing:.5px">MITARBEITER</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#666;font-weight:600;letter-spacing:.5px">BESUCHE</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#2e6da4;font-weight:600;letter-spacing:.5px">BESTELL.</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#27ae60;font-weight:600;letter-spacing:.5px">AUFBAUT.</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#c8860a;font-weight:600;letter-spacing:.5px">{UNIT_LABEL[:7].upper()}</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#c8860a;font-weight:600;letter-spacing:.5px">OFFEN</th>
+        </tr>
+      </thead>
+      <tbody>{rep_rows}</tbody>
+    </table>
+  </div>
+  <div style="padding:16px 32px 24px;text-align:center">
+    <a href="{dashboard_link}" style="display:inline-block;background:#1a3a5c;color:#fff;text-decoration:none;padding:10px 24px;border-radius:6px;font-size:13px;font-weight:bold">→ Zum Dashboard</a>
+  </div>
+  <div style="padding:14px 32px;background:#f4f8fc;border-top:1px solid #e4eaf0;text-align:center">
+    <div style="font-size:11px;color:#aaa">Aktions Tracker · Automatischer Wochenbericht jeden Montag</div>
+  </div>
+</div>
+</body></html>'''
+
+    return html, 200, {'Content-Type': 'text/html; charset=utf-8'}
 
 
 # ─── Karte ────────────────────────────────────────────────────────────────────

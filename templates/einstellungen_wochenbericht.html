@@ -97,10 +97,13 @@
     </div>
 
     <!-- Buttons -->
-    <div class="d-flex gap-2">
+    <div class="d-flex gap-2 flex-wrap">
       <button type="submit" class="btn btn-primary px-4">
         <i class="bi bi-check2 me-1"></i>Speichern
       </button>
+      <a href="{{ url_for('wochenbericht_vorschau') }}" target="_blank" class="btn btn-outline-primary px-4">
+        <i class="bi bi-eye me-1"></i>Vorschau anzeigen
+      </a>
       <button type="submit" name="jetzt_senden" value="1" class="btn btn-outline-secondary px-4"
               onclick="return confirm('Testbericht jetzt sofort senden?')">
         <i class="bi bi-send me-1"></i>Jetzt senden (Test)

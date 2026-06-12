@@ -58,10 +58,25 @@
                  style="max-height:280px;overflow-y:auto;display:none;position:absolute;z-index:1055">
             </div>
           </div>
-          <!-- KONZEPT-V2: Offene Bestellungen (Zone 1, handlungsfähig) -->
-          <div id="offeneBestellungen" class="mt-2" style="display:none"></div>
-          <!-- Letzter Besuch Info-Box (wird per JS befüllt) -->
-          <div id="vsLetzterBesuch" class="mt-2" style="display:none"></div>
+          <!-- KONZEPT-V2: Zwei-Zonen-Ansicht (mobil + Desktop) -->
+          <div id="vsZonenContainer" class="mt-2" style="display:none">
+            <!-- Zone 1: Handlungsbedarf -->
+            <div id="vsZone1">
+              <div class="d-flex align-items-center gap-2 mb-1">
+                <span class="badge rounded-pill" style="background:#c8860a;font-size:.7rem;min-width:1.4rem">1</span>
+                <span class="small fw-semibold" style="color:#8a5a00">Offene Bestellungen</span>
+              </div>
+              <div id="offeneBestellungen"></div>
+            </div>
+            <!-- Zone 2: Verlauf -->
+            <div id="vsZone2" class="mt-3">
+              <div class="d-flex align-items-center gap-2 mb-1">
+                <span class="badge rounded-pill" style="background:#2e6da4;font-size:.7rem;min-width:1.4rem">2</span>
+                <span class="small fw-semibold" style="color:#1d4e8f">Letzte Besuche</span>
+              </div>
+              <div id="vsLetzterBesuch"></div>
+            </div>
+          </div>
         </div>
         <div class="col-md-2">
           <button type="button" class="btn btn-outline-primary w-100"
@@ -512,20 +527,35 @@ const vsClear    = document.getElementById('vsClear');
   if (pre) {
     const found = VS_DATA.find(v => v.id == pre);
     if (found) { vsSearch.value = found.label; vsClear.classList.remove('d-none'); }
+    document.getElementById('vsZonenContainer').style.display = 'block';
     vsShowOffeneBestellungen(pre);
+    vsShowLetzterBesuch(pre);
   }
 })();
+
+// ── Typ-Badge Helper ──────────────────────────────────────────────────────────
+function typBadge(t) {
+  const cfg = {
+    'Bestellung': ['#fdecc8', '#8a5a00'],
+    'Besuch':     ['#e9ecef', '#495057'],
+    'Aufbau':     ['#d4edda', '#155724'],
+  };
+  const [bg, col] = cfg[t] || cfg['Aufbau'];
+  return `<span style="background:${bg};color:${col};font-size:.62rem;font-weight:600;` +
+         `padding:.1rem .35rem;border-radius:.25rem;white-space:nowrap;vertical-align:middle">${t||'Aufbau'}</span>`;
+}
 
 // ── KONZEPT-V2: Offene Bestellungen der Station (Zone 1) ───────────────────────
 window._offeneBest = {};
 function vsShowOffeneBestellungen(id) {
-  const box = document.getElementById('offeneBestellungen');
+  const box   = document.getElementById('offeneBestellungen');
+  const zone1 = document.getElementById('vsZone1');
   fetch(`/api/offene-bestellungen/${id}`)
     .then(r => r.json())
     .then(data => {
       const best = data.bestellungen || [];
       window._offeneBest = {};
-      if (!best.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+      if (!best.length) { zone1.style.display = 'none'; box.innerHTML = ''; return; }
       let rows = '';
       best.forEach(b => {
         window._offeneBest[b.id] = b;
@@ -566,9 +596,9 @@ function vsShowOffeneBestellungen(id) {
           </div>
           ${rows}
         </div>`;
-      box.style.display = 'block';
+      zone1.style.display = 'block';
     })
-    .catch(() => { box.style.display = 'none'; });
+    .catch(() => { zone1.style.display = 'none'; });
 }
 
 function uebernehmenBestellung(bid) {
@@ -643,8 +673,10 @@ function vsSelect(id, label) {
   vsSearch.value = label;
   vsDropdown.style.display = 'none';
   vsClear.classList.remove('d-none');
-  vsShowLetzterBesuch(id);
+  document.getElementById('vsZonenContainer').style.display = 'block';
+  document.getElementById('vsZone1').style.display = 'block';
   vsShowOffeneBestellungen(id);
+  vsShowLetzterBesuch(id);
 }
 
 function vsClearSelection() {
@@ -652,8 +684,7 @@ function vsClearSelection() {
   vsSearch.value = '';
   vsClear.classList.add('d-none');
   vsDropdown.style.display = 'none';
-  document.getElementById('vsLetzterBesuch').style.display = 'none';
-  document.getElementById('offeneBestellungen').style.display = 'none';
+  document.getElementById('vsZonenContainer').style.display = 'none';
   document.getElementById('erledigtIds').value = '';
   vsSearch.focus();
 }
@@ -662,7 +693,6 @@ function vsShowLetzterBesuch(id) {
   const box = document.getElementById('vsLetzterBesuch');
   box.innerHTML = `<div class="p-2 rounded-3 small text-muted" style="background:#f8f9fa;border:1px solid #dee2e6">
     <i class="bi bi-hourglass-split me-1"></i>Lade Besuchshistorie…</div>`;
-  box.style.display = 'block';
   fetch(`/api/letzter-besuch/${id}`)
     .then(r => r.json())
     .then(data => {
@@ -672,10 +702,11 @@ function vsShowLetzterBesuch(id) {
           <i class="bi bi-clock-history me-1"></i>Noch kein Besuch eingetragen</div>`;
         return;
       }
-      // Trend: {{ unit_label }} neuester vs. ältester Besuch
+      // Trend: {{ unit_label }} neuester vs. ältester Aufbau-Besuch
+      const aufbauten = besuche.filter(b => b.aktionstyp === 'Aufbau');
       let trendHtml = '';
-      if (besuche.length > 1) {
-        const diff = besuche[0].kisten - besuche[besuche.length - 1].kisten;
+      if (aufbauten.length > 1) {
+        const diff = aufbauten[0].kisten - aufbauten[aufbauten.length - 1].kisten;
         if (diff > 0)      trendHtml = `<span class="text-success ms-1 fw-normal"><i class="bi bi-arrow-up-short"></i></span>`;
         else if (diff < 0) trendHtml = `<span class="text-danger ms-1 fw-normal"><i class="bi bi-arrow-down-short"></i></span>`;
         else               trendHtml = `<span class="text-muted ms-1 fw-normal"><i class="bi bi-dash"></i></span>`;
@@ -684,47 +715,44 @@ function vsShowLetzterBesuch(id) {
       const rows = besuche.map((b, i) => {
         const bold = i === 0 ? 'fw-semibold' : '';
         const maTd = showMa
-          ? `<td class="text-muted">${b.mitarbeiter || ''}</td>`
+          ? `<td class="text-muted" style="white-space:nowrap">${b.mitarbeiter || ''}</td>`
           : '';
         const notizTd = b.notizen
-          ? `<td class="text-muted fst-italic" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">"${b.notizen}"</td>`
+          ? `<td class="text-muted fst-italic" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">"${b.notizen}"</td>`
           : `<td></td>`;
+        const istBesuch = b.aktionstyp === 'Besuch';
+        const kistenTd = istBesuch
+          ? `<td class="text-muted" style="font-size:.8em">–</td>`
+          : `<td><i class="bi bi-box-seam me-1" style="color:#c8860a"></i>${b.kisten}</td>`;
+        const dispTd = istBesuch
+          ? `<td class="text-muted" style="font-size:.8em">–</td>`
+          : `<td><i class="bi bi-display me-1" style="color:#2e6da4"></i>${b.displays}</td>`;
         return `<tr class="${bold}">
-          <td class="ps-2">${b.datum} <span class="text-muted fw-normal" style="font-size:.8em">vor ${b.tage_ago} ${b.tage_ago === 1 ? 'Tag' : 'Tagen'}</span></td>
-          <td><i class="bi bi-box-seam me-1" style="color:#c8860a"></i>${b.kisten}</td>
-          <td><i class="bi bi-display me-1" style="color:#2e6da4"></i>${b.displays}</td>
-          ${maTd}${notizTd}
+          <td class="ps-2">
+            ${typBadge(b.aktionstyp)}
+            <div class="mt-1" style="font-size:.8em">${b.datum}
+              <span class="text-muted fw-normal">· vor ${b.tage_ago} ${b.tage_ago === 1 ? 'Tag' : 'Tagen'}</span>
+            </div>
+          </td>
+          ${kistenTd}${dispTd}${maTd}${notizTd}
         </tr>`;
       }).join('');
       const maHeader = showMa ? '<th class="fw-normal">Rep</th>' : '';
 
-      // Letzte Bestellung für den Button merken
-      const lb = besuche[0].letzte_bestellung;
-      window._letzteBestellung = lb || null;
-
-      // KONZEPT-V2: alter Pauschal-Button entfernt — ersetzt durch „Offene Bestellungen"
-      const hatPositionen = false;
-      const btnHtml = hatPositionen ? `
-        <button type="button" onclick="letzteBestellungUebernehmen()"
-          class="btn btn-sm d-flex align-items-center gap-1"
-          style="background:#fff;color:#1a3a5c;border:1.5px solid #2e6da4;
-                 font-size:.78rem;font-weight:600;padding:.2rem .6rem;white-space:nowrap">
-          <i class="bi bi-arrow-counterclockwise"></i> Letzte Bestellung übernehmen
-        </button>` : '';
+      window._letzteBestellung = besuche[0].letzte_bestellung || null;
 
       box.innerHTML = `
         <div class="rounded-3" style="background:#eef4fb;border:1px solid #b8d4f0;overflow:hidden">
-          <div class="px-2 py-1 small fw-semibold d-flex align-items-center justify-content-between gap-1"
+          <div class="px-2 py-1 small fw-semibold d-flex align-items-center gap-1"
                style="background:#d8eaf8;color:#1d4e8f;border-bottom:1px solid #b8d4f0">
-            <span><i class="bi bi-clock-history"></i> Letzte Besuche ${trendHtml}</span>
-            ${btnHtml}
+            <i class="bi bi-clock-history"></i> Verlauf ${trendHtml}
           </div>
           <table class="table table-sm mb-0" style="font-size:.82em">
             <thead class="text-muted">
               <tr>
-                <th class="ps-2 fw-normal">Datum</th>
+                <th class="ps-2 fw-normal">Typ / Datum</th>
                 <th class="fw-normal">{{ unit_label }}</th>
-                <th class="fw-normal">Displays</th>
+                <th class="fw-normal">Disp.</th>
                 ${maHeader}
                 <th class="fw-normal">Notiz</th>
               </tr>
@@ -733,13 +761,16 @@ function vsShowLetzterBesuch(id) {
           </table>
         </div>`;
     })
-    .catch(() => { box.style.display = 'none'; });
+    .catch(() => {
+      box.innerHTML = `<div class="p-2 rounded-3 small text-muted" style="background:#f8f9fa;border:1px solid #dee2e6">
+        <i class="bi bi-exclamation-circle me-1"></i>Verlauf konnte nicht geladen werden.</div>`;
+    });
 }
 
 vsSearch.addEventListener('input', function() {
   vsId.value = '';
   vsClear.classList.add('d-none');
-  document.getElementById('vsLetzterBesuch').style.display = 'none';
+  document.getElementById('vsZonenContainer').style.display = 'none';
   vsRenderDropdown(this.value);
 });
 vsSearch.addEventListener('focus', function() {
@@ -909,7 +940,6 @@ document.getElementById('aktivForm').addEventListener('submit', async function(e
   document.getElementById('aktivForm').reset();
   // VS-Auswahl manuell zurücksetzen
   vsClearSelection();
-  document.getElementById('vsLetzterBesuch').style.display = 'none';
   document.getElementById('dispGesamt').textContent = '0';
   document.getElementById('kistenGesamt').textContent = '0';
   successDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
