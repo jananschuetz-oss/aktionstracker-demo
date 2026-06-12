@@ -707,6 +707,34 @@ def init_db():
             db.commit()
             app.logger.info(f"Migration: {_n_2025} Aktivitaeten aus 2025 geloescht.")
 
+        # Migration: Überfällige Demo-Bestellungen sicherstellen (für Wochenbericht-Demo)
+        # Wenn keine offene Bestellung >28 Tage existiert, 3 steckengebliebene einfügen
+        _ue_count = db.execute(
+            "SELECT COUNT(*) FROM aktivitaet "
+            "WHERE aktionstyp='Bestellung' AND COALESCE(bestell_status,'offen')='offen' "
+            "AND julianday('now') - julianday(datum) > 28"
+        ).fetchone()[0]
+        if _ue_count == 0:
+            from datetime import date as _d, timedelta as _td
+            _ue_reps    = db.execute("SELECT id FROM mitarbeiter WHERE rolle='rep' ORDER BY id LIMIT 3").fetchall()
+            _ue_stellen = db.execute("SELECT id FROM verkaufsstelle WHERE aktiv=1 ORDER BY id LIMIT 3").fetchall()
+            _ue_notizen = [
+                'Herbst-Aktion – Lieferung noch ausstehend',
+                'Bestellung vom Kunden noch nicht abgeholt',
+                'Nachbestellung – bisher keine Rückmeldung',
+            ]
+            for _i, _rep in enumerate(_ue_reps):
+                _ue_datum = (_d.today() - _td(days=45 - _i * 6)).isoformat()
+                _ue_vs    = _ue_stellen[_i % len(_ue_stellen)]['id'] if _ue_stellen else None
+                if _ue_vs:
+                    db.execute(
+                        "INSERT INTO aktivitaet (datum,mitarbeiter_id,verkaufsstelle_id,anzahl_displays,notizen,aktionstyp,bestell_status) "
+                        "VALUES (?,?,?,0,?,'Bestellung','offen')",
+                        (_ue_datum, _rep['id'], _ue_vs, _ue_notizen[_i])
+                    )
+            db.commit()
+            app.logger.info("Migration: 3 ueberfaellige Demo-Bestellungen eingefuegt.")
+
         # Migration: Straßenadressen für Demo-Verkaufsstellen eintragen (name-basiert)
         _vs_adressen = [
             ('Supermarkt Mitte',           'Alexanderplatz 1'),
@@ -876,6 +904,30 @@ def seed_demo_data(db):
             "INSERT OR IGNORE INTO mitarbeiter_verkaufsstelle (mitarbeiter_id, verkaufsstelle_id) VALUES (?,?)",
             (rep['id'], stelle_id)
         )
+
+    # Fest verdrahtete "steckengebliebene" Bestellungen für Überfällig-Demo
+    # Idempotent: nur einfügen wenn noch keine solche Bestellung von diesem Rep an diesem Datum
+    _ue_stellen = db.execute("SELECT id FROM verkaufsstelle WHERE aktiv=1 ORDER BY id LIMIT 3").fetchall()
+    _ue_notizen = [
+        'Herbst-Aktion – Lieferung noch ausstehend',
+        'Bestellung vom Kunden noch nicht abgeholt',
+        'Nachbestellung – bisher keine Rückmeldung',
+    ]
+    for i, rep in enumerate(reps[:3]):
+        _tage_alt = 45 - i * 6  # 45, 39, 33 Tage alt
+        _ue_datum = (date.today() - timedelta(days=_tage_alt)).isoformat()
+        _ue_vs    = _ue_stellen[i % len(_ue_stellen)]['id']
+        already = db.execute(
+            "SELECT 1 FROM aktivitaet WHERE mitarbeiter_id=? AND datum=? AND aktionstyp='Bestellung' AND bestell_status='offen'",
+            (rep['id'], _ue_datum)
+        ).fetchone()
+        if not already:
+            db.execute(
+                "INSERT INTO aktivitaet (datum,mitarbeiter_id,verkaufsstelle_id,anzahl_displays,notizen,aktionstyp,bestell_status) "
+                "VALUES (?,?,?,0,?,'Bestellung','offen')",
+                (_ue_datum, rep['id'], _ue_vs, _ue_notizen[i])
+            )
+
     db.commit()
 
 
