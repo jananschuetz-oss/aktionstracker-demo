@@ -111,7 +111,7 @@ def inject_now():
         'now':           datetime.now(),
         'company_name':  COMPANY_NAME,
         'company_short': COMPANY_SHORT,
-        'logo_url':      LOGO_URL or '/static/logo.svg',
+        'logo_url':      LOGO_URL or '/static/logo.png',
         'karte_modus':      KARTE_MODUS,
         'unit_label':       UNIT_LABEL,
         'max_mitarbeiter':  MAX_MITARBEITER,
