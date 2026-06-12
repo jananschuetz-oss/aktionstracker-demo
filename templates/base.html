@@ -133,10 +133,10 @@
       flex: 1; min-width: 0; display: flex; flex-direction: column;
       align-items: center; justify-content: center;
       color: rgba(255,255,255,.65); text-decoration: none;
-      padding: .5rem .25rem; font-size: .65rem; font-weight: 600;
+      padding: .5rem .15rem; font-size: .6rem; font-weight: 600;
       transition: color .2s; min-height: 56px; overflow: hidden;
     }
-    .mobile-nav a i { font-size: 1.35rem; margin-bottom: 2px; }
+    .mobile-nav a i { font-size: 1.25rem; margin-bottom: 2px; }
     .mobile-nav a.active, .mobile-nav a:hover { color: var(--brand-amber); }
     .mobile-nav a.btn-neu {
       color: #fff; background: var(--brand-amber);
@@ -198,6 +198,10 @@
   <a href="{{ url_for('vergleich') }}"
      class="{% if request.endpoint == 'vergleich' %}active{% endif %}">
     <i class="bi bi-graph-up-arrow"></i>Vergleich
+  </a>
+  <a href="{{ url_for('bestellungen_uebersicht') }}"
+     class="{% if request.endpoint == 'bestellungen_uebersicht' %}active{% endif %}">
+    <i class="bi bi-clipboard-check"></i>Bestellungen
   </a>
   {% elif session.rolle == 'rep' %}
   <a href="{{ url_for('vergleich') }}"
