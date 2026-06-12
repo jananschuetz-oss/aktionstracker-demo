@@ -1414,7 +1414,7 @@ def dashboard():
     if is_manager and not ma_filter:
         _heute = date.today()
         _mo_kw = _heute - timedelta(days=_heute.weekday())  # Montag dieser Woche
-        _t_sql, _t_p = _team_ma_clause('m')
+        _t_sql, _t_p = _team_m_clause('m')
         inaktiv_reps = query(
             f"""SELECT m.id, m.name, m.kuerzel
                 FROM mitarbeiter m
