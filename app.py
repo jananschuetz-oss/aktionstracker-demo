@@ -3549,7 +3549,7 @@ def send_wochenbericht(force=False):
 # ─── Demo-Frischhaltung: jede Woche neue Aktivitäten ─────────────────────────
 
 def _do_demo_woche_nachfuellen():
-    """Fügt der vergangenen Woche je 5 Aktivitäten pro Rep hinzu.
+    """Fügt der vergangenen Woche je 5 Aktivitäten pro Rep hinzu (Mix: Aufbau/Bestellung/Besuch).
     Läuft jeden Sonntag 23:30 – Daten sind bereit für den Montags-Wochenbericht.
     Idempotent: Falls die Woche bereits Einträge hat, wird nichts eingefügt."""
     import random as rnd
@@ -3576,12 +3576,31 @@ def _do_demo_woche_nachfuellen():
         app.logger.info(f"Demo-Seed KW {kw}/{letzter_mo.year}: {existing} Einträge vorhanden, übersprungen.")
         return
 
-    NOTIZEN = [
-        '', '', '', '',
+    NOTIZEN_AUFBAU = [
+        '', '', '',
         'Sonderaktion vereinbart', 'Kunde sehr zufrieden',
         'Neues Kühlregal besprochen', 'Probierpaket mitgenommen',
         'Konkurrenzprodukte gesichtet', 'Rückgabe 3 leere Displays',
         'Termin für Herbstaktion vereinbart', 'Stammkunde, läuft sehr gut',
+        'Aufbau problemlos, neues Regal eingerichtet',
+    ]
+    NOTIZEN_BESTELLUNG = [
+        '', '',
+        'Bestellung für nächste Lieferung',
+        'Nachbestellung – läuft sehr gut',
+        'Kunde bestellt für Herbst-Event',
+        'Sonderbestellung Weihnachtsmarkt',
+        'Erste Bestellung, neuer Gaststättenkunde',
+        'Bestellung telefonisch bestätigt',
+    ]
+    NOTIZEN_BESUCH = [
+        '', '',
+        'Allgemeines Verkaufsgespräch',
+        'Feedback eingeholt – positiv',
+        'Konkurrenzprodukte gesichtet, gut positioniert',
+        'Termin für nächsten Aufbau vereinbart',
+        'Kein Bedarf aktuell, Wiedervorlage in 2 Wochen',
+        'Neues Sortiment vorgestellt',
     ]
 
     gesamt = 0
@@ -3596,23 +3615,34 @@ def _do_demo_woche_nachfuellen():
         tage = sorted(rnd.sample(range(5), k=5))          # Mo–Fr, 5 verschiedene Tage
         vs_woche = rnd.sample(rep_stellen, k=min(5, len(rep_stellen)))  # 5 Stellen aus der Region
         for i, tag in enumerate(tage):
-            datum    = (letzter_mo + timedelta(days=tag)).isoformat()
-            vs       = vs_woche[i]
-            displays = rnd.choices([0,1,2,3,4,5], weights=[30,25,20,12,8,5])[0]
+            datum  = (letzter_mo + timedelta(days=tag)).isoformat()
+            vs     = vs_woche[i]
+            typ    = rnd.choices(['Aufbau', 'Bestellung', 'Besuch'], weights=[40, 30, 30])[0]
+            displays      = rnd.choices([0,1,2,3,4,5], weights=[30,25,20,12,8,5])[0] if typ == 'Aufbau' else 0
+            bestell_status = 'offen' if typ == 'Bestellung' else None
+            if typ == 'Aufbau':
+                notiz = rnd.choice(NOTIZEN_AUFBAU)
+            elif typ == 'Bestellung':
+                notiz = rnd.choice(NOTIZEN_BESTELLUNG)
+            else:
+                notiz = rnd.choice(NOTIZEN_BESUCH)
             cur = db.execute(
-                "INSERT INTO aktivitaet (datum,mitarbeiter_id,verkaufsstelle_id,anzahl_displays,notizen) "
-                "VALUES (?,?,?,?,?)",
-                (datum, rep['id'], vs['id'], displays, rnd.choice(NOTIZEN))
+                "INSERT INTO aktivitaet "
+                "(datum,mitarbeiter_id,verkaufsstelle_id,anzahl_displays,notizen,aktionstyp,bestell_status) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (datum, rep['id'], vs['id'], displays, notiz, typ, bestell_status)
             )
             aid = cur.lastrowid
-            for bier_id in rnd.sample(bier_ids, k=rnd.randint(2, min(4, len(bier_ids)))):
-                db.execute(
-                    "INSERT INTO bestellposition (aktivitaet_id,biersorte_id,kisten_anzahl) VALUES (?,?,?)",
-                    (aid, bier_id, rnd.randint(3, 50))
-                )
+            # Bestellpositionen: bei Aufbau und Bestellung (Kisten), nicht bei reinem Besuch
+            if typ in ('Aufbau', 'Bestellung'):
+                for bier_id in rnd.sample(bier_ids, k=rnd.randint(2, min(4, len(bier_ids)))):
+                    db.execute(
+                        "INSERT INTO bestellposition (aktivitaet_id,biersorte_id,kisten_anzahl) VALUES (?,?,?)",
+                        (aid, bier_id, rnd.randint(3, 50))
+                    )
             gesamt += 1
     db.commit()
-    app.logger.info(f"Demo-Seed KW {kw}/{letzter_mo.year}: {gesamt} neue Aktivitäten eingefügt.")
+    app.logger.info(f"Demo-Seed KW {kw}/{letzter_mo.year}: {gesamt} neue Aktivitäten eingefügt (Mix Aufbau/Bestellung/Besuch).")
 
 
 def demo_woche_nachfuellen():
