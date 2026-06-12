@@ -1408,6 +1408,29 @@ def dashboard():
             (session['user_id'], str(jahr)), one=True
         )
 
+    # Inaktivitäts-Warnung: Reps ohne Aktivität diese Woche (ab Mittwoch sichtbar)
+    # Reps mit aktiver Vertretung werden ausgeschlossen
+    inaktiv_reps = []
+    if is_manager and not ma_filter:
+        _heute = date.today()
+        _mo_kw = _heute - timedelta(days=_heute.weekday())  # Montag dieser Woche
+        _t_sql, _t_p = _team_ma_clause('m')
+        inaktiv_reps = query(
+            f"""SELECT m.id, m.name, m.kuerzel
+                FROM mitarbeiter m
+                WHERE m.rolle = 'rep' AND m.aktiv = 1 {_t_sql}
+                AND m.id NOT IN (
+                    SELECT DISTINCT mitarbeiter_id FROM aktivitaet
+                    WHERE datum >= ?
+                )
+                AND m.id NOT IN (
+                    SELECT abwesender_id FROM vertretung
+                    WHERE von <= ? AND bis >= ?
+                )
+                ORDER BY m.name""",
+            _t_p + (_mo_kw.isoformat(), _heute.isoformat(), _heute.isoformat())
+        )
+
     return render_template('dashboard.html',
         jahr=jahr, kw_data=kw_data, jahres=jahres,
         rep_stats=rep_stats, letzte=letzte,
@@ -1426,6 +1449,7 @@ def dashboard():
         p_storniert=p_storniert,
         p_ueberfaellig=p_ueberfaellig,
         ziel=ziel,
+        inaktiv_reps=inaktiv_reps,
     )
 
 
@@ -1998,6 +2022,37 @@ def aktivitaeten_liste():
         typ_filter=typ_filter, typ_ids=typ_ids, alle_typen=alle_typen,
         alle_ma=alle_ma, alle_vs=alle_vs,
         is_admin=is_admin, is_manager=is_manager)
+
+
+@app.route('/aktivitaet/<int:akt_id>/bearbeiten', methods=['POST'])
+@login_required
+def aktivitaet_bearbeiten(akt_id):
+    if session.get('rolle') not in ('admin', 'verkaufsleiter'):
+        flash('Keine Berechtigung.', 'danger')
+        return redirect(url_for('aktivitaeten_liste'))
+
+    a = query("SELECT * FROM aktivitaet WHERE id=?", (akt_id,), one=True)
+    if not a:
+        flash('Aktivität nicht gefunden.', 'danger')
+        return redirect(url_for('aktivitaeten_liste'))
+
+    datum          = request.form.get('datum', a['datum'])
+    vs_id          = request.form.get('verkaufsstelle_id', a['verkaufsstelle_id'], type=int)
+    aktionstyp     = request.form.get('aktionstyp', a['aktionstyp'] or 'Aufbau')
+    anzahl_displays = request.form.get('anzahl_displays', a['anzahl_displays'] or 0, type=int)
+    notizen        = request.form.get('notizen', a['notizen'] or '')
+    bestell_status = request.form.get('bestell_status') if aktionstyp == 'Bestellung' else a['bestell_status']
+
+    if aktionstyp not in ('Aufbau', 'Bestellung', 'Besuch'):
+        flash('Ungültiger Aktivitätstyp.', 'danger')
+        return redirect(url_for('aktivitaeten_liste'))
+
+    execute(
+        "UPDATE aktivitaet SET datum=?, verkaufsstelle_id=?, aktionstyp=?, anzahl_displays=?, notizen=?, bestell_status=? WHERE id=?",
+        (datum, vs_id, aktionstyp, anzahl_displays, notizen, bestell_status, akt_id)
+    )
+    flash('Aktivität aktualisiert.', 'success')
+    return redirect(request.referrer or url_for('aktivitaeten_liste'))
 
 
 @app.route('/aktivitaet/<int:akt_id>/loeschen', methods=['POST'])

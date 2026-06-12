@@ -125,6 +125,26 @@
 </div>
 {% endif %}
 
+<!-- Inaktivitäts-Warnung: Reps ohne Aktivität diese Woche -->
+{% if is_manager and not ma_filter and inaktiv_reps %}
+<div class="card mb-4 border-warning">
+  <div class="card-body py-3">
+    <div class="fw-semibold mb-2" style="color:#8a5a00;font-size:.9rem">
+      <i class="bi bi-person-x me-1"></i>Keine Aktivität diese Woche
+      <span class="badge ms-1" style="background:#fdecc8;color:#8a5a00;font-weight:600">{{ inaktiv_reps|length }}</span>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      {% for rep in inaktiv_reps %}
+      <span class="badge" style="background:#fff8f0;color:#6c4a00;border:1px solid #f0c674;font-weight:500;font-size:.8rem;padding:5px 10px">
+        <i class="bi bi-person me-1"></i>{{ rep.name }}
+      </span>
+      {% endfor %}
+    </div>
+    <div class="mt-2" style="font-size:.78rem;color:#aaa">Reps mit aktiver Vertretung (Urlaub/Krank) werden nicht angezeigt.</div>
+  </div>
+</div>
+{% endif %}
+
 <!-- KONZEPT-V2: Pipeline-Teaser (Manager) / Hinweis (Rep) -->
 {% if is_manager %}
 <div class="mb-4">

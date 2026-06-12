@@ -284,13 +284,27 @@
           {% endif %}
 
           <!-- Aktionen -->
-          <div class="col-auto">
+          <div class="col-auto d-flex gap-1">
             <button class="btn btn-outline-secondary btn-sm"
                     data-bs-toggle="collapse"
                     data-bs-target="#detail_{{ a.id }}">
               <i class="bi bi-chevron-down"></i>
             </button>
-            {% if is_admin or session.user_id == a.mitarbeiter %}
+            {% if is_manager %}
+            <button class="btn btn-outline-primary btn-sm"
+                    data-bs-toggle="modal"
+                    data-bs-target="#editModal"
+                    data-id="{{ a.id }}"
+                    data-datum="{{ a.datum }}"
+                    data-vs="{{ a.verkaufsstelle_id }}"
+                    data-typ="{{ a.aktionstyp or 'Aufbau' }}"
+                    data-displays="{{ a.anzahl_displays or 0 }}"
+                    data-notizen="{{ a.notizen or '' }}"
+                    data-status="{{ a.bestell_status or '' }}">
+              <i class="bi bi-pencil"></i>
+            </button>
+            {% endif %}
+            {% if is_admin %}
             <form method="POST" action="{{ url_for('aktivitaet_loeschen', akt_id=a.id) }}"
                   style="display:inline"
                   onsubmit="return confirm('Aktivität wirklich löschen?')">
@@ -430,4 +444,85 @@ function filterAnwenden() {
   window.location.href = window.location.pathname + '?' + params.toString();
 }
 </script>
+
+{% if is_manager %}
+<!-- Aktivität bearbeiten Modal -->
+<div class="modal fade" id="editModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header" style="background:#1a3a5c;color:#fff">
+        <h5 class="modal-title" style="font-size:.95rem"><i class="bi bi-pencil me-2"></i>Aktivität bearbeiten</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" id="editForm" action="">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Datum</label>
+            <input type="date" class="form-control" name="datum" id="edit_datum" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Verkaufsstelle</label>
+            <select class="form-select" name="verkaufsstelle_id" id="edit_vs">
+              {% for vs in alle_vs %}
+              <option value="{{ vs.id }}" {% if not vs.aktiv %}style="color:#aaa"{% endif %}>
+                {{ vs.name }}{% if vs.ort %} – {{ vs.ort }}{% endif %}{% if not vs.aktiv %} (inaktiv){% endif %}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Typ</label>
+            <select class="form-select" name="aktionstyp" id="edit_typ" onchange="toggleEditFields()">
+              <option value="Aufbau">Aufbau</option>
+              <option value="Bestellung">Bestellung</option>
+              <option value="Besuch">Besuch</option>
+            </select>
+          </div>
+          <div class="mb-3" id="edit_displays_row">
+            <label class="form-label small fw-semibold">Anzahl Displays</label>
+            <input type="number" class="form-control" name="anzahl_displays" id="edit_displays" min="0" max="99">
+          </div>
+          <div class="mb-3" id="edit_status_row" style="display:none">
+            <label class="form-label small fw-semibold">Bestellstatus</label>
+            <select class="form-select" name="bestell_status" id="edit_status">
+              <option value="offen">Offen</option>
+              <option value="aufgebaut">Aufgebaut</option>
+              <option value="storniert">Storniert</option>
+            </select>
+          </div>
+          <div class="mb-1">
+            <label class="form-label small fw-semibold">Notizen</label>
+            <textarea class="form-control" name="notizen" id="edit_notizen" rows="3"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-sm text-white" style="background:#1a3a5c">Speichern</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+document.getElementById('editModal').addEventListener('show.bs.modal', function(e) {
+  const btn = e.relatedTarget;
+  document.getElementById('editForm').action = '/aktivitaet/' + btn.dataset.id + '/bearbeiten';
+  document.getElementById('edit_datum').value    = btn.dataset.datum;
+  document.getElementById('edit_displays').value = btn.dataset.displays;
+  document.getElementById('edit_notizen').value  = btn.dataset.notizen;
+  const typSel = document.getElementById('edit_typ');
+  typSel.value = btn.dataset.typ || 'Aufbau';
+  const vsSel = document.getElementById('edit_vs');
+  vsSel.value = btn.dataset.vs;
+  const statusSel = document.getElementById('edit_status');
+  statusSel.value = btn.dataset.status || 'offen';
+  toggleEditFields();
+});
+function toggleEditFields() {
+  const typ = document.getElementById('edit_typ').value;
+  document.getElementById('edit_displays_row').style.display = typ === 'Aufbau' ? '' : 'none';
+  document.getElementById('edit_status_row').style.display   = typ === 'Bestellung' ? '' : 'none';
+}
+</script>
+{% endif %}
 {% endblock %}
