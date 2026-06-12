@@ -1,0 +1,239 @@
+{% extends 'base.html' %}
+{% block title %}Team-Vergleich – Aktions Tracker – {{ company_short }}{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div>
+    <h1><i class="bi bi-bar-chart-steps me-2"></i>Team-Vergleich</h1>
+    <p>{{ label }} – alle Teams auf einen Blick</p>
+  </div>
+  <div class="d-flex gap-2">
+    {% for p, lbl in [('woche','Woche'),('monat','Monat'),('jahr','Jahr')] %}
+    <a href="{{ url_for('team_vergleich', periode=p) }}"
+       class="btn btn-sm {% if periode == p %}btn-primary{% else %}btn-outline-light{% endif %}">
+      {{ lbl }}
+    </a>
+    {% endfor %}
+  </div>
+</div>
+
+{% if not teams %}
+<div class="alert alert-info">
+  <i class="bi bi-info-circle me-2"></i>Noch keine Teams angelegt.
+  Erstellen Sie Teams im <a href="{{ url_for('admin') }}" class="alert-link">Admin-Bereich</a>.
+</div>
+{% else %}
+
+<!-- Seite für Seite: pro Team eine Karten-Gruppe -->
+{% for team in teams %}
+{% set tid = team.id %}
+{% set kpi = team_kpis.get(tid, {}) %}
+{% set prev = prev_kpis.get(tid, {}) %}
+{% set ranking = rep_ranking.get(tid, []) %}
+{% set jz = jahres_ziele.get(tid, {}) %}
+{% set ji = jahres_ist.get(tid, {}) %}
+{% set inaktiv = inaktiv_per.get(tid, []) %}
+{% set vkl = vkl_per_team.get(tid, '—') %}
+
+<div class="card mb-4" style="border:2px solid #1a3a5c">
+  <!-- Team-Header -->
+  <div class="card-header d-flex justify-content-between align-items-center"
+       style="background:#1a3a5c;color:#fff;font-size:1.1rem;font-weight:700">
+    <span><i class="bi bi-people-fill me-2"></i>{{ team.name }}</span>
+    <span class="d-flex gap-3 align-items-center">
+      <span class="badge bg-light text-dark" style="font-size:.85rem">
+        <i class="bi bi-person-badge me-1"></i>VKL: {{ vkl }}
+      </span>
+      <span class="badge bg-light text-dark" style="font-size:.85rem">
+        <i class="bi bi-people me-1"></i>{{ rep_count.get(tid, 0) }} Reps
+      </span>
+    </span>
+  </div>
+
+  <div class="card-body">
+    <!-- KPI-Kacheln -->
+    <div class="row g-3 mb-4">
+      <!-- Besuche -->
+      {% set besuche = kpi.get('besuche', 0) %}
+      {% set p_besuche = prev.get('besuche', 0) if prev else None %}
+      <div class="col-6 col-md-3">
+        <div class="card text-center h-100" style="border:1px solid #dee2e6">
+          <div class="card-body py-3">
+            <div class="text-muted small mb-1"><i class="bi bi-person-check me-1"></i>Besuche</div>
+            <div style="font-size:2rem;font-weight:700;color:#1a3a5c">{{ besuche }}</div>
+            {% if p_besuche is not none %}
+              {% if besuche > p_besuche %}
+                <div class="text-success small"><i class="bi bi-arrow-up-short"></i>vs. Vorwoche</div>
+              {% elif besuche < p_besuche %}
+                <div class="text-danger small"><i class="bi bi-arrow-down-short"></i>vs. Vorwoche</div>
+              {% else %}
+                <div class="text-muted small">= Vorwoche</div>
+              {% endif %}
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      <!-- Displays -->
+      {% set displays = kpi.get('displays', 0) %}
+      {% set p_displays = prev.get('displays', 0) if prev else None %}
+      <div class="col-6 col-md-3">
+        <div class="card text-center h-100" style="border:1px solid #dee2e6">
+          <div class="card-body py-3">
+            <div class="text-muted small mb-1"><i class="bi bi-display me-1" style="color:#2e6da4"></i>Displays</div>
+            <div style="font-size:2rem;font-weight:700;color:#2e6da4">{{ displays }}</div>
+            {% if p_displays is not none %}
+              {% if displays > p_displays %}
+                <div class="text-success small"><i class="bi bi-arrow-up-short"></i>vs. Vorwoche</div>
+              {% elif displays < p_displays %}
+                <div class="text-danger small"><i class="bi bi-arrow-down-short"></i>vs. Vorwoche</div>
+              {% else %}
+                <div class="text-muted small">= Vorwoche</div>
+              {% endif %}
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      <!-- Kisten -->
+      {% set kisten = kpi.get('kisten', 0) %}
+      {% set p_kisten = prev.get('kisten', 0) if prev else None %}
+      <div class="col-6 col-md-3">
+        <div class="card text-center h-100" style="border:1px solid #dee2e6">
+          <div class="card-body py-3">
+            <div class="text-muted small mb-1"><i class="bi bi-box-seam me-1" style="color:#c8860a"></i>{{ unit_label }}</div>
+            <div style="font-size:2rem;font-weight:700;color:#c8860a">{{ kisten }}</div>
+            {% if p_kisten is not none %}
+              {% if kisten > p_kisten %}
+                <div class="text-success small"><i class="bi bi-arrow-up-short"></i>vs. Vorwoche</div>
+              {% elif kisten < p_kisten %}
+                <div class="text-danger small"><i class="bi bi-arrow-down-short"></i>vs. Vorwoche</div>
+              {% else %}
+                <div class="text-muted small">= Vorwoche</div>
+              {% endif %}
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      <!-- Bestellungen -->
+      {% set bestellungen = kpi.get('bestellungen', 0) %}
+      <div class="col-6 col-md-3">
+        <div class="card text-center h-100" style="border:1px solid #dee2e6">
+          <div class="card-body py-3">
+            <div class="text-muted small mb-1"><i class="bi bi-clipboard-check me-1" style="color:#2c7a7b"></i>Bestellungen</div>
+            <div style="font-size:2rem;font-weight:700;color:#2c7a7b">{{ bestellungen }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-3">
+      <!-- Rep-Ranking -->
+      <div class="col-md-6">
+        <div style="font-weight:600;color:#1a3a5c;margin-bottom:.5rem">
+          <i class="bi bi-trophy me-1"></i>Mitarbeiter-Ranking ({{ label }})
+        </div>
+        {% if ranking %}
+        <table class="table table-sm mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>#</th>
+              <th>Mitarbeiter</th>
+              <th class="text-center">Besuche</th>
+              <th class="text-center" style="color:#2e6da4">Disp.</th>
+              <th class="text-center" style="color:#c8860a">{{ unit_label }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for rep in ranking %}
+            <tr {% if loop.first %}style="background:#fffbf0;font-weight:600"{% endif %}>
+              <td>
+                {% if loop.index == 1 %}<i class="bi bi-trophy-fill text-warning"></i>
+                {% elif loop.index == 2 %}<span class="text-secondary">②</span>
+                {% elif loop.index == 3 %}<span class="text-danger">③</span>
+                {% else %}{{ loop.index }}{% endif %}
+              </td>
+              <td>
+                <span class="badge rounded-pill me-1" style="background:#1a3a5c;font-size:.7rem">{{ rep.kuerzel }}</span>
+                {{ rep.name }}
+              </td>
+              <td class="text-center">{{ rep.besuche or 0 }}</td>
+              <td class="text-center">{{ rep.displays or 0 }}</td>
+              <td class="text-center">{{ rep.kisten or 0 }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-muted small">Keine Aktivitäten im Zeitraum.</div>
+        {% endif %}
+      </div>
+
+      <!-- Jahreserreichung + Inaktive -->
+      <div class="col-md-6">
+        <!-- Jahreserreichung -->
+        <div style="font-weight:600;color:#1a3a5c;margin-bottom:.5rem">
+          <i class="bi bi-bullseye me-1"></i>Jahreserreichung {{ heute.year }}
+        </div>
+        {% set disp_ziel = jz.get('displays_ziel', 0) %}
+        {% set disp_ist  = ji.get('displays', 0) %}
+        {% set kist_ziel = jz.get('kisten_ziel', 0) %}
+        {% set kist_ist  = ji.get('kisten', 0) %}
+
+        {% if disp_ziel > 0 %}
+          {% set disp_pct = [(disp_ist / disp_ziel * 100)|round|int, 100]|min %}
+        {% else %}
+          {% set disp_pct = 0 %}
+        {% endif %}
+        {% if kist_ziel > 0 %}
+          {% set kist_pct = [(kist_ist / kist_ziel * 100)|round|int, 100]|min %}
+        {% else %}
+          {% set kist_pct = 0 %}
+        {% endif %}
+
+        <div class="mb-3">
+          <div class="d-flex justify-content-between small mb-1">
+            <span><i class="bi bi-display me-1" style="color:#2e6da4"></i>Displays</span>
+            <span>{{ disp_ist }} / {{ disp_ziel }}
+              {% if disp_ziel > 0 %}<span class="text-muted">({{ disp_pct }}%)</span>{% endif %}
+            </span>
+          </div>
+          <div class="progress" style="height:12px">
+            <div class="progress-bar {% if disp_pct >= 80 %}bg-success{% elif disp_pct >= 50 %}bg-warning{% else %}bg-danger{% endif %}"
+                 style="width:{{ disp_pct }}%"></div>
+          </div>
+          {% if disp_ziel == 0 %}<div class="text-muted small">Kein Ziel gesetzt</div>{% endif %}
+        </div>
+
+        <div class="mb-3">
+          <div class="d-flex justify-content-between small mb-1">
+            <span><i class="bi bi-box-seam me-1" style="color:#c8860a"></i>{{ unit_label }}</span>
+            <span>{{ kist_ist }} / {{ kist_ziel }}
+              {% if kist_ziel > 0 %}<span class="text-muted">({{ kist_pct }}%)</span>{% endif %}
+            </span>
+          </div>
+          <div class="progress" style="height:12px">
+            <div class="progress-bar {% if kist_pct >= 80 %}bg-success{% elif kist_pct >= 50 %}bg-warning{% else %}bg-danger{% endif %}"
+                 style="width:{{ kist_pct }}%;background-color:#c8860a!important"></div>
+          </div>
+          {% if kist_ziel == 0 %}<div class="text-muted small">Kein Ziel gesetzt</div>{% endif %}
+        </div>
+
+        <!-- Inaktive Reps -->
+        {% if inaktiv %}
+        <div class="alert alert-warning py-2 px-3 mb-0" style="font-size:.85rem">
+          <i class="bi bi-exclamation-triangle me-1"></i>
+          <strong>Keine Aktivität diese Woche:</strong>
+          {{ inaktiv|map(attribute='name')|join(', ') }}
+        </div>
+        {% else %}
+        <div class="alert alert-success py-2 px-3 mb-0" style="font-size:.85rem">
+          <i class="bi bi-check2-circle me-1"></i>Alle Mitarbeiter waren diese Woche aktiv.
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+{% endif %}
+{% endblock %}

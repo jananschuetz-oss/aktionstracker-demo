@@ -29,9 +29,11 @@
       </select>
       {% endif %}
     </form>
+    {% if is_manager %}
     <a href="{{ url_for('export_excel', jahr=jahr) }}" class="btn btn-success btn-sm">
       <i class="bi bi-file-earmark-excel me-1"></i>Excel Export
     </a>
+    {% endif %}
     <a href="{{ url_for('neue_aktivitaet') }}" class="btn btn-amber btn-sm">
       <i class="bi bi-plus-circle me-1"></i>Aktivität eintragen
     </a>

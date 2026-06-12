@@ -2380,7 +2380,7 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id: int = N
 # ─── Route: Excel Export ──────────────────────────────────────────────────────
 
 @app.route('/export/excel')
-@login_required
+@manager_required
 def export_excel():
     jahr     = request.args.get('jahr', date.today().year, type=int)
     is_admin = session.get('rolle') in ('admin', 'verkaufsleiter')
@@ -2442,35 +2442,37 @@ def admin():
 
 
 @app.route('/admin/mitarbeiter/neu', methods=['POST'])
-@admin_required
+@manager_required
 def admin_mitarbeiter_neu():
+    is_admin = session.get('rolle') == 'admin'
+    is_vkl   = session.get('rolle') == 'verkaufsleiter'
     name     = request.form.get('name',    '').strip()
     kuerzel  = request.form.get('kuerzel', '').strip().upper()
     passwort = request.form.get('passwort', DEFAULT_PASSWORD).strip()
     email    = request.form.get('email',   '').strip().lower() or None
     rolle    = request.form.get('rolle',   'rep').strip()
+    # VKL kann nur Reps anlegen, keine Rollenwahl
+    if is_vkl:
+        rolle = 'rep'
     if rolle not in ('rep', 'verkaufsleiter', 'admin'):
         rolle = 'rep'
+    redirect_target = url_for('admin') if is_admin else url_for('team_verwaltung')
     if name and kuerzel:
-        # MAX_MITARBEITER-Limit gilt nur für einfache Reps
         if rolle == 'rep' and MAX_MITARBEITER > 0:
-            anzahl = query(
-                "SELECT COUNT(*) AS n FROM mitarbeiter WHERE rolle='rep'", one=True
-            )['n']
+            anzahl = query("SELECT COUNT(*) AS n FROM mitarbeiter WHERE rolle='rep'", one=True)['n']
             if anzahl >= MAX_MITARBEITER:
-                flash(
-                    f'Ihr Plan erlaubt max. {MAX_MITARBEITER} Mitarbeiter. '
-                    f'Bitte kontaktieren Sie uns für ein Upgrade.',
-                    'danger'
-                )
-                return redirect(url_for('admin'))
-        execute(
+                flash(f'Ihr Plan erlaubt max. {MAX_MITARBEITER} Mitarbeiter. Bitte kontaktieren Sie uns für ein Upgrade.', 'danger')
+                return redirect(redirect_target)
+        new_id = execute(
             "INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, passwort, email, rolle, muss_passwort_aendern) VALUES (?,?,?,?,?,1)",
             (name, kuerzel, passwort, email, rolle)
         )
+        # VKL: neuen Rep direkt dem eigenen Team zuordnen
+        if is_vkl and session.get('team_id') and new_id:
+            execute("UPDATE mitarbeiter SET team_id=? WHERE id=?", (session['team_id'], new_id))
         rollen_label = {'rep': 'Mitarbeiter', 'verkaufsleiter': 'Verkaufsleiter', 'admin': 'Leitung'}.get(rolle, rolle)
         flash(f'{rollen_label} „{name}" angelegt.', 'success')
-    return redirect(url_for('admin'))
+    return redirect(redirect_target)
 
 
 @app.route('/admin/mitarbeiter/<int:ma_id>/email', methods=['POST'])
@@ -2589,19 +2591,27 @@ def admin_mitarbeiter_loeschen(ma_id):
 
 
 @app.route('/admin/mitarbeiter/<int:ma_id>/passwort', methods=['POST'])
-@admin_required
+@manager_required
 def admin_mitarbeiter_passwort(ma_id):
+    is_admin = session.get('rolle') == 'admin'
+    is_vkl   = session.get('rolle') == 'verkaufsleiter'
+    redirect_target = url_for('admin') if is_admin else url_for('team_verwaltung')
     ma = query("SELECT * FROM mitarbeiter WHERE id=?", (ma_id,), one=True)
     if not ma:
         flash('Mitarbeiter nicht gefunden.', 'danger')
-        return redirect(url_for('admin'))
+        return redirect(redirect_target)
+    # VKL: nur Reps im eigenen Team
+    if is_vkl:
+        if ma['rolle'] != 'rep' or ma['team_id'] != session.get('team_id'):
+            flash('Keine Berechtigung für diesen Mitarbeiter.', 'danger')
+            return redirect(redirect_target)
     neues_pw = request.form.get('passwort', '').strip()
     if len(neues_pw) < 4:
         flash('Passwort muss mindestens 4 Zeichen haben.', 'danger')
-        return redirect(url_for('admin'))
+        return redirect(redirect_target)
     execute("UPDATE mitarbeiter SET passwort=? WHERE id=?", (neues_pw, ma_id))
     flash(f'Passwort für „{ma["name"]}" wurde geändert.', 'success')
-    return redirect(url_for('admin'))
+    return redirect(redirect_target)
 
 
 @app.route('/admin/team/neu', methods=['POST'])
@@ -2674,22 +2684,30 @@ def profil_passwort():
 @app.route('/admin/vertretung/neu', methods=['POST'])
 @manager_required
 def admin_vertretung_neu():
+    is_admin      = session.get('rolle') == 'admin'
+    _redir        = url_for('admin') if is_admin else url_for('team_verwaltung')
     abwesender_id = request.form.get('abwesender_id', type=int)
     vertreter_id  = request.form.get('vertreter_id',  type=int)
     von           = request.form.get('von', '').strip()
     bis           = request.form.get('bis', '').strip()
     if not all([abwesender_id, vertreter_id, von, bis]):
         flash('Alle Felder sind Pflichtfelder.', 'danger')
-        return redirect(url_for('admin'))
+        return redirect(_redir)
     if abwesender_id == vertreter_id:
         flash('Abwesender und Vertreter dürfen nicht dieselbe Person sein.', 'danger')
-        return redirect(url_for('admin'))
+        return redirect(_redir)
+    # VKL: nur Reps im eigenen Team als abwesend eintragen
+    if not is_admin and session.get('team_id'):
+        ma = query("SELECT team_id, rolle FROM mitarbeiter WHERE id=?", (abwesender_id,), one=True)
+        if not ma or ma['team_id'] != session.get('team_id'):
+            flash('Keine Berechtigung für diesen Mitarbeiter.', 'danger')
+            return redirect(_redir)
     execute(
         "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis) VALUES (?,?,?,?)",
         (abwesender_id, vertreter_id, von, bis)
     )
     flash('Vertretungsregelung gespeichert.', 'success')
-    return redirect(url_for('admin'))
+    return redirect(_redir)
 
 
 @app.route('/admin/vertretung/<int:vtr_id>/loeschen', methods=['POST'])
@@ -2697,7 +2715,8 @@ def admin_vertretung_neu():
 def admin_vertretung_loeschen(vtr_id):
     execute("DELETE FROM vertretung WHERE id=?", (vtr_id,))
     flash('Vertretungsregelung gelöscht.', 'success')
-    return redirect(url_for('admin'))
+    is_admin = session.get('rolle') == 'admin'
+    return redirect(url_for('admin') if is_admin else url_for('team_verwaltung'))
 
 
 @app.route('/profil/vertretung/neu', methods=['POST'])
@@ -2733,7 +2752,7 @@ def profil_vertretung_loeschen(vtr_id):
 
 
 @app.route('/admin/verkaufsstelle/neu', methods=['POST'])
-@admin_required
+@manager_required
 def admin_vs_neu():
     name             = request.form.get('name',             '').strip()
     strasse          = request.form.get('strasse',          '').strip()
@@ -2754,7 +2773,8 @@ def admin_vs_neu():
                 flash(f'Verkaufsstelle "{name}" angelegt. Koordinaten konnten nicht automatisch ermittelt werden – bitte "Koordinaten ermitteln" auf der Karte nutzen.', 'warning')
         else:
             flash(f'Verkaufsstelle "{name}" angelegt.', 'success')
-    return redirect(url_for('admin'))
+    is_admin = session.get('rolle') == 'admin'
+    return redirect(url_for('admin') if is_admin else url_for('team_verwaltung'))
 
 
 @app.route('/admin/verkaufsstelle/<int:vs_id>/bearbeiten', methods=['POST'])
@@ -3339,6 +3359,171 @@ def zielzahlen():
     return render_template('zielzahlen.html',
         reps=reps, ziele=ziele, teamziel=teamziel,
         jahr=jahr, alle_jahre=alle_jahre)
+
+
+# ─── Team-Verwaltung (VKL+) ──────────────────────────────────────────────────
+
+@app.route('/team-verwaltung')
+@manager_required
+def team_verwaltung():
+    is_admin = session.get('rolle') == 'admin'
+    is_vkl   = session.get('rolle') == 'verkaufsleiter'
+
+    _t_sql, _t_p = _team_m_clause('m')
+    reps = query(
+        f"SELECT m.id, m.name, m.kuerzel, m.email, m.rolle FROM mitarbeiter m "
+        f"WHERE m.rolle IN ('rep','verkaufsleiter'){_t_sql} ORDER BY m.name",
+        _t_p
+    )
+
+    # Vertretungen des eigenen Teams
+    if is_vkl and session.get('team_id'):
+        vertretungen = query("""
+            SELECT v.id, v.von, v.bis, ab.name AS abwesender, vtr.name AS vertreter
+            FROM vertretung v
+            JOIN mitarbeiter ab  ON ab.id  = v.abwesender_id
+            JOIN mitarbeiter vtr ON vtr.id = v.vertreter_id
+            WHERE ab.team_id = ?
+            ORDER BY v.bis DESC
+        """, (session['team_id'],))
+    else:
+        vertretungen = query("""
+            SELECT v.id, v.von, v.bis, ab.name AS abwesender, vtr.name AS vertreter
+            FROM vertretung v
+            JOIN mitarbeiter ab  ON ab.id  = v.abwesender_id
+            JOIN mitarbeiter vtr ON vtr.id = v.vertreter_id
+            ORDER BY v.bis DESC
+        """)
+
+    return render_template('team_verwaltung.html',
+        reps=reps, vertretungen=vertretungen,
+        is_admin=is_admin, is_vkl=is_vkl)
+
+
+# ─── Team-Vergleich (Admin) ───────────────────────────────────────────────────
+
+@app.route('/team-vergleich')
+@admin_required
+def team_vergleich():
+    periode = request.args.get('periode', 'woche')
+    heute   = date.today()
+
+    if periode == 'monat':
+        start = heute.replace(day=1)
+        end   = heute
+        label = heute.strftime('%B %Y')
+    elif periode == 'jahr':
+        start = heute.replace(month=1, day=1)
+        end   = heute
+        label = str(heute.year)
+    else:  # woche (default)
+        start  = heute - timedelta(days=heute.weekday())
+        end    = heute
+        label  = f'KW {heute.isocalendar()[1]:02d} · {heute.year}'
+        periode = 'woche'
+
+    BP       = "(SELECT aktivitaet_id, SUM(kisten_anzahl) AS kisten_total FROM bestellposition GROUP BY aktivitaet_id)"
+    DISP_IST = "SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.anzahl_displays ELSE 0 END)"
+    KIST_IST = "COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN b.kisten_total ELSE 0 END), 0)"
+
+    teams = query("SELECT id, name FROM team ORDER BY name")
+
+    team_kpis    = {}
+    prev_kpis    = {}
+    rep_ranking  = {}
+    jahres_ziele = {}
+    jahres_ist   = {}
+    inaktiv_per  = {}
+    vkl_per_team = {}
+    rep_count    = {}
+
+    mo_kw = heute - timedelta(days=heute.weekday())
+
+    for team in teams:
+        tid = team['id']
+
+        kpi = query(f"""
+            SELECT {DISP_IST} AS displays, {KIST_IST} AS kisten, COUNT(a.id) AS besuche
+            FROM aktivitaet a
+            LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
+            WHERE a.datum BETWEEN ? AND ?
+              AND a.mitarbeiter_id IN (SELECT id FROM mitarbeiter WHERE team_id=? AND rolle='rep')
+        """, (start.isoformat(), end.isoformat(), tid), one=True)
+
+        bestell = query("""
+            SELECT COUNT(*) AS n FROM aktivitaet
+            WHERE aktionstyp='Bestellung' AND datum BETWEEN ? AND ?
+              AND mitarbeiter_id IN (SELECT id FROM mitarbeiter WHERE team_id=? AND rolle='rep')
+        """, (start.isoformat(), end.isoformat(), tid), one=True)
+
+        team_kpis[tid] = {
+            'displays':    (kpi['displays']  or 0) if kpi else 0,
+            'kisten':      (kpi['kisten']    or 0) if kpi else 0,
+            'besuche':     (kpi['besuche']   or 0) if kpi else 0,
+            'bestellungen': bestell['n'] if bestell else 0,
+        }
+
+        if periode == 'woche':
+            p_start = start - timedelta(days=7)
+            p_end   = end   - timedelta(days=7)
+            prev = query(f"""
+                SELECT {DISP_IST} AS displays, {KIST_IST} AS kisten, COUNT(a.id) AS besuche
+                FROM aktivitaet a LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
+                WHERE a.datum BETWEEN ? AND ?
+                  AND a.mitarbeiter_id IN (SELECT id FROM mitarbeiter WHERE team_id=? AND rolle='rep')
+            """, (p_start.isoformat(), p_end.isoformat(), tid), one=True)
+            prev_kpis[tid] = {'displays': (prev['displays'] or 0) if prev else 0,
+                              'kisten':   (prev['kisten']   or 0) if prev else 0,
+                              'besuche':  (prev['besuche']  or 0) if prev else 0}
+
+        ranking = query(f"""
+            SELECT m.id, m.name, m.kuerzel,
+                   {DISP_IST} AS displays, {KIST_IST} AS kisten, COUNT(a.id) AS besuche
+            FROM mitarbeiter m
+            LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
+            LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
+            WHERE m.team_id=? AND m.rolle='rep'
+            GROUP BY m.id ORDER BY besuche DESC, kisten DESC
+        """, (start.isoformat(), end.isoformat(), tid))
+        rep_ranking[tid] = ranking
+        rep_count[tid]   = len(ranking)
+
+        vkl = query("SELECT name FROM mitarbeiter WHERE team_id=? AND rolle='verkaufsleiter' LIMIT 1", (tid,), one=True)
+        vkl_per_team[tid] = vkl['name'] if vkl else '—'
+
+        ziel = query("""
+            SELECT SUM(z.displays_ziel) AS d, SUM(z.kisten_ziel) AS k
+            FROM zielzahlen z JOIN mitarbeiter m ON m.id=z.mitarbeiter_id
+            WHERE m.team_id=? AND z.jahr=?
+        """, (tid, str(heute.year)), one=True)
+        jahres_ziele[tid] = {'displays_ziel': (ziel['d'] or 0) if ziel else 0,
+                             'kisten_ziel':   (ziel['k'] or 0) if ziel else 0}
+
+        ist = query(f"""
+            SELECT {DISP_IST} AS displays, {KIST_IST} AS kisten
+            FROM aktivitaet a LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
+            WHERE strftime('%Y', a.datum)=?
+              AND a.mitarbeiter_id IN (SELECT id FROM mitarbeiter WHERE team_id=? AND rolle='rep')
+        """, (str(heute.year), tid), one=True)
+        jahres_ist[tid] = {'displays': (ist['displays'] or 0) if ist else 0,
+                           'kisten':   (ist['kisten']   or 0) if ist else 0}
+
+        inaktiv = query("""
+            SELECT m.id, m.name, m.kuerzel FROM mitarbeiter m
+            WHERE m.team_id=? AND m.rolle='rep'
+              AND m.id NOT IN (SELECT DISTINCT mitarbeiter_id FROM aktivitaet WHERE datum>=?)
+              AND m.id NOT IN (SELECT abwesender_id FROM vertretung WHERE von<=? AND bis>=?)
+            ORDER BY m.name
+        """, (tid, mo_kw.isoformat(), heute.isoformat(), heute.isoformat()))
+        inaktiv_per[tid] = inaktiv
+
+    return render_template('team_vergleich.html',
+        teams=teams, team_kpis=team_kpis, prev_kpis=prev_kpis,
+        rep_ranking=rep_ranking, rep_count=rep_count,
+        vkl_per_team=vkl_per_team,
+        jahres_ziele=jahres_ziele, jahres_ist=jahres_ist,
+        inaktiv_per=inaktiv_per,
+        periode=periode, label=label, heute=heute)
 
 
 # ─── PWA ─────────────────────────────────────────────────────────────────────

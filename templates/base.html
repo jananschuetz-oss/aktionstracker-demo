@@ -267,6 +267,11 @@
                    href="{{ url_for('einstellungen_wochenbericht') }}">
               <i class="bi bi-envelope-at me-2"></i>Wochenbericht
             </a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item {% if request.endpoint == 'team_verwaltung' %}active{% endif %}"
+                   href="{{ url_for('team_verwaltung') }}">
+              <i class="bi bi-people-fill me-2"></i>Team-Verwaltung
+            </a></li>
             {% if karte_modus != 'aus' %}
             <li><hr class="dropdown-divider"></li>
             <li><a class="dropdown-item {% if request.endpoint == 'karte' %}active{% endif %}"
@@ -283,6 +288,10 @@
         </li>
         {% endif %}
         {% if session.rolle == 'admin' %}
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'team_vergleich' %}active{% endif %}"
+             href="{{ url_for('team_vergleich') }}"><i class="bi bi-bar-chart-steps"></i>Team-Vergleich</a>
+        </li>
         <li class="nav-item">
           <a class="nav-link" href="{{ url_for('admin') }}"><i class="bi bi-gear"></i>Admin</a>
         </li>

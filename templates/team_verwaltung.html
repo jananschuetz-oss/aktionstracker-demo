@@ -1,0 +1,241 @@
+{% extends 'base.html' %}
+{% block title %}Team-Verwaltung – Aktions Tracker – {{ company_short }}{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div>
+    <h1><i class="bi bi-people-fill me-2"></i>Team-Verwaltung</h1>
+    <p>Mitarbeiter anlegen, Passwörter setzen und Vertretungen verwalten</p>
+  </div>
+  {% if is_admin %}
+  <a href="{{ url_for('admin') }}" class="btn btn-outline-light btn-sm">
+    <i class="bi bi-arrow-left me-1"></i>Zurück zu Admin
+  </a>
+  {% endif %}
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for cat, msg in messages %}
+  <div class="alert alert-{{ 'success' if cat == 'success' else 'danger' }} alert-dismissible fade show" role="alert">
+    {{ msg }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  </div>
+  {% endfor %}
+{% endwith %}
+
+<!-- Mitarbeiter-Liste + Neu anlegen -->
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-person-badge me-2"></i>Mein Team
+      <span class="badge bg-secondary ms-1">{{ reps|length }}</span>
+    </span>
+    <button class="btn btn-sm btn-primary" data-bs-toggle="collapse" data-bs-target="#formNeu">
+      <i class="bi bi-plus-lg me-1"></i>Neuer Mitarbeiter
+    </button>
+  </div>
+
+  <!-- Formular Neuer Mitarbeiter -->
+  <div class="collapse" id="formNeu">
+    <div class="card-body border-bottom" style="background:#f8fafc">
+      <form method="POST" action="{{ url_for('admin_mitarbeiter_neu') }}">
+        <div class="row g-3 align-items-end">
+          <div class="col-sm-4">
+            <label class="form-label fw-semibold">Name</label>
+            <input type="text" name="name" class="form-control" placeholder="Max Mustermann" required>
+          </div>
+          <div class="col-sm-2">
+            <label class="form-label fw-semibold">Kürzel</label>
+            <input type="text" name="kuerzel" class="form-control text-uppercase" placeholder="MM" maxlength="5" required>
+          </div>
+          <div class="col-sm-3">
+            <label class="form-label fw-semibold">E-Mail <span class="text-muted small">(optional)</span></label>
+            <input type="email" name="email" class="form-control" placeholder="m.mustermann@firma.de">
+          </div>
+          <div class="col-sm-2">
+            <label class="form-label fw-semibold">Passwort</label>
+            <input type="text" name="passwort" class="form-control" placeholder="Startpasswort">
+          </div>
+          {% if is_admin %}
+          <div class="col-sm-2">
+            <label class="form-label fw-semibold">Rolle</label>
+            <select name="rolle" class="form-select">
+              <option value="rep">Außendienst</option>
+              <option value="verkaufsleiter">Verkaufsleiter</option>
+              <option value="admin">Leitung</option>
+            </select>
+          </div>
+          {% endif %}
+          <div class="col-sm-2">
+            <button type="submit" class="btn btn-success w-100">
+              <i class="bi bi-person-plus me-1"></i>Anlegen
+            </button>
+          </div>
+        </div>
+        <p class="text-muted small mt-2 mb-0">
+          <i class="bi bi-info-circle me-1"></i>Der Mitarbeiter wird beim ersten Login aufgefordert, sein Passwort zu ändern.
+          {% if is_vkl %}Er wird automatisch Ihrem Team zugewiesen.{% endif %}
+        </p>
+      </form>
+    </div>
+  </div>
+
+  <!-- Tabelle bestehender Mitarbeiter -->
+  <div class="card-body p-0">
+    {% if reps %}
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Mitarbeiter</th>
+          <th>E-Mail</th>
+          <th>Rolle</th>
+          <th class="text-end">Aktionen</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ma in reps %}
+        <tr>
+          <td class="align-middle">
+            <span class="badge rounded-pill me-2" style="background:#1a3a5c">{{ ma.kuerzel }}</span>
+            <span class="fw-semibold">{{ ma.name }}</span>
+          </td>
+          <td class="align-middle text-muted small">{{ ma.email or '—' }}</td>
+          <td class="align-middle">
+            {% if ma.rolle == 'admin' %}
+              <span class="badge" style="background:var(--brand-amber,#c8860a)">Leitung</span>
+            {% elif ma.rolle == 'verkaufsleiter' %}
+              <span class="badge bg-info text-dark">VKL</span>
+            {% else %}
+              <span class="badge bg-secondary">Außendienst</span>
+            {% endif %}
+          </td>
+          <td class="text-end align-middle">
+            <button class="btn btn-sm btn-outline-secondary"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#pw-{{ ma.id }}">
+              <i class="bi bi-key me-1"></i>Passwort
+            </button>
+          </td>
+        </tr>
+        <!-- Passwort-Formular (inline collapse) -->
+        <tr class="collapse" id="pw-{{ ma.id }}">
+          <td colspan="4" style="background:#f8fafc;padding:.75rem 1rem">
+            <form method="POST" action="{{ url_for('admin_mitarbeiter_passwort', ma_id=ma.id) }}"
+                  class="d-flex gap-2 align-items-center flex-wrap">
+              <span class="fw-semibold">Neues Passwort für {{ ma.name }}:</span>
+              <input type="text" name="passwort" class="form-control form-control-sm" style="max-width:220px"
+                     placeholder="Mindestens 4 Zeichen" required minlength="4">
+              <button type="submit" class="btn btn-sm btn-warning">
+                <i class="bi bi-check2 me-1"></i>Setzen
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="text-center py-5 text-muted">
+      <i class="bi bi-people display-4"></i>
+      <p class="mt-2">Noch keine Mitarbeiter im Team.<br>Legen Sie den ersten an.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Vertretungen -->
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-person-lines-fill me-2"></i>Vertretungsregelungen</span>
+    <button class="btn btn-sm btn-primary" data-bs-toggle="collapse" data-bs-target="#formVertretung">
+      <i class="bi bi-plus-lg me-1"></i>Neue Vertretung
+    </button>
+  </div>
+
+  <!-- Formular Neue Vertretung -->
+  <div class="collapse" id="formVertretung">
+    <div class="card-body border-bottom" style="background:#f8fafc">
+      <form method="POST" action="{{ url_for('admin_vertretung_neu') }}">
+        <div class="row g-3 align-items-end">
+          <div class="col-sm-3">
+            <label class="form-label fw-semibold">Abwesende(r)</label>
+            <select name="abwesender_id" class="form-select" required>
+              <option value="">— bitte wählen —</option>
+              {% for ma in reps %}
+              <option value="{{ ma.id }}">{{ ma.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-sm-3">
+            <label class="form-label fw-semibold">Vertreter/in</label>
+            <select name="vertreter_id" class="form-select" required>
+              <option value="">— bitte wählen —</option>
+              {% for ma in reps %}
+              <option value="{{ ma.id }}">{{ ma.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-sm-2">
+            <label class="form-label fw-semibold">Von</label>
+            <input type="date" name="von" class="form-control" required>
+          </div>
+          <div class="col-sm-2">
+            <label class="form-label fw-semibold">Bis</label>
+            <input type="date" name="bis" class="form-control" required>
+          </div>
+          <div class="col-sm-2">
+            <button type="submit" class="btn btn-success w-100">
+              <i class="bi bi-check2 me-1"></i>Speichern
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card-body p-0">
+    {% if vertretungen %}
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Abwesend</th>
+          <th>Vertreten durch</th>
+          <th>Zeitraum</th>
+          <th class="text-end">Aktion</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for vtr in vertretungen %}
+        {% set today = heute.isoformat() if heute is defined else '' %}
+        <tr class="{% if vtr.bis < today %}text-muted{% endif %}">
+          <td class="align-middle fw-semibold">{{ vtr.abwesender }}</td>
+          <td class="align-middle">{{ vtr.vertreter }}</td>
+          <td class="align-middle small">
+            {{ vtr.von }} – {{ vtr.bis }}
+            {% if vtr.bis >= today and vtr.von <= today %}
+              <span class="badge bg-success ms-1">aktiv</span>
+            {% elif vtr.bis < today %}
+              <span class="badge bg-secondary ms-1">abgelaufen</span>
+            {% else %}
+              <span class="badge bg-warning text-dark ms-1">geplant</span>
+            {% endif %}
+          </td>
+          <td class="text-end align-middle">
+            <form method="POST" action="{{ url_for('admin_vertretung_loeschen', vtr_id=vtr.id) }}"
+                  onsubmit="return confirm('Vertretung löschen?')">
+              <button type="submit" class="btn btn-sm btn-outline-danger">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="text-center py-4 text-muted">
+      <i class="bi bi-calendar-x display-5"></i>
+      <p class="mt-2 mb-0">Keine Vertretungsregelungen vorhanden.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
