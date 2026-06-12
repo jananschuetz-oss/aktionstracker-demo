@@ -1339,6 +1339,23 @@ def dashboard():
     bier_namen = [r['name'] for r in top_bier]
     bier_kist  = [r['kisten'] for r in top_bier]
 
+    # Zielzahlen für Fortschrittsanzeige im Dashboard
+    if is_manager and not ma_filter:
+        ziel = query(
+            "SELECT displays_ziel, kisten_ziel FROM zielzahlen WHERE mitarbeiter_id IS NULL AND jahr=?",
+            (str(jahr),), one=True
+        )
+    elif is_manager and ma_filter:
+        ziel = query(
+            "SELECT displays_ziel, kisten_ziel FROM zielzahlen WHERE mitarbeiter_id=? AND jahr=?",
+            (int(ma_filter), str(jahr)), one=True
+        )
+    else:
+        ziel = query(
+            "SELECT displays_ziel, kisten_ziel FROM zielzahlen WHERE mitarbeiter_id=? AND jahr=?",
+            (session['user_id'], str(jahr)), one=True
+        )
+
     return render_template('dashboard.html',
         jahr=jahr, kw_data=kw_data, jahres=jahres,
         rep_stats=rep_stats, letzte=letzte,
@@ -1356,6 +1373,7 @@ def dashboard():
         p_aufgebaut=p_aufgebaut,
         p_storniert=p_storniert,
         p_ueberfaellig=p_ueberfaellig,
+        ziel=ziel,
     )
 
 
@@ -1938,8 +1956,8 @@ def aktivitaet_loeschen(akt_id):
         flash('Aktivität nicht gefunden.', 'danger')
         return redirect(url_for('aktivitaeten_liste'))
 
-    if session.get('rolle') != 'admin' and a['mitarbeiter_id'] != session['user_id']:
-        flash('Keine Berechtigung.', 'danger')
+    if session.get('rolle') != 'admin':
+        flash('Keine Berechtigung. Aktivitäten können nur vom Admin gelöscht werden.', 'danger')
         return redirect(url_for('aktivitaeten_liste'))
 
     # Foto-Datei mitlöschen
@@ -3417,6 +3435,38 @@ def _do_send_wochenbericht(force=False):
                 one=True
             )
 
+            ue_rows = query(
+                "SELECT v.name AS station, m.name AS rep, a.datum, "
+                "CAST(julianday('now') - julianday(a.datum) AS INTEGER) AS tage "
+                "FROM aktivitaet a "
+                "JOIN mitarbeiter m ON m.id=a.mitarbeiter_id "
+                "JOIN verkaufsstelle v ON v.id=a.verkaufsstelle_id "
+                "WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen' "
+                "AND julianday('now') - julianday(a.datum) > 28 "
+                "ORDER BY tage DESC LIMIT 10"
+            )
+            if ue_rows:
+                ue_trs = ''.join(f'''
+                  <tr>
+                    <td style="padding:7px 16px;border-bottom:1px solid #f0e8d0;font-size:12px;font-weight:600">{u["station"]}</td>
+                    <td style="padding:7px 8px;border-bottom:1px solid #f0e8d0;font-size:12px;color:#666">{u["rep"]}</td>
+                    <td style="padding:7px 16px;border-bottom:1px solid #f0e8d0;font-size:12px;text-align:right">
+                      <span style="background:#fdecc8;color:#8a5a00;padding:2px 8px;border-radius:4px">{u["tage"]} Tage</span>
+                    </td>
+                  </tr>''' for u in ue_rows)
+                ueberfaellig_html = f'''
+  <div style="padding:0 32px 20px">
+    <div style="background:#fff8f0;border:1px solid #f0c674;border-radius:8px;overflow:hidden">
+      <div style="background:#fdecc8;padding:10px 16px;font-size:13px;font-weight:bold;color:#8a5a00">
+        &#9888; &Uuml;berf&auml;llig &ndash; Bestellungen offen seit &uuml;ber 4 Wochen ({len(ue_rows)})
+      </div>
+      <table width="100%" cellpadding="0" cellspacing="0">{ue_trs}
+      </table>
+    </div>
+  </div>'''
+            else:
+                ueberfaellig_html = ''
+
             def trend_str(neu, alt):
                 diff = neu - alt
                 if diff > 0: return f'+{diff}'
@@ -3491,6 +3541,8 @@ def _do_send_wochenbericht(force=False):
       <span style="color:#6c757d;font-weight:bold">{pipeline["storniert"]}</span><span style="color:#777"> storniert</span>
     </span>
   </div>
+
+  {ueberfaellig_html}
 
   <div style="padding:24px 32px">
     <div style="font-size:15px;font-weight:bold;color:#1a3a5c;margin-bottom:12px">Mitarbeiter diese Woche</div>
@@ -3804,6 +3856,38 @@ def wochenbericht_vorschau():
         one=True
     )
 
+    ue_rows_v = query(
+        "SELECT v.name AS station, m.name AS rep, a.datum, "
+        "CAST(julianday('now') - julianday(a.datum) AS INTEGER) AS tage "
+        "FROM aktivitaet a "
+        "JOIN mitarbeiter m ON m.id=a.mitarbeiter_id "
+        "JOIN verkaufsstelle v ON v.id=a.verkaufsstelle_id "
+        "WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen' "
+        "AND julianday('now') - julianday(a.datum) > 28 "
+        "ORDER BY tage DESC LIMIT 10"
+    )
+    if ue_rows_v:
+        ue_trs_v = ''.join(f'''
+          <tr>
+            <td style="padding:7px 16px;border-bottom:1px solid #f0e8d0;font-size:12px;font-weight:600">{u["station"]}</td>
+            <td style="padding:7px 8px;border-bottom:1px solid #f0e8d0;font-size:12px;color:#666">{u["rep"]}</td>
+            <td style="padding:7px 16px;border-bottom:1px solid #f0e8d0;font-size:12px;text-align:right">
+              <span style="background:#fdecc8;color:#8a5a00;padding:2px 8px;border-radius:4px">{u["tage"]} Tage</span>
+            </td>
+          </tr>''' for u in ue_rows_v)
+        ueberfaellig_html_v = f'''
+  <div style="padding:0 32px 20px">
+    <div style="background:#fff8f0;border:1px solid #f0c674;border-radius:8px;overflow:hidden">
+      <div style="background:#fdecc8;padding:10px 16px;font-size:13px;font-weight:bold;color:#8a5a00">
+        &#9888; &Uuml;berf&auml;llig &ndash; Bestellungen offen seit &uuml;ber 4 Wochen ({len(ue_rows_v)})
+      </div>
+      <table width="100%" cellpadding="0" cellspacing="0">{ue_trs_v}
+      </table>
+    </div>
+  </div>'''
+    else:
+        ueberfaellig_html_v = ''
+
     def trend_str(neu, alt):
         d = neu - alt
         return f'+{d}' if d > 0 else (str(d) if d < 0 else '±0')
@@ -3875,6 +3959,7 @@ def wochenbericht_vorschau():
       <span style="color:#6c757d;font-weight:bold">{pipeline["storniert"]}</span><span style="color:#777"> storniert</span>
     </span>
   </div>
+{ueberfaellig_html_v}
   <div style="padding:24px 32px">
     <div style="font-size:15px;font-weight:bold;color:#1a3a5c;margin-bottom:12px">Mitarbeiter diese Woche</div>
     <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e4eaf0;border-radius:8px;overflow:hidden">

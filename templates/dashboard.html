@@ -83,6 +83,48 @@
   </div>
 </div>
 
+<!-- Jahreszielerreichung -->
+{% if ziel and (ziel.displays_ziel or ziel.kisten_ziel) %}
+<div class="card mb-4">
+  <div class="card-body py-3">
+    <div class="fw-semibold mb-3" style="color:#1a3a5c;font-size:.9rem">
+      <i class="bi bi-bullseye me-1"></i>Jahreserreichung {{ jahr }}
+      {% if is_manager and not ma_filter %}<span class="text-muted fw-normal">(Teamziel)</span>{% endif %}
+    </div>
+    {% if ziel.displays_ziel %}
+      {% set disp_raw = ((jahres.displays or 0) / ziel.displays_ziel * 100) | int %}
+      {% set disp_pct = [disp_raw, 100] | min %}
+      <div class="mb-3">
+        <div class="d-flex justify-content-between small mb-1">
+          <span style="color:#1a3a5c"><i class="bi bi-display me-1"></i>Displays</span>
+          <span class="text-muted">{{ jahres.displays or 0 }} / {{ ziel.displays_ziel }}
+            <strong class="ms-1" style="color:{% if disp_pct >= 100 %}#27ae60{% elif disp_pct >= 75 %}#c8860a{% else %}#c0392b{% endif %}">{{ disp_pct }}%</strong>
+          </span>
+        </div>
+        <div class="progress" style="height:10px;border-radius:6px">
+          <div class="progress-bar" style="width:{{ disp_pct }}%;background:{% if disp_pct >= 100 %}#27ae60{% elif disp_pct >= 75 %}#c8860a{% else %}#2e6da4{% endif %};border-radius:6px"></div>
+        </div>
+      </div>
+    {% endif %}
+    {% if ziel.kisten_ziel %}
+      {% set kist_raw = ((jahres.kisten or 0) / ziel.kisten_ziel * 100) | int %}
+      {% set kist_pct = [kist_raw, 100] | min %}
+      <div>
+        <div class="d-flex justify-content-between small mb-1">
+          <span style="color:#c8860a"><i class="bi bi-box-seam me-1"></i>{{ unit_label }}</span>
+          <span class="text-muted">{{ jahres.kisten or 0 }} / {{ ziel.kisten_ziel }}
+            <strong class="ms-1" style="color:{% if kist_pct >= 100 %}#27ae60{% elif kist_pct >= 75 %}#c8860a{% else %}#c0392b{% endif %}">{{ kist_pct }}%</strong>
+          </span>
+        </div>
+        <div class="progress" style="height:10px;border-radius:6px">
+          <div class="progress-bar" style="width:{{ kist_pct }}%;background:{% if kist_pct >= 100 %}#27ae60{% else %}#c8860a{% endif %};border-radius:6px"></div>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
 <!-- KONZEPT-V2: Pipeline-Teaser (Manager) / Hinweis (Rep) -->
 {% if is_manager %}
 <div class="mb-4">
