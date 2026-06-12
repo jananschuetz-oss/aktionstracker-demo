@@ -3227,7 +3227,7 @@ def zielzahlen():
     ziele = {r['mitarbeiter_id']: dict(r) for r in ziele_raw}
     teamziel = ziele.get(None)
 
-    alle_jahre = list(range(date.today().year, date.today().year - 3, -1))
+    alle_jahre = list(range(date.today().year, date.today().year + 3))
 
     return render_template('zielzahlen.html',
         reps=reps, ziele=ziele, teamziel=teamziel,
