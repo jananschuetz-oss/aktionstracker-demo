@@ -454,7 +454,9 @@ def init_db():
         db.execute("UPDATE mitarbeiter SET passwort=? WHERE kuerzel='ADMIN'", (ADMIN_PASSWORD,))
         # Demo Leitung (Login: Demo) – einziger Demo-GF-Zugang für Interessenten
         db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Demo Leitung', 'Demo', 'admin', ?)", (os.environ.get('DEMO_PASSWORT', 'demo2026'),))
+        db.execute("UPDATE mitarbeiter SET passwort=? WHERE kuerzel='Demo'", (os.environ.get('DEMO_PASSWORT', 'demo2026'),))
         db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Verkaufsleiter', 'VKL', 'verkaufsleiter', ?)", (DEFAULT_PASSWORD,))
+        db.execute("UPDATE mitarbeiter SET passwort=? WHERE kuerzel='VKL'", (DEFAULT_PASSWORD,))
 
         # Beispiel-Mitarbeiter (nur bei INIT_DEMO_USERS=true)
         if os.environ.get('INIT_DEMO_USERS', 'true').lower() == 'true':
@@ -467,6 +469,7 @@ def init_db():
             ]
             for name, kuerzel, pw in reps:
                 db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, passwort) VALUES (?, ?, ?)", (name, kuerzel, pw))
+                db.execute("UPDATE mitarbeiter SET passwort=? WHERE kuerzel=?", (pw, kuerzel))
 
         # Displaysorten – nur einfügen wenn Tabelle leer
         if not db.execute("SELECT 1 FROM displaysorte LIMIT 1").fetchone():
