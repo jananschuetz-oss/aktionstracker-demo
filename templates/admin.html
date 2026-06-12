@@ -55,7 +55,7 @@
                 {% elif m.rolle == 'verkaufsleiter' %}
                   <span class="badge bg-primary">VKL</span>
                 {% else %}
-                  <span class="badge bg-secondary">Rep</span>
+                  <span class="badge bg-secondary">Mitarbeiter</span>
                 {% endif %}
                 {% if m.id != session.user_id %}
                 <button class="btn btn-link btn-sm p-0 ms-1 text-muted"
@@ -564,7 +564,7 @@
     <p class="small text-muted mb-3">
       <i class="bi bi-info-circle me-1"></i>
       Teams ermöglichen mehrere Verkaufsleiter mit getrennten Außendienst-Gebieten.
-      Jeder VKL sieht nur die Reps seines Teams. Ohne Team-Zuweisung sieht ein VKL alle Mitarbeiter.
+      Jeder VKL sieht nur die Mitarbeiter seines Teams. Ohne Team-Zuweisung sieht ein VKL alle Mitarbeiter.
     </p>
 
     {% if teams %}
@@ -986,7 +986,7 @@ document.getElementById('modalVSEdit').addEventListener('show.bs.modal', functio
           <p class="text-muted small mb-2">
             <i class="bi bi-info-circle me-1"></i>
             Wählen Sie die Verkaufsstellen aus, die <strong>{{ m.name }}</strong> besucht.
-            Ohne Zuordnung sieht der Rep <em>alle</em> Verkaufsstellen.
+            Ohne Zuordnung sieht der Mitarbeiter <em>alle</em> Verkaufsstellen.
           </p>
 
           <!-- Suche + Schnellauswahl -->
@@ -1122,7 +1122,7 @@ document.getElementById('modalVSEdit').addEventListener('show.bs.modal', functio
             {% endfor %}
           </select>
           <div class="form-text mt-2">
-            VKL sehen nur Reps ihres Teams. Reps sehen immer nur eigene Daten.
+            VKL sehen nur Mitarbeiter ihres Teams. Mitarbeiter sehen immer nur eigene Daten.
           </div>
         </div>
         <div class="modal-footer py-2">

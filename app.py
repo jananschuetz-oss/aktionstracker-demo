@@ -1762,7 +1762,15 @@ def api_aktivitaet_offline_sync():
 def neue_aktivitaet():
     today = date.today().isoformat()
 
-    # Reps und VKL sehen nur ihre zugeordneten Verkaufsstellen (wenn Zuordnung gesetzt)
+    # Datum-Mindestgrenze: Mitarbeiter dürfen nur aktuelle Woche eintragen
+    is_rep = session.get('rolle') == 'rep'
+    if is_rep:
+        _d = date.today()
+        min_datum = (_d - timedelta(days=_d.weekday())).isoformat()
+    else:
+        min_datum = None
+
+    # Mitarbeiter und VKL sehen nur ihre zugeordneten Verkaufsstellen (wenn Zuordnung gesetzt)
     if session.get('rolle') in ('rep', 'verkaufsleiter'):
         assigned = query(
             "SELECT verkaufsstelle_id FROM mitarbeiter_verkaufsstelle WHERE mitarbeiter_id=?",
@@ -1827,13 +1835,21 @@ def neue_aktivitaet():
             return render_template('neue_aktivitaet.html',
                 verkaufsstellen=verkaufsstellen, biersorten=biersorten,
                 displaysorte=displaysorte, vertretungs_gruppen=vertretungs_gruppen,
-                heute=date.today().isoformat())
+                heute=date.today().isoformat(), min_datum=min_datum)
 
         if not datum or not vs_id:
             flash('Datum und Verkaufsstelle sind Pflichtfelder.', 'danger')
             return render_template('neue_aktivitaet.html',
                 verkaufsstellen=verkaufsstellen, biersorten=biersorten,
-                displaysorte=displaysorte, heute=date.today().isoformat())
+                displaysorte=displaysorte, heute=date.today().isoformat(),
+                min_datum=min_datum)
+
+        if is_rep and min_datum and datum < min_datum:
+            flash('Aktivitäten können nur für die aktuelle Woche eingetragen werden.', 'danger')
+            return render_template('neue_aktivitaet.html',
+                verkaufsstellen=verkaufsstellen, biersorten=biersorten,
+                displaysorte=displaysorte, heute=date.today().isoformat(),
+                min_datum=min_datum)
 
         # Displaypositionen sammeln + Gesamtzahl berechnen
         anzahl_displays  = 0
@@ -1905,7 +1921,8 @@ def neue_aktivitaet():
     return render_template('neue_aktivitaet.html',
         verkaufsstellen=verkaufsstellen, biersorten=biersorten,
         displaysorte=displaysorte, vertretungs_gruppen=vertretungs_gruppen,
-        heute=date.today().isoformat(), preselect_vs=preselect_vs)
+        heute=date.today().isoformat(), preselect_vs=preselect_vs,
+        min_datum=min_datum)
 
 
 @app.route('/aktivitaeten')
