@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Wochenbericht – Einstellungen{% endblock %}
+{% block title %}Wochen-/Monatsbericht – Einstellungen{% endblock %}
 
 {% block content %}
 <div class="container-fluid py-4" style="max-width:680px">
 
-  <h4 class="mb-1 fw-bold"><i class="bi bi-envelope-at me-2 text-primary"></i>Wochenbericht</h4>
-  <p class="text-muted small mb-4">Automatisch jeden Montag um 07:00 Uhr versendet.</p>
+  <h4 class="mb-1 fw-bold"><i class="bi bi-envelope-at me-2 text-primary"></i>Wochen-/Monatsbericht</h4>
+  <p class="text-muted small mb-4">Wochenbericht jeden Montag &middot; Monatsbericht am 1. jeden Monats – beide automatisch um 07:00 Uhr.</p>
 
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% for cat, msg in messages %}
@@ -21,8 +21,8 @@
     <div class="card border-0 shadow-sm mb-3">
       <div class="card-body d-flex align-items-center justify-content-between py-3 px-4">
         <div>
-          <div class="fw-semibold">Wochenbericht aktivieren</div>
-          <div class="text-muted small">Jeden Montag um 07:00 Uhr automatisch senden</div>
+          <div class="fw-semibold">Berichte aktivieren</div>
+          <div class="text-muted small">Wochenbericht (Mo 07:00) und Monatsbericht (1. des Monats 07:00) automatisch senden</div>
         </div>
         <div class="form-check form-switch m-0">
           <input class="form-check-input" type="checkbox" role="switch" id="aktiv" name="aktiv"
@@ -35,11 +35,10 @@
     <!-- Empfänger -->
     <div class="card border-0 shadow-sm mb-3">
       <div class="card-header bg-transparent border-bottom px-4 py-3">
-        <div class="fw-semibold"><i class="bi bi-people me-2"></i>Empfänger</div>
+        <div class="fw-semibold"><i class="bi bi-people me-2"></i>Empfänger <span class="text-muted fw-normal small">(gilt für beide Berichte)</span></div>
       </div>
       <div class="card-body px-4 py-3">
 
-        <!-- Empfänger 1: VKL (fix) -->
         <div class="mb-3">
           <label class="form-label small fw-semibold text-muted">EMPFÄNGER 1 – VERKAUFSLEITER</label>
           {% if vkl and vkl.email %}
@@ -63,7 +62,6 @@
           {% endif %}
         </div>
 
-        <!-- Empfänger 2 -->
         <div class="mb-3">
           <label class="form-label small fw-semibold text-muted" for="emp2">EMPFÄNGER 2 (optional)</label>
           <input type="email" class="form-control" id="emp2" name="empfaenger_2"
@@ -71,7 +69,6 @@
                  value="{{ config.empfaenger_2 if config else '' }}">
         </div>
 
-        <!-- Empfänger 3 -->
         <div class="mb-0">
           <label class="form-label small fw-semibold text-muted" for="emp3">EMPFÄNGER 3 (optional)</label>
           <input type="email" class="form-control" id="emp3" name="empfaenger_3"
@@ -82,11 +79,20 @@
       </div>
     </div>
 
-    <!-- Vorschau Inhalt -->
-    <div class="card border-0 shadow-sm mb-4">
-      <div class="card-header bg-transparent border-bottom px-4 py-3">
-        <div class="fw-semibold"><i class="bi bi-eye me-2"></i>Inhalt des Berichts</div>
-      </div>
+    <div class="mb-4">
+      <button type="submit" class="btn btn-primary px-4">
+        <i class="bi bi-check2 me-1"></i>Speichern
+      </button>
+    </div>
+
+    <hr class="my-4">
+
+    <!-- Wochenbericht -->
+    <p class="fw-semibold text-muted text-uppercase small mb-3" style="letter-spacing:.5px">
+      <i class="bi bi-calendar-week me-2"></i>Wochenbericht – jeden Montag 07:00
+    </p>
+
+    <div class="card border-0 shadow-sm mb-3">
       <div class="card-body px-4 py-3">
         <div class="d-flex flex-column gap-2 small text-muted">
           <div><i class="bi bi-check2 text-success me-2"></i>Gesamtbesuche, {{ unit_label }}, Displays – diese Woche vs. Vorwoche</div>
@@ -96,27 +102,56 @@
       </div>
     </div>
 
-    <!-- Buttons -->
-    <div class="d-flex gap-2 flex-wrap">
-      <button type="submit" class="btn btn-primary px-4">
-        <i class="bi bi-check2 me-1"></i>Speichern
-      </button>
-      <a href="{{ url_for('wochenbericht_vorschau') }}" target="_blank" class="btn btn-outline-primary px-4">
-        <i class="bi bi-eye me-1"></i>Vorschau anzeigen
+    <div class="d-flex gap-2 flex-wrap align-items-center mb-2">
+      <a href="{{ url_for('wochenbericht_vorschau') }}" target="_blank" class="btn btn-outline-primary btn-sm px-3">
+        <i class="bi bi-eye me-1"></i>Vorschau (laufende Woche)
       </a>
-      <button type="submit" name="jetzt_senden" value="1" class="btn btn-outline-secondary px-4"
-              onclick="return confirm('Testbericht jetzt sofort senden?')">
+      <button type="submit" name="jetzt_senden" value="1" class="btn btn-outline-secondary btn-sm px-3"
+              onclick="return confirm('Wochenbericht jetzt sofort senden?')">
         <i class="bi bi-send me-1"></i>Jetzt senden (Test)
       </button>
     </div>
 
-  </form>
+    {% if config and config.zuletzt_gesendet %}
+    <p class="text-muted small mb-0">
+      <i class="bi bi-clock-history me-1"></i>Zuletzt gesendet: KW {{ config.zuletzt_gesendet.split('W')[1] if 'W' in config.zuletzt_gesendet else config.zuletzt_gesendet }}
+    </p>
+    {% endif %}
 
-  {% if config and config.zuletzt_gesendet %}
-  <p class="text-muted small mt-3">
-    <i class="bi bi-clock-history me-1"></i>Zuletzt gesendet: KW {{ config.zuletzt_gesendet.split('W')[1] if 'W' in config.zuletzt_gesendet else config.zuletzt_gesendet }}
-  </p>
-  {% endif %}
+    <hr class="my-4">
+
+    <!-- Monatsbericht -->
+    <p class="fw-semibold text-muted text-uppercase small mb-3" style="letter-spacing:.5px">
+      <i class="bi bi-calendar-month me-2"></i>Monatsbericht – am 1. jeden Monats 07:00
+    </p>
+
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-body px-4 py-3">
+        <div class="d-flex flex-column gap-2 small text-muted">
+          <div><i class="bi bi-check2 text-success me-2"></i>Gesamtbesuche, {{ unit_label }}, Displays – Vormonat vs. Vorvormonat</div>
+          <div><i class="bi bi-check2 text-success me-2"></i>Aufschlüsselung je Mitarbeiter inkl. Displays</div>
+          <div><i class="bi bi-check2 text-success me-2"></i>Pipeline-Status (offen / aufgebaut / storniert)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="d-flex gap-2 flex-wrap align-items-center mb-2">
+      <a href="{{ url_for('monatsbericht_vorschau') }}" target="_blank" class="btn btn-outline-primary btn-sm px-3">
+        <i class="bi bi-eye me-1"></i>Vorschau (laufender Monat)
+      </a>
+      <button type="submit" name="jetzt_monatsbericht_senden" value="1" class="btn btn-outline-secondary btn-sm px-3"
+              onclick="return confirm('Monatsbericht (Vormonat) jetzt sofort senden?')">
+        <i class="bi bi-send me-1"></i>Jetzt senden (Test)
+      </button>
+    </div>
+
+    {% if config and config.zuletzt_gesendet_monat %}
+    <p class="text-muted small mb-0">
+      <i class="bi bi-clock-history me-1"></i>Zuletzt gesendet: {{ config.zuletzt_gesendet_monat }}
+    </p>
+    {% endif %}
+
+  </form>
 
 </div>
 {% endblock %}

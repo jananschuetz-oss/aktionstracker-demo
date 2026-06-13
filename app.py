@@ -4420,13 +4420,19 @@ def einstellungen_wochenbericht():
         if request.form.get('jetzt_senden'):
             try:
                 result = _do_send_wochenbericht(force=True)
-                if isinstance(result, tuple) and len(result) == 2:
-                    ok, msg = result
-                else:
-                    ok, msg = False, f'Unerwartetes Ergebnis: {result!r}'
+                ok, msg = result if isinstance(result, tuple) and len(result) == 2 else (False, f'Unerwartetes Ergebnis: {result!r}')
             except BaseException as _bex:
                 import traceback as _tb
                 app.logger.error(f"WOCHENBERICHT UNCAUGHT:\n{_tb.format_exc()}")
+                ok, msg = False, f'Fehler ({type(_bex).__name__}): {_bex}'
+            flash(msg, 'success' if ok else 'danger')
+        elif request.form.get('jetzt_monatsbericht_senden'):
+            try:
+                result = _do_send_monatsbericht(force=True)
+                ok, msg = result if isinstance(result, tuple) and len(result) == 2 else (False, f'Unerwartetes Ergebnis: {result!r}')
+            except BaseException as _bex:
+                import traceback as _tb
+                app.logger.error(f"MONATSBERICHT UNCAUGHT:\n{_tb.format_exc()}")
                 ok, msg = False, f'Fehler ({type(_bex).__name__}): {_bex}'
             flash(msg, 'success' if ok else 'danger')
         else:
@@ -4627,6 +4633,157 @@ def wochenbericht_vorschau():
   <div style="padding:14px 32px;background:#f4f8fc;border-top:1px solid #e4eaf0;text-align:center">
     <div style="font-size:11px;color:#aaa">Aktions Tracker · Automatischer Wochenbericht jeden Montag</div>
   </div>
+</div>
+</body></html>'''
+
+    return html, 200, {'Content-Type': 'text/html; charset=utf-8'}
+
+
+@app.route('/einstellungen/monatsbericht/vorschau')
+@login_required
+def monatsbericht_vorschau():
+    """Rendert den Monatsbericht für den laufenden Monat (kumuliert bis heute) im Browser."""
+    if session.get('rolle') not in ('admin', 'verkaufsleiter'):
+        return redirect(url_for('dashboard'))
+
+    heute            = date.today()
+    erster_dieses    = heute.replace(day=1)
+    letzter_vorvorm  = erster_dieses - timedelta(days=1)
+    erster_vorvorm   = letzter_vorvorm.replace(day=1)
+
+    _monat_namen = ['Januar','Februar','März','April','Mai','Juni',
+                    'Juli','August','September','Oktober','November','Dezember']
+    monat_name  = _monat_namen[heute.month - 1]
+    vmonat_name = _monat_namen[erster_vorvorm.month - 1]
+
+    def _stats(von, bis):
+        return query('''
+            SELECT COUNT(DISTINCT a.id) AS besuche,
+                   COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                       THEN a.id END) AS aufbauten,
+                   COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung'
+                                       THEN a.id END) AS bestellungen,
+                   COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                     THEN bp.kisten_anzahl END), 0) AS kisten,
+                   COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                     THEN a.anzahl_displays END), 0) AS displays
+            FROM aktivitaet a
+            LEFT JOIN bestellposition bp ON bp.aktivitaet_id=a.id
+            WHERE a.datum BETWEEN ? AND ?
+        ''', (von.isoformat(), bis.isoformat()), one=True)
+
+    dieser = _stats(erster_dieses, heute)
+    vorher = _stats(erster_vorvorm, letzter_vorvorm)
+
+    rep_stats = query('''
+        SELECT m.name,
+               COUNT(DISTINCT a.id) AS besuche,
+               COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung' THEN a.id END) AS bestellungen,
+               COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.id END) AS aufbauten,
+               COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                 THEN bp.kisten_anzahl END), 0) AS kisten,
+               COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                 THEN a.anzahl_displays END), 0) AS displays
+        FROM aktivitaet a
+        JOIN mitarbeiter m ON m.id=a.mitarbeiter_id
+        LEFT JOIN bestellposition bp ON bp.aktivitaet_id=a.id
+        WHERE a.datum BETWEEN ? AND ? AND m.rolle='rep'
+        GROUP BY m.id, m.name ORDER BY kisten DESC
+    ''', (erster_dieses.isoformat(), heute.isoformat()))
+
+    pipeline = query(
+        "SELECT COALESCE(SUM(CASE WHEN COALESCE(bestell_status,'offen')='offen' THEN 1 END),0) AS offen,"
+        "       COALESCE(SUM(CASE WHEN bestell_status='aufgebaut' THEN 1 END),0) AS aufgebaut,"
+        "       COALESCE(SUM(CASE WHEN bestell_status='storniert' THEN 1 END),0) AS storniert "
+        "FROM aktivitaet WHERE aktionstyp='Bestellung'", one=True)
+
+    def trend_str(neu, alt):
+        d = neu - alt
+        return f'+{d}' if d > 0 else str(d) if d < 0 else '±0'
+    def trend_col(neu, alt):
+        return '#2d8a4e' if neu > alt else '#c0392b' if neu < alt else '#888'
+
+    rep_rows = ''.join(f'''
+        <tr>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px">{r["name"]}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["bestellungen"]}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["displays"]}</td>
+        </tr>''' for r in rep_stats) or \
+        '<tr><td colspan="6" style="padding:12px;color:#999;text-align:center">Noch keine Aktivitäten diesen Monat</td></tr>'
+
+    html = f'''<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:16px;background:#f0f4f8;font-family:Arial,Helvetica,sans-serif">
+<div style="background:#fffbf0;border:2px dashed #c8860a;padding:10px 24px;text-align:center;font-size:13px;color:#8a5a00;max-width:600px;margin:0 auto 16px;border-radius:8px">
+  <strong>Vorschau-Modus</strong> – laufender Monat &nbsp;·&nbsp; {erster_dieses.strftime('%d.%m.')} – {heute.strftime('%d.%m.%Y')} &nbsp;·&nbsp; wird nicht versendet
+</div>
+<div style="max-width:600px;margin:0 auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.10)">
+
+  <div style="background:#1a3a5c;padding:26px 32px">
+    <div style="color:#fff;font-size:20px;font-weight:bold;letter-spacing:.3px">Aktions Tracker</div>
+    <div style="color:#90b8d8;font-size:13px;margin-top:5px">Monatsbericht {monat_name} {heute.year} &nbsp;&middot;&nbsp; {erster_dieses.strftime('%d.%m.')} &ndash; {heute.strftime('%d.%m.%Y')} (laufend)</div>
+  </div>
+
+  <div style="padding:28px 32px 8px">
+    <div style="font-size:15px;font-weight:bold;color:#1a3a5c;margin-bottom:16px">Gesamtübersicht {monat_name} (bis heute)</div>
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
+          <div style="font-size:30px;font-weight:bold;color:#1a3a5c">{dieser["besuche"]}</div>
+          <div style="font-size:12px;color:#666;margin-top:3px">Besuche</div>
+          <div style="font-size:11px;font-weight:bold;color:{trend_col(dieser["besuche"],vorher["besuche"])};margin-top:5px">{trend_str(dieser["besuche"],vorher["besuche"])} ggü. {vmonat_name}</div>
+        </td>
+        <td width="12"></td>
+        <td style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
+          <div style="font-size:30px;font-weight:bold;color:#c8860a">{dieser["kisten"]}</div>
+          <div style="font-size:12px;color:#666;margin-top:3px">{UNIT_LABEL}</div>
+          <div style="font-size:11px;font-weight:bold;color:{trend_col(dieser["kisten"],vorher["kisten"])};margin-top:5px">{trend_str(dieser["kisten"],vorher["kisten"])} ggü. {vmonat_name}</div>
+        </td>
+        <td width="12"></td>
+        <td style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
+          <div style="font-size:30px;font-weight:bold;color:#2e6da4">{dieser["displays"]}</div>
+          <div style="font-size:12px;color:#666;margin-top:3px">Displays</div>
+          <div style="font-size:11px;font-weight:bold;color:{trend_col(dieser["displays"],vorher["displays"])};margin-top:5px">{trend_str(dieser["displays"],vorher["displays"])} ggü. {vmonat_name}</div>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <div style="padding:16px 32px;background:#fffbf0;border-top:1px solid #f0c674">
+    <span style="font-size:13px;font-weight:bold;color:#1a3a5c">Bestellungen Pipeline:</span>
+    <span style="margin-left:14px;font-size:13px">
+      <span style="color:#c8860a;font-weight:bold">{pipeline["offen"]}</span><span style="color:#777"> offen</span>
+      &nbsp;&nbsp;&middot;&nbsp;&nbsp;
+      <span style="color:#27ae60;font-weight:bold">{pipeline["aufgebaut"]}</span><span style="color:#777"> aufgebaut</span>
+      &nbsp;&nbsp;&middot;&nbsp;&nbsp;
+      <span style="color:#6c757d;font-weight:bold">{pipeline["storniert"]}</span><span style="color:#777"> storniert</span>
+    </span>
+  </div>
+
+  <div style="padding:24px 32px">
+    <div style="font-size:15px;font-weight:bold;color:#1a3a5c;margin-bottom:12px">Mitarbeiter &ndash; {monat_name} (bis heute)</div>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e4eaf0;border-radius:8px;overflow:hidden">
+      <thead>
+        <tr style="background:#edf2f7">
+          <th style="padding:8px 10px;text-align:left;font-size:10px;color:#666;font-weight:600;letter-spacing:.5px">MITARBEITER</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#666;font-weight:600;letter-spacing:.5px">BESUCHE</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#2e6da4;font-weight:600;letter-spacing:.5px">BESTELL.</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#27ae60;font-weight:600;letter-spacing:.5px">AUFBAUT.</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#c8860a;font-weight:600;letter-spacing:.5px">{UNIT_LABEL.upper()[:7]}</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#2e6da4;font-weight:600;letter-spacing:.5px">DISPLAYS</th>
+        </tr>
+      </thead>
+      <tbody>{rep_rows}</tbody>
+    </table>
+  </div>
+
+  <div style="padding:14px 32px;background:#f4f8fc;border-top:1px solid #e4eaf0;text-align:center">
+    <div style="font-size:11px;color:#aaa">Aktions Tracker &middot; Vorschau laufender Monat &ndash; am 1. des Folgemonats wird der abgeschlossene Monat versendet</div>
+  </div>
+
 </div>
 </body></html>'''
 
