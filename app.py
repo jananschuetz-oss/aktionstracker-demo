@@ -3666,22 +3666,18 @@ def _do_send_wochenbericht(force=False):
                 app.logger.info("WOCHENBERICHT: Diese Woche bereits gesendet – übersprungen.")
                 return False, "Diese Woche bereits gesendet."
 
-            # Empfänger: VKL-E-Mail + bis zu 2 weitere
-            vkl = query(
-                "SELECT email, name FROM mitarbeiter WHERE rolle IN ('verkaufsleiter','admin') "
-                "AND email IS NOT NULL AND email != '' ORDER BY rolle='verkaufsleiter' DESC LIMIT 1",
-                one=True
-            )
-            empfaenger = []
-            if vkl and vkl['email']:
-                empfaenger.append(vkl['email'])
+            # Admin-Empfaenger (empfaenger_2/3 – immer kumuliert)
+            empfaenger_admin = []
             if config['empfaenger_2']:
-                empfaenger.append(config['empfaenger_2'])
+                empfaenger_admin.append(config['empfaenger_2'])
             if config['empfaenger_3']:
-                empfaenger.append(config['empfaenger_3'])
-            if not empfaenger:
-                app.logger.warning("WOCHENBERICHT: Keine Empfänger konfiguriert – übersprungen.")
-                return False, "Keine Empfänger konfiguriert. Bitte E-Mail-Adresse des Verkaufsleiters im Admin-Panel hinterlegen oder einen zusätzlichen Empfänger eintragen."
+                empfaenger_admin.append(config['empfaenger_3'])
+
+            # VKLs mit E-Mail
+            vkls = query(
+                "SELECT email, name, team_id FROM mitarbeiter "
+                "WHERE rolle='verkaufsleiter' AND email IS NOT NULL AND email != ''",
+            ) or []
 
             # Zeiträume
             heute          = date.today()
@@ -3693,88 +3689,9 @@ def _do_send_wochenbericht(force=False):
             datum_von      = montag_diese.strftime('%d.%m.')
             datum_bis      = sonntag_diese.strftime('%d.%m.%Y')
 
-            def stats(von, bis):
-                return query('''
-                    SELECT COUNT(DISTINCT a.id) AS besuche,
-                           COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
-                                               THEN a.id END) AS aufbauten,
-                           COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung'
-                                               THEN a.id END) AS bestellungen,
-                           COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
-                                             THEN bp.kisten_anzahl END), 0) AS kisten,
-                           COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
-                                             THEN a.anzahl_displays END), 0) AS displays
-                    FROM aktivitaet a
-                    LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
-                    WHERE a.datum BETWEEN ? AND ?
-                ''', (von.isoformat(), bis.isoformat()), one=True)
-
-            diese = stats(montag_diese,  sonntag_diese)
-            letzte = stats(montag_letzte, sonntag_letzte)
-
-            rep_stats = query('''
-                SELECT m.id AS mitarbeiter_id, m.name,
-                       COUNT(DISTINCT a.id) AS besuche,
-                       COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung'
-                                           THEN a.id END) AS bestellungen,
-                       COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
-                                           THEN a.id END) AS aufbauten,
-                       COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
-                                         THEN bp.kisten_anzahl END), 0) AS kisten
-                FROM aktivitaet a
-                JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
-                LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
-                WHERE a.datum BETWEEN ? AND ? AND m.rolle = 'rep'
-                GROUP BY m.id, m.name
-                ORDER BY kisten DESC
-            ''', (montag_diese.isoformat(), sonntag_diese.isoformat()))
-
-            # Offene Bestellungen pro Rep (nicht wochengefiltert – aktueller Stand)
-            offene_map = {r['mitarbeiter_id']: r['n'] for r in query(
-                "SELECT a.mitarbeiter_id, COUNT(*) AS n FROM aktivitaet a "
-                "JOIN mitarbeiter m ON m.id=a.mitarbeiter_id "
-                "WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen' "
-                "AND m.rolle='rep' GROUP BY a.mitarbeiter_id"
-            )}
-            pipeline = query(
-                "SELECT COALESCE(SUM(CASE WHEN COALESCE(bestell_status,'offen')='offen' THEN 1 END),0) AS offen,"
-                "       COALESCE(SUM(CASE WHEN bestell_status='aufgebaut' THEN 1 END),0) AS aufgebaut,"
-                "       COALESCE(SUM(CASE WHEN bestell_status='storniert' THEN 1 END),0) AS storniert "
-                "FROM aktivitaet WHERE aktionstyp='Bestellung'",
-                one=True
-            )
-
-            ue_rows = query(
-                "SELECT v.name AS station, m.name AS rep, a.datum, "
-                "CAST(julianday('now') - julianday(a.datum) AS INTEGER) AS tage "
-                "FROM aktivitaet a "
-                "JOIN mitarbeiter m ON m.id=a.mitarbeiter_id "
-                "JOIN verkaufsstelle v ON v.id=a.verkaufsstelle_id "
-                "WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen' "
-                "AND julianday('now') - julianday(a.datum) > 28 "
-                "ORDER BY tage DESC LIMIT 10"
-            )
-            if ue_rows:
-                ue_trs = ''.join(f'''
-                  <tr>
-                    <td style="padding:7px 16px;border-bottom:1px solid #f0e8d0;font-size:12px;font-weight:600">{u["station"]}</td>
-                    <td style="padding:7px 8px;border-bottom:1px solid #f0e8d0;font-size:12px;color:#666">{u["rep"]}</td>
-                    <td style="padding:7px 16px;border-bottom:1px solid #f0e8d0;font-size:12px;text-align:right">
-                      <span style="background:#fdecc8;color:#8a5a00;padding:2px 8px;border-radius:4px">{u["tage"]} Tage</span>
-                    </td>
-                  </tr>''' for u in ue_rows)
-                ueberfaellig_html = f'''
-  <div style="padding:0 32px 20px">
-    <div style="background:#fff8f0;border:1px solid #f0c674;border-radius:8px;overflow:hidden">
-      <div style="background:#fdecc8;padding:10px 16px;font-size:13px;font-weight:bold;color:#8a5a00">
-        &#9888; &Uuml;berf&auml;llig &ndash; Bestellungen offen seit &uuml;ber 4 Wochen ({len(ue_rows)})
-      </div>
-      <table width="100%" cellpadding="0" cellspacing="0">{ue_trs}
-      </table>
-    </div>
-  </div>'''
-            else:
-                ueberfaellig_html = ''
+            # Teams-Map für Multi-Team-Modus
+            teams    = query("SELECT id, name FROM team ORDER BY name") or []
+            team_map = {t['id']: t['name'] for t in teams}
 
             def trend_str(neu, alt):
                 diff = neu - alt
@@ -3792,27 +3709,134 @@ def _do_send_wochenbericht(force=False):
                     return f'<span style="color:#c8860a;font-weight:bold">{n}</span>'
                 return f'<span style="color:#aaa">0</span>'
 
-            rep_rows = ''.join(f'''
+            def build_html(team_id=None, team_name=None):
+                t_p = [team_id] if team_id else []
+                tf  = ' AND m.team_id=?' if team_id else ''
+
+                def stats(von, bis):
+                    return query(f'''
+                        SELECT COUNT(DISTINCT a.id) AS besuche,
+                               COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,\'Aufbau\')=\'Aufbau\'
+                                                   THEN a.id END) AS aufbauten,
+                               COUNT(DISTINCT CASE WHEN a.aktionstyp=\'Bestellung\'
+                                                   THEN a.id END) AS bestellungen,
+                               COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,\'Aufbau\')=\'Aufbau\'
+                                                 THEN bp.kisten_anzahl END), 0) AS kisten,
+                               COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,\'Aufbau\')=\'Aufbau\'
+                                                 THEN a.anzahl_displays END), 0) AS displays
+                        FROM aktivitaet a
+                        JOIN mitarbeiter m ON m.id=a.mitarbeiter_id
+                        LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
+                        WHERE a.datum BETWEEN ? AND ?{tf}
+                    ''', [von.isoformat(), bis.isoformat()] + t_p, one=True)
+
+                diese  = stats(montag_diese,  sonntag_diese)
+                letzte = stats(montag_letzte, sonntag_letzte)
+
+                rs = query(f'''
+                    SELECT m.id AS mitarbeiter_id, m.name,
+                           COUNT(DISTINCT a.id) AS besuche,
+                           COUNT(DISTINCT CASE WHEN a.aktionstyp=\'Bestellung\'
+                                               THEN a.id END) AS bestellungen,
+                           COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,\'Aufbau\')=\'Aufbau\'
+                                               THEN a.id END) AS aufbauten,
+                           COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,\'Aufbau\')=\'Aufbau\'
+                                             THEN bp.kisten_anzahl END), 0) AS kisten
+                    FROM aktivitaet a
+                    JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
+                    LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
+                    WHERE a.datum BETWEEN ? AND ? AND m.rolle = \'rep\'{tf}
+                    GROUP BY m.id, m.name ORDER BY kisten DESC
+                ''', [montag_diese.isoformat(), sonntag_diese.isoformat()] + t_p)
+
+                offen_map = {r['mitarbeiter_id']: r['n'] for r in query(
+                    "SELECT a.mitarbeiter_id, COUNT(*) AS n FROM aktivitaet a "
+                    "JOIN mitarbeiter m ON m.id=a.mitarbeiter_id "
+                    "WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen' "
+                    f"AND m.rolle='rep'{tf} GROUP BY a.mitarbeiter_id",
+                    t_p
+                )}
+
+                if team_id:
+                    pipeline = query(
+                        "SELECT COALESCE(SUM(CASE WHEN COALESCE(a.bestell_status,'offen')='offen' THEN 1 END),0) AS offen,"
+                        "       COALESCE(SUM(CASE WHEN a.bestell_status='aufgebaut' THEN 1 END),0) AS aufgebaut,"
+                        "       COALESCE(SUM(CASE WHEN a.bestell_status='storniert' THEN 1 END),0) AS storniert "
+                        "FROM aktivitaet a JOIN mitarbeiter m ON m.id=a.mitarbeiter_id "
+                        "WHERE a.aktionstyp='Bestellung' AND m.team_id=?",
+                        (team_id,), one=True)
+                    ue_rows = query(
+                        "SELECT v.name AS station, m.name AS rep, a.datum, "
+                        "CAST(julianday('now') - julianday(a.datum) AS INTEGER) AS tage "
+                        "FROM aktivitaet a "
+                        "JOIN mitarbeiter m ON m.id=a.mitarbeiter_id "
+                        "JOIN verkaufsstelle v ON v.id=a.verkaufsstelle_id "
+                        "WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen' "
+                        "AND julianday('now') - julianday(a.datum) > 28 AND m.team_id=? "
+                        "ORDER BY tage DESC LIMIT 10",
+                        (team_id,))
+                else:
+                    pipeline = query(
+                        "SELECT COALESCE(SUM(CASE WHEN COALESCE(bestell_status,'offen')='offen' THEN 1 END),0) AS offen,"
+                        "       COALESCE(SUM(CASE WHEN bestell_status='aufgebaut' THEN 1 END),0) AS aufgebaut,"
+                        "       COALESCE(SUM(CASE WHEN bestell_status='storniert' THEN 1 END),0) AS storniert "
+                        "FROM aktivitaet WHERE aktionstyp='Bestellung'",
+                        one=True
+                    )
+                    ue_rows = query(
+                        "SELECT v.name AS station, m.name AS rep, a.datum, "
+                        "CAST(julianday('now') - julianday(a.datum) AS INTEGER) AS tage "
+                        "FROM aktivitaet a "
+                        "JOIN mitarbeiter m ON m.id=a.mitarbeiter_id "
+                        "JOIN verkaufsstelle v ON v.id=a.verkaufsstelle_id "
+                        "WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen' "
+                        "AND julianday('now') - julianday(a.datum) > 28 "
+                        "ORDER BY tage DESC LIMIT 10"
+                    )
+
+                if ue_rows:
+                    ue_trs = ''.join(f'''
+                  <tr>
+                    <td style="padding:7px 16px;border-bottom:1px solid #f0e8d0;font-size:12px;font-weight:600">{u["station"]}</td>
+                    <td style="padding:7px 8px;border-bottom:1px solid #f0e8d0;font-size:12px;color:#666">{u["rep"]}</td>
+                    <td style="padding:7px 16px;border-bottom:1px solid #f0e8d0;font-size:12px;text-align:right">
+                      <span style="background:#fdecc8;color:#8a5a00;padding:2px 8px;border-radius:4px">{u["tage"]} Tage</span>
+                    </td>
+                  </tr>''' for u in ue_rows)
+                    ueberfaellig_html = f'''
+  <div style="padding:0 32px 20px">
+    <div style="background:#fff8f0;border:1px solid #f0c674;border-radius:8px;overflow:hidden">
+      <div style="background:#fdecc8;padding:10px 16px;font-size:13px;font-weight:bold;color:#8a5a00">
+        &#9888; &Uuml;berf&auml;llig &ndash; Bestellungen offen seit &uuml;ber 4 Wochen ({len(ue_rows)})
+      </div>
+      <table width="100%" cellpadding="0" cellspacing="0">{ue_trs}
+      </table>
+    </div>
+  </div>'''
+                else:
+                    ueberfaellig_html = ''
+
+                rep_rows = ''.join(f'''
                 <tr>
                   <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px">{r["name"]}</td>
                   <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}</td>
                   <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["bestellungen"]}</td>
                   <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
                   <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}</td>
-                  <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{_offen_col(offene_map.get(r["mitarbeiter_id"], 0))}</td>
-                </tr>''' for r in rep_stats) or \
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{_offen_col(offen_map.get(r["mitarbeiter_id"], 0))}</td>
+                </tr>''' for r in rs) or \
                 '<tr><td colspan="6" style="padding:12px 14px;color:#999;text-align:center">Keine Aktivitäten diese Woche</td></tr>'
 
-            dashboard_link = APP_BASE_URL or '#'
-
-            html = f'''<!DOCTYPE html>
+                tl = f' &ndash; {team_name}' if team_name else ''
+                dl = APP_BASE_URL or '#'
+                return f'''<!DOCTYPE html>
 <html><head><meta charset="utf-8"></head>
 <body style="margin:0;padding:0;background:#f0f4f8;font-family:Arial,Helvetica,sans-serif">
 <div style="max-width:600px;margin:32px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.10)">
 
   <div style="background:#1a3a5c;padding:26px 32px">
-    <div style="color:#fff;font-size:20px;font-weight:bold;letter-spacing:.3px">Aktions Tracker</div>
-    <div style="color:#90b8d8;font-size:13px;margin-top:5px">Wochenbericht KW {kw_nr} &nbsp;·&nbsp; {datum_von} – {datum_bis}</div>
+    <div style="color:#fff;font-size:20px;font-weight:bold;letter-spacing:.3px">Aktions Tracker{tl}</div>
+    <div style="color:#90b8d8;font-size:13px;margin-top:5px">Wochenbericht KW {kw_nr} &nbsp;&middot;&nbsp; {datum_von} – {datum_bis}</div>
   </div>
 
   <div style="padding:28px 32px 8px">
@@ -3844,9 +3868,9 @@ def _do_send_wochenbericht(force=False):
     <span style="font-size:13px;font-weight:bold;color:#1a3a5c">Bestellungen Pipeline:</span>
     <span style="margin-left:14px;font-size:13px">
       <span style="color:#c8860a;font-weight:bold">{pipeline["offen"]}</span><span style="color:#777"> offen</span>
-      &nbsp;&nbsp;·&nbsp;&nbsp;
+      &nbsp;&nbsp;&middot;&nbsp;&nbsp;
       <span style="color:#27ae60;font-weight:bold">{pipeline["aufgebaut"]}</span><span style="color:#777"> aufgebaut</span>
-      &nbsp;&nbsp;·&nbsp;&nbsp;
+      &nbsp;&nbsp;&middot;&nbsp;&nbsp;
       <span style="color:#6c757d;font-weight:bold">{pipeline["storniert"]}</span><span style="color:#777"> storniert</span>
     </span>
   </div>
@@ -3871,7 +3895,7 @@ def _do_send_wochenbericht(force=False):
   </div>
 
   <div style="padding:16px 32px 24px;text-align:center">
-    <a href="{dashboard_link}" style="display:inline-block;background:#1a3a5c;color:#fff;text-decoration:none;padding:10px 24px;border-radius:6px;font-size:13px;font-weight:bold">→ Zum Dashboard</a>
+    <a href="{dl}" style="display:inline-block;background:#1a3a5c;color:#fff;text-decoration:none;padding:10px 24px;border-radius:6px;font-size:13px;font-weight:bold">→ Zum Dashboard</a>
   </div>
 
   <div style="padding:14px 32px;background:#f4f8fc;border-top:1px solid #e4eaf0;text-align:center">
@@ -3883,18 +3907,52 @@ def _do_send_wochenbericht(force=False):
 </body></html>'''
 
             firma_teil = f' – {FIRMA_NAME}' if FIRMA_NAME else ''
-            betreff = f'Wochenbericht Aktionstracker{firma_teil} – KW {kw_nr}'
             ok_count = 0
-            for mail in empfaenger:
-                if send_email(mail, betreff, html):
-                    app.logger.info(f"WOCHENBERICHT KW {kw_nr}: Gesendet an {mail}")
-                    ok_count += 1
-                else:
-                    app.logger.error(f"WOCHENBERICHT KW {kw_nr}: Versand an {mail} fehlgeschlagen")
+
+            # Multi-Team: VKLs in 2+ verschiedenen Teams -> separate Berichte
+            vkl_teams = list(dict.fromkeys(v['team_id'] for v in vkls if v.get('team_id')))
+            if len(vkl_teams) >= 2:
+                for v in vkls:
+                    if not v.get('team_id'):
+                        continue
+                    tname   = team_map.get(v['team_id'], f'Team {v["team_id"]}')
+                    html    = build_html(team_id=v['team_id'], team_name=tname)
+                    betreff = f'Wochenbericht{firma_teil} – {tname} – KW {kw_nr}'
+                    if send_email(v['email'], betreff, html):
+                        app.logger.info(f"WOCHENBERICHT KW {kw_nr} [{tname}]: Gesendet an {v['email']}")
+                        ok_count += 1
+                    else:
+                        app.logger.error(f"WOCHENBERICHT KW {kw_nr} [{tname}]: Versand an {v['email']} fehlgeschlagen")
+                if empfaenger_admin:
+                    html_g  = build_html(team_id=None, team_name='Alle Teams')
+                    betreff = f'Wochenbericht{firma_teil} – Alle Teams – KW {kw_nr}'
+                    for mail in empfaenger_admin:
+                        if send_email(mail, betreff, html_g):
+                            app.logger.info(f"WOCHENBERICHT KW {kw_nr} [Gesamt]: Gesendet an {mail}")
+                            ok_count += 1
+                        else:
+                            app.logger.error(f"WOCHENBERICHT KW {kw_nr} [Gesamt]: Versand an {mail} fehlgeschlagen")
+            else:
+                # Einzel-Modus (ein Team oder keine Teams)
+                empfaenger = []
+                if vkls:
+                    empfaenger.append(vkls[0]['email'])
+                empfaenger.extend(empfaenger_admin)
+                if not empfaenger:
+                    app.logger.warning("WOCHENBERICHT: Keine Empfänger konfiguriert – übersprungen.")
+                    return False, "Keine Empfänger konfiguriert. Bitte E-Mail-Adresse des Verkaufsleiters im Admin-Panel hinterlegen oder einen zusätzlichen Empfänger eintragen."
+                html    = build_html(team_id=None)
+                betreff = f'Wochenbericht Aktionstracker{firma_teil} – KW {kw_nr}'
+                for mail in empfaenger:
+                    if send_email(mail, betreff, html):
+                        app.logger.info(f"WOCHENBERICHT KW {kw_nr}: Gesendet an {mail}")
+                        ok_count += 1
+                    else:
+                        app.logger.error(f"WOCHENBERICHT KW {kw_nr}: Versand an {mail} fehlgeschlagen")
 
             if ok_count > 0:
                 execute("UPDATE wochenbericht_config SET zuletzt_gesendet=? WHERE id=1", (kw_key,))
-                return True, f"Gesendet an {ok_count} Empfänger: {', '.join(empfaenger)}"
+                return True, f"Gesendet an {ok_count} Empfänger"
             else:
                 detail = f': {_smtp_last_error}' if _smtp_last_error else ''
                 return False, f"E-Mail-Versand fehlgeschlagen{detail}"
