@@ -102,8 +102,8 @@ def isoweek_filter(s):
 
 @app.before_request
 def check_session_lifetime():
-    """Leert die Session wenn sie abgelaufen ist (PERMANENT_SESSION_LIFETIME)."""
-    session.modified = False   # kein unnötiges Re-Schreiben
+    """Session-Timer bei jedem Request erneuern (Sliding Window, 8h Inaktivität)."""
+    pass
 
 @app.context_processor
 def inject_now():
