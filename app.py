@@ -1915,7 +1915,7 @@ def neue_aktivitaet():
             cleanup_alte_fotos()
 
         flash('Aktivität erfolgreich gespeichert!', 'success')
-        return redirect(url_for('aktivitaeten_liste'))
+        return redirect(url_for('neue_aktivitaet'))
 
     preselect_vs = request.args.get('vs_id', '', type=str)
     return render_template('neue_aktivitaet.html',

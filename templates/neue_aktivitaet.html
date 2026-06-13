@@ -270,7 +270,8 @@
     <a href="{{ url_for('aktivitaeten_liste') }}" class="btn btn-outline-secondary btn-lg">
       <i class="bi bi-x-circle me-1"></i>Abbrechen
     </a>
-    <button type="submit" class="btn btn-primary btn-lg px-5">
+    <button type="submit" class="btn btn-primary btn-lg px-5"
+            onclick="if(navigator.vibrate) navigator.vibrate(60);">
       <i class="bi bi-check-circle me-2"></i>Aktivität speichern
     </button>
   </div>
@@ -281,7 +282,8 @@
       <a href="{{ url_for('aktivitaeten_liste') }}" class="btn btn-outline-secondary flex-shrink-0">
         <i class="bi bi-x-circle"></i>
       </a>
-      <button type="submit" class="btn btn-primary w-100 fw-bold">
+      <button type="submit" class="btn btn-primary w-100 fw-bold"
+              onclick="if(navigator.vibrate) navigator.vibrate(60);">
         <i class="bi bi-check-circle me-2"></i>Aktivität speichern
         <span class="ms-2 opacity-75 small" id="mobileSummary"></span>
       </button>
@@ -712,54 +714,40 @@ function vsShowLetzterBesuch(id) {
         else if (diff < 0) trendHtml = `<span class="text-danger ms-1 fw-normal"><i class="bi bi-arrow-down-short"></i></span>`;
         else               trendHtml = `<span class="text-muted ms-1 fw-normal"><i class="bi bi-dash"></i></span>`;
       }
-      const showMa = besuche.some(b => b.mitarbeiter);
-      const rows = besuche.map((b, i) => {
-        const bold = i === 0 ? 'fw-semibold' : '';
-        const maTd = showMa
-          ? `<td class="text-muted" style="white-space:nowrap">${b.mitarbeiter || ''}</td>`
-          : '';
-        const notizTd = b.notizen
-          ? `<td class="text-muted fst-italic" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">"${b.notizen}"</td>`
-          : `<td></td>`;
-        const istBesuch = b.aktionstyp === 'Besuch';
-        const kistenTd = istBesuch
-          ? `<td class="text-muted" style="font-size:.8em">–</td>`
-          : `<td><i class="bi bi-box-seam me-1" style="color:#c8860a"></i>${b.kisten}</td>`;
-        const dispTd = istBesuch
-          ? `<td class="text-muted" style="font-size:.8em">–</td>`
-          : `<td><i class="bi bi-display me-1" style="color:#2e6da4"></i>${b.displays}</td>`;
-        return `<tr class="${bold}">
-          <td class="ps-2">
-            ${typBadge(b.aktionstyp)}
-            <div class="mt-1" style="font-size:.8em">${b.datum}
-              <span class="text-muted fw-normal">· vor ${b.tage_ago} ${b.tage_ago === 1 ? 'Tag' : 'Tagen'}</span>
-            </div>
-          </td>
-          ${kistenTd}${dispTd}${maTd}${notizTd}
-        </tr>`;
-      }).join('');
-      const maHeader = showMa ? '<th class="fw-normal">Mitarbeiter</th>' : '';
-
       window._letzteBestellung = besuche[0].letzte_bestellung || null;
 
+      const typColors = {
+        'Aufbau':     { bg: '#d4edda', text: '#155724' },
+        'Bestellung': { bg: '#fdecc8', text: '#8a5a00' },
+        'Besuch':     { bg: '#f1efe8', text: '#5f5e5a' },
+      };
+      const cards = besuche.map(b => {
+        const istBesuch = b.aktionstyp === 'Besuch';
+        const c = typColors[b.aktionstyp] || typColors['Besuch'];
+        const mengen = [];
+        if (!istBesuch) {
+          if (b.kisten)   mengen.push(`${b.kisten} {{ unit_label }}`);
+          if (b.displays) mengen.push(`${b.displays} Disp.`);
+        }
+        const mengenStr = mengen.length ? mengen.join(' · ') : '–';
+        const maStr = b.mitarbeiter ? ` · ${b.mitarbeiter}` : '';
+        const tageStr = `vor ${b.tage_ago} ${b.tage_ago === 1 ? 'Tag' : 'Tagen'}${maStr}`;
+        return `
+          <div style="background:${c.bg};border-radius:8px;padding:8px 10px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
+              <span style="font-size:11px;font-weight:500;color:${c.text};">${b.aktionstyp} · ${b.datum}</span>
+              <span style="font-size:11px;color:${c.text};font-weight:500;">${mengenStr}</span>
+            </div>
+            <div style="font-size:11px;color:${c.text};opacity:.7;">${tageStr}</div>
+          </div>`;
+      }).join('');
+
       box.innerHTML = `
-        <div class="rounded-3" style="background:#eef4fb;border:1px solid #b8d4f0;overflow:hidden">
-          <div class="px-2 py-1 small fw-semibold d-flex align-items-center gap-1"
-               style="background:#d8eaf8;color:#1d4e8f;border-bottom:1px solid #b8d4f0">
-            <i class="bi bi-clock-history"></i> Verlauf ${trendHtml}
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <div style="font-size:12px;font-weight:500;color:#4a5568;margin-bottom:2px;">
+            <i class="bi bi-clock-history me-1"></i>Verlauf ${trendHtml}
           </div>
-          <table class="table table-sm mb-0" style="font-size:.82em">
-            <thead class="text-muted">
-              <tr>
-                <th class="ps-2 fw-normal">Typ / Datum</th>
-                <th class="fw-normal">{{ unit_label }}</th>
-                <th class="fw-normal">Disp.</th>
-                ${maHeader}
-                <th class="fw-normal">Notiz</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
+          ${cards}
         </div>`;
     })
     .catch(() => {
@@ -929,6 +917,7 @@ document.getElementById('aktivForm').addEventListener('submit', async function(e
   // Formular zurücksetzen + Erfolgs-Feedback
   if (saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = '<i class="bi bi-check-circle me-2"></i>Aktivität speichern'; }
 
+  if (navigator.vibrate) navigator.vibrate([50, 30, 100]);
   const successDiv = document.createElement('div');
   successDiv.className = 'alert alert-success d-flex align-items-center gap-2 mt-3';
   successDiv.innerHTML = `
