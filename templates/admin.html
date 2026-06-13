@@ -525,7 +525,7 @@
       </div>
       <div class="card-body">
         {% if mail_konfiguriert %}
-        <div class="alert alert-success py-2 mb-3">
+        <div class="alert alert-success py-2 mb-0">
           <i class="bi bi-check-circle me-1"></i>
           E-Mail ist konfiguriert. Passwort-Reset per E-Mail ist aktiv.
         </div>
@@ -534,7 +534,6 @@
           <i class="bi bi-exclamation-triangle me-1"></i>
           <strong>E-Mail nicht konfiguriert.</strong> Passwort-Reset per E-Mail ist deaktiviert.
         </div>
-        {% endif %}
         <p class="small text-muted mb-2">
           Konfiguration erfolgt über Umgebungsvariablen auf Railway:
         </p>
@@ -548,6 +547,7 @@
             <tr><td><code>APP_BASE_URL</code></td><td class="text-muted">z.B. https://ihre-domain.de</td></tr>
           </tbody>
         </table>
+        {% endif %}
       </div>
     </div>
   </div>

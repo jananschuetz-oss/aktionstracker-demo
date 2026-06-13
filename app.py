@@ -3788,6 +3788,25 @@ def _do_send_wochenbericht(force=False):
                     GROUP BY m.id, m.name ORDER BY kisten DESC
                 ''', [montag_diese.isoformat(), sonntag_diese.isoformat()] + t_p)
 
+                _rs_vw = query(f'''
+                    SELECT m.id AS mitarbeiter_id,
+                           COUNT(DISTINCT a.id) AS besuche,
+                           COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,\'Aufbau\')=\'Aufbau\'
+                                             THEN bp.kisten_anzahl END), 0) AS kisten
+                    FROM aktivitaet a
+                    JOIN mitarbeiter m ON m.id=a.mitarbeiter_id
+                    LEFT JOIN bestellposition bp ON bp.aktivitaet_id=a.id
+                    WHERE a.datum BETWEEN ? AND ? AND m.rolle=\'rep\'{tf}
+                    GROUP BY m.id
+                ''', [montag_letzte.isoformat(), sonntag_letzte.isoformat()] + t_p) or []
+                letzte_map = {r['mitarbeiter_id']: r for r in _rs_vw}
+
+                def _delta_w(val, mid, key):
+                    prev = letzte_map.get(mid, {}).get(key, 0)
+                    col = trend_col(val, prev)
+                    ts  = trend_str(val, prev)
+                    return f'<div style="font-size:9px;font-weight:bold;color:{col};margin-top:1px">{ts}</div>'
+
                 offen_map = {r['mitarbeiter_id']: r['n'] for r in query(
                     "SELECT a.mitarbeiter_id, COUNT(*) AS n FROM aktivitaet a "
                     "JOIN mitarbeiter m ON m.id=a.mitarbeiter_id "
@@ -3858,10 +3877,10 @@ def _do_send_wochenbericht(force=False):
                 rep_rows = ''.join(f'''
                 <tr>
                   <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px">{r["name"]}</td>
-                  <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}{_delta_w(r["besuche"], r["mitarbeiter_id"], "besuche")}</td>
                   <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["bestellungen"]}</td>
                   <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
-                  <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}{_delta_w(r["kisten"], r["mitarbeiter_id"], "kisten")}</td>
                   <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{_offen_col(offen_map.get(r["mitarbeiter_id"], 0))}</td>
                 </tr>''' for r in rs) or \
                 '<tr><td colspan="6" style="padding:12px 14px;color:#999;text-align:center">Keine Aktivitäten diese Woche</td></tr>'
@@ -4073,7 +4092,7 @@ def _do_send_monatsbericht(force=False):
             vorher = stats(erster_vorvorm,  letzter_vorvorm)
 
             rs = query(f'''
-                SELECT m.name,
+                SELECT m.id AS mitarbeiter_id, m.name,
                        COUNT(DISTINCT a.id) AS besuche,
                        COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung' THEN a.id END) AS bestellungen,
                        COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.id END) AS aufbauten,
@@ -4087,6 +4106,27 @@ def _do_send_monatsbericht(force=False):
                 WHERE a.datum BETWEEN ? AND ? AND m.rolle='rep'{tf}
                 GROUP BY m.id, m.name ORDER BY kisten DESC
             ''', [erster_vormonat.isoformat(), letzter_vormonat.isoformat()] + t_p)
+
+            _rs_vm = query(f'''
+                SELECT m.id AS mitarbeiter_id,
+                       COUNT(DISTINCT a.id) AS besuche,
+                       COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                         THEN bp.kisten_anzahl END), 0) AS kisten,
+                       COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                         THEN a.anzahl_displays END), 0) AS displays
+                FROM aktivitaet a
+                JOIN mitarbeiter m ON m.id=a.mitarbeiter_id
+                LEFT JOIN bestellposition bp ON bp.aktivitaet_id=a.id
+                WHERE a.datum BETWEEN ? AND ? AND m.rolle='rep'{tf}
+                GROUP BY m.id
+            ''', [erster_vorvorm.isoformat(), letzter_vorvorm.isoformat()] + t_p) or []
+            vorvorm_map = {r['mitarbeiter_id']: r for r in _rs_vm}
+
+            def _delta_m(val, mid, key):
+                prev = vorvorm_map.get(mid, {}).get(key, 0)
+                col = trend_col(val, prev)
+                ts  = trend_str(val, prev)
+                return f'<div style="font-size:9px;font-weight:bold;color:{col};margin-top:1px">{ts}</div>'
 
             if team_id:
                 pipeline = query(
@@ -4105,11 +4145,11 @@ def _do_send_monatsbericht(force=False):
             rep_rows = ''.join(f'''
               <tr>
                 <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px">{r["name"]}</td>
-                <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}</td>
+                <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}{_delta_m(r["besuche"], r["mitarbeiter_id"], "besuche")}</td>
                 <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["bestellungen"]}</td>
                 <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
-                <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}</td>
-                <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["displays"]}</td>
+                <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}{_delta_m(r["kisten"], r["mitarbeiter_id"], "kisten")}</td>
+                <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["displays"]}{_delta_m(r["displays"], r["mitarbeiter_id"], "displays")}</td>
               </tr>''' for r in rs) or \
             '<tr><td colspan="6" style="padding:12px 14px;color:#999;text-align:center">Keine Aktivitäten im Vormonat</td></tr>'
 
@@ -4184,7 +4224,7 @@ def _do_send_monatsbericht(force=False):
 
   <div style="padding:14px 32px;background:#f4f8fc;border-top:1px solid #e4eaf0;text-align:center">
     <div style="font-size:11px;color:#aaa">Aktions Tracker &middot; Automatischer Monatsbericht am 1. des Monats<br>
-    Empfänger identisch zum Wochenbericht &ndash; Einstellungen unter <em>Einstellungen &rarr; Wochenbericht</em></div>
+    Empfänger identisch zum Wochenbericht &ndash; Einstellungen unter <em>Einstellungen &rarr; Wochen-/Monatsbericht</em></div>
   </div>
 
 </div>
