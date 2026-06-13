@@ -2980,6 +2980,17 @@ def admin_bier_neu():
     return redirect(url_for('admin'))
 
 
+@app.route('/admin/biersorte/<int:b_id>/bearbeiten', methods=['POST'])
+@admin_required
+def admin_bier_bearbeiten(b_id):
+    name    = request.form.get('name', '').strip()
+    einheit = request.form.get('einheit', '').strip()
+    if name:
+        execute("UPDATE biersorte SET name=?, einheit=? WHERE id=?", (name, einheit, b_id))
+        flash(f'Biersorte „{name}" aktualisiert.', 'success')
+    return redirect(url_for('admin'))
+
+
 @app.route('/admin/displaysorte/neu', methods=['POST'])
 @admin_required
 def admin_display_neu():

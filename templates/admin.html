@@ -247,6 +247,12 @@
               <td><small class="text-muted">{{ b.einheit }}</small></td>
               <td class="text-center">
                 {% if b.aktiv %}
+                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1"
+                        title="Bearbeiten"
+                        data-bs-toggle="modal"
+                        data-bs-target="#modalBierBearbeiten_{{ b.id }}">
+                  <i class="bi bi-pencil"></i>
+                </button>
                 <form method="POST"
                       action="{{ url_for('admin_bier_loeschen', b_id=b.id) }}"
                       style="display:inline"
@@ -967,6 +973,41 @@ document.getElementById('modalVSEdit').addEventListener('show.bs.modal', functio
     </div>
   </div>
 </div>
+
+<!-- Modals: Biersorte bearbeiten -->
+{% for b in biersorten %}
+<div class="modal fade" id="modalBierBearbeiten_{{ b.id }}" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('admin_bier_bearbeiten', b_id=b.id) }}">
+        <div class="modal-header" style="background:#1a3a5c;color:white">
+          <h5 class="modal-title"><i class="bi bi-pencil me-2"></i>Produkt bearbeiten</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Bezeichnung <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control" value="{{ b.name }}" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Einheit</label>
+            <select name="einheit" class="form-select">
+              {% set einheiten = ['Kiste (20x0.5L)', 'Kiste (24x0.33L)', 'Kiste (12x0.5L)', 'Fass (30L)', 'Fass (50L)'] %}
+              {% for e in einheiten %}
+              <option value="{{ e }}" {% if b.einheit == e %}selected{% endif %}>{{ e }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-check me-1"></i>Speichern</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
 
 <!-- Modals: Verkaufsstellen-Zuordnung (je Rep) -->
 {% for m in mitarbeiter %}
