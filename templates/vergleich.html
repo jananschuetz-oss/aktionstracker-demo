@@ -30,9 +30,11 @@
         {% endfor %}
       </select>
     </form>
+    {% if is_manager %}
     <a href="{{ url_for('zielzahlen', jahr=jahr) }}" class="btn btn-sm" style="background:#c8860a;color:white">
       <i class="bi bi-bullseye me-1"></i>Zielzahlen bearbeiten
     </a>
+    {% endif %}
     {% if is_manager %}
     <a href="{{ url_for('export_excel', jahr=jahr) }}" class="btn btn-success btn-sm">
       <i class="bi bi-file-earmark-excel me-1"></i>Excel Export
