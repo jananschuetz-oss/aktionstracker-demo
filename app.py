@@ -442,6 +442,7 @@ def init_db():
                 name TEXT NOT NULL
             )""",
             "ALTER TABLE mitarbeiter ADD COLUMN team_id INTEGER REFERENCES team(id) ON DELETE SET NULL",
+            "ALTER TABLE wochenbericht_config ADD COLUMN zuletzt_gesendet_monat TEXT DEFAULT ''",
         ]:
             try:
                 db.execute(migration)
@@ -4006,6 +4007,245 @@ def send_wochenbericht(force=False):
         return _do_send_wochenbericht(force=force)
 
 
+# ─── Monatsbericht ───────────────────────────────────────────────────────────
+
+def _do_send_monatsbericht(force=False):
+    """Automatischer Monatsbericht – immer am 1. eines Monats für den abgeschlossenen Vormonat."""
+    try:
+        config = query("SELECT * FROM wochenbericht_config WHERE id=1", one=True)
+        if not config:
+            return False, "Keine Konfiguration gefunden."
+        if not force and not config['aktiv']:
+            return False, "Berichte sind deaktiviert."
+
+        heute            = date.today()
+        letzter_vormonat = heute - timedelta(days=1)
+        erster_vormonat  = letzter_vormonat.replace(day=1)
+        letzter_vorvorm  = erster_vormonat - timedelta(days=1)
+        erster_vorvorm   = letzter_vorvorm.replace(day=1)
+
+        monat_key = erster_vormonat.strftime('%Y-%m')
+        if not force and config.get('zuletzt_gesendet_monat') == monat_key:
+            app.logger.info("MONATSBERICHT: Dieser Monat bereits gesendet – übersprungen.")
+            return False, "Dieser Monat bereits gesendet."
+
+        _monat_namen = ['Januar','Februar','März','April','Mai','Juni',
+                        'Juli','August','September','Oktober','November','Dezember']
+        monat_name  = _monat_namen[erster_vormonat.month - 1]
+        vmonat_name = _monat_namen[erster_vorvorm.month - 1]
+        monat_label = f"{monat_name} {erster_vormonat.year}"
+
+        empfaenger_admin = [e for e in [config.get('empfaenger_2'), config.get('empfaenger_3')] if e]
+        vkls     = query("SELECT email, name, team_id FROM mitarbeiter "
+                         "WHERE rolle='verkaufsleiter' AND email IS NOT NULL AND email != ''") or []
+        teams    = query("SELECT id, name FROM team ORDER BY name") or []
+        team_map = {t['id']: t['name'] for t in teams}
+
+        def trend_str(neu, alt):
+            d = neu - alt
+            return f'+{d}' if d > 0 else str(d) if d < 0 else '±0'
+
+        def trend_col(neu, alt):
+            return '#2d8a4e' if neu > alt else '#c0392b' if neu < alt else '#888'
+
+        def build_html(team_id=None, team_name=None):
+            t_p = [team_id] if team_id else []
+            tf  = ' AND m.team_id=?' if team_id else ''
+
+            def stats(von, bis):
+                return query(f'''
+                    SELECT COUNT(DISTINCT a.id) AS besuche,
+                           COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                               THEN a.id END) AS aufbauten,
+                           COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung'
+                                               THEN a.id END) AS bestellungen,
+                           COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                             THEN bp.kisten_anzahl END), 0) AS kisten,
+                           COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                             THEN a.anzahl_displays END), 0) AS displays
+                    FROM aktivitaet a
+                    JOIN mitarbeiter m ON m.id=a.mitarbeiter_id
+                    LEFT JOIN bestellposition bp ON bp.aktivitaet_id=a.id
+                    WHERE a.datum BETWEEN ? AND ?{tf}
+                ''', [von.isoformat(), bis.isoformat()] + t_p, one=True)
+
+            dieser = stats(erster_vormonat, letzter_vormonat)
+            vorher = stats(erster_vorvorm,  letzter_vorvorm)
+
+            rs = query(f'''
+                SELECT m.name,
+                       COUNT(DISTINCT a.id) AS besuche,
+                       COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung' THEN a.id END) AS bestellungen,
+                       COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.id END) AS aufbauten,
+                       COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                         THEN bp.kisten_anzahl END), 0) AS kisten,
+                       COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                         THEN a.anzahl_displays END), 0) AS displays
+                FROM aktivitaet a
+                JOIN mitarbeiter m ON m.id=a.mitarbeiter_id
+                LEFT JOIN bestellposition bp ON bp.aktivitaet_id=a.id
+                WHERE a.datum BETWEEN ? AND ? AND m.rolle='rep'{tf}
+                GROUP BY m.id, m.name ORDER BY kisten DESC
+            ''', [erster_vormonat.isoformat(), letzter_vormonat.isoformat()] + t_p)
+
+            if team_id:
+                pipeline = query(
+                    "SELECT COALESCE(SUM(CASE WHEN COALESCE(a.bestell_status,'offen')='offen' THEN 1 END),0) AS offen,"
+                    "       COALESCE(SUM(CASE WHEN a.bestell_status='aufgebaut' THEN 1 END),0) AS aufgebaut,"
+                    "       COALESCE(SUM(CASE WHEN a.bestell_status='storniert' THEN 1 END),0) AS storniert "
+                    "FROM aktivitaet a JOIN mitarbeiter m ON m.id=a.mitarbeiter_id "
+                    "WHERE a.aktionstyp='Bestellung' AND m.team_id=?", (team_id,), one=True)
+            else:
+                pipeline = query(
+                    "SELECT COALESCE(SUM(CASE WHEN COALESCE(bestell_status,'offen')='offen' THEN 1 END),0) AS offen,"
+                    "       COALESCE(SUM(CASE WHEN bestell_status='aufgebaut' THEN 1 END),0) AS aufgebaut,"
+                    "       COALESCE(SUM(CASE WHEN bestell_status='storniert' THEN 1 END),0) AS storniert "
+                    "FROM aktivitaet WHERE aktionstyp='Bestellung'", one=True)
+
+            rep_rows = ''.join(f'''
+              <tr>
+                <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px">{r["name"]}</td>
+                <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}</td>
+                <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["bestellungen"]}</td>
+                <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
+                <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}</td>
+                <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["displays"]}</td>
+              </tr>''' for r in rs) or \
+            '<tr><td colspan="6" style="padding:12px 14px;color:#999;text-align:center">Keine Aktivitäten im Vormonat</td></tr>'
+
+            tl = f' &ndash; {team_name}' if team_name else ''
+            dl = APP_BASE_URL or '#'
+            return f'''<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f0f4f8;font-family:Arial,Helvetica,sans-serif">
+<div style="max-width:600px;margin:32px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.10)">
+
+  <div style="background:#1a3a5c;padding:26px 32px">
+    <div style="color:#fff;font-size:20px;font-weight:bold;letter-spacing:.3px">Aktions Tracker{tl}</div>
+    <div style="color:#90b8d8;font-size:13px;margin-top:5px">Monatsbericht {monat_label} &nbsp;&middot;&nbsp; {erster_vormonat.strftime('%d.%m.')} &ndash; {letzter_vormonat.strftime('%d.%m.%Y')}</div>
+  </div>
+
+  <div style="padding:28px 32px 8px">
+    <div style="font-size:15px;font-weight:bold;color:#1a3a5c;margin-bottom:16px">Gesamtübersicht {monat_name}</div>
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
+          <div style="font-size:30px;font-weight:bold;color:#1a3a5c">{dieser["besuche"]}</div>
+          <div style="font-size:12px;color:#666;margin-top:3px">Besuche</div>
+          <div style="font-size:11px;font-weight:bold;color:{trend_col(dieser["besuche"],vorher["besuche"])};margin-top:5px">{trend_str(dieser["besuche"],vorher["besuche"])} ggü. {vmonat_name}</div>
+        </td>
+        <td width="12"></td>
+        <td style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
+          <div style="font-size:30px;font-weight:bold;color:#c8860a">{dieser["kisten"]}</div>
+          <div style="font-size:12px;color:#666;margin-top:3px">{UNIT_LABEL}</div>
+          <div style="font-size:11px;font-weight:bold;color:{trend_col(dieser["kisten"],vorher["kisten"])};margin-top:5px">{trend_str(dieser["kisten"],vorher["kisten"])} ggü. {vmonat_name}</div>
+        </td>
+        <td width="12"></td>
+        <td style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
+          <div style="font-size:30px;font-weight:bold;color:#2e6da4">{dieser["displays"]}</div>
+          <div style="font-size:12px;color:#666;margin-top:3px">Displays</div>
+          <div style="font-size:11px;font-weight:bold;color:{trend_col(dieser["displays"],vorher["displays"])};margin-top:5px">{trend_str(dieser["displays"],vorher["displays"])} ggü. {vmonat_name}</div>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <div style="padding:16px 32px;background:#fffbf0;border-top:1px solid #f0c674">
+    <span style="font-size:13px;font-weight:bold;color:#1a3a5c">Bestellungen Pipeline:</span>
+    <span style="margin-left:14px;font-size:13px">
+      <span style="color:#c8860a;font-weight:bold">{pipeline["offen"]}</span><span style="color:#777"> offen</span>
+      &nbsp;&nbsp;&middot;&nbsp;&nbsp;
+      <span style="color:#27ae60;font-weight:bold">{pipeline["aufgebaut"]}</span><span style="color:#777"> aufgebaut</span>
+      &nbsp;&nbsp;&middot;&nbsp;&nbsp;
+      <span style="color:#6c757d;font-weight:bold">{pipeline["storniert"]}</span><span style="color:#777"> storniert</span>
+    </span>
+  </div>
+
+  <div style="padding:24px 32px">
+    <div style="font-size:15px;font-weight:bold;color:#1a3a5c;margin-bottom:12px">Mitarbeiter &ndash; {monat_name}</div>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e4eaf0;border-radius:8px;overflow:hidden">
+      <thead>
+        <tr style="background:#edf2f7">
+          <th style="padding:8px 10px;text-align:left;font-size:10px;color:#666;font-weight:600;letter-spacing:.5px">MITARBEITER</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#666;font-weight:600;letter-spacing:.5px">BESUCHE</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#2e6da4;font-weight:600;letter-spacing:.5px">BESTELL.</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#27ae60;font-weight:600;letter-spacing:.5px">AUFBAUT.</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#c8860a;font-weight:600;letter-spacing:.5px">{UNIT_LABEL.upper()[:7]}</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#2e6da4;font-weight:600;letter-spacing:.5px">DISPLAYS</th>
+        </tr>
+      </thead>
+      <tbody>{rep_rows}</tbody>
+    </table>
+  </div>
+
+  <div style="padding:16px 32px 24px;text-align:center">
+    <a href="{dl}" style="display:inline-block;background:#1a3a5c;color:#fff;text-decoration:none;padding:10px 24px;border-radius:6px;font-size:13px;font-weight:bold">&rarr; Zum Dashboard</a>
+  </div>
+
+  <div style="padding:14px 32px;background:#f4f8fc;border-top:1px solid #e4eaf0;text-align:center">
+    <div style="font-size:11px;color:#aaa">Aktions Tracker &middot; Automatischer Monatsbericht am 1. des Monats<br>
+    Empfänger identisch zum Wochenbericht &ndash; Einstellungen unter <em>Einstellungen &rarr; Wochenbericht</em></div>
+  </div>
+
+</div>
+</body></html>'''
+
+        firma_teil = f' – {FIRMA_NAME}' if FIRMA_NAME else ''
+        ok_count   = 0
+
+        vkl_teams = list(dict.fromkeys(v['team_id'] for v in vkls if v.get('team_id')))
+        if len(vkl_teams) >= 2:
+            for v in vkls:
+                if not v.get('team_id'):
+                    continue
+                tname   = team_map.get(v['team_id'], f'Team {v["team_id"]}')
+                html    = build_html(team_id=v['team_id'], team_name=tname)
+                betreff = f'Monatsbericht{firma_teil} – {tname} – {monat_label}'
+                if send_email(v['email'], betreff, html):
+                    app.logger.info(f"MONATSBERICHT {monat_label} [{tname}]: Gesendet an {v['email']}")
+                    ok_count += 1
+                else:
+                    app.logger.error(f"MONATSBERICHT {monat_label} [{tname}]: Fehler bei {v['email']}")
+            if empfaenger_admin:
+                html_g  = build_html(team_id=None, team_name='Alle Teams')
+                betreff = f'Monatsbericht{firma_teil} – Alle Teams – {monat_label}'
+                for mail in empfaenger_admin:
+                    if send_email(mail, betreff, html_g):
+                        app.logger.info(f"MONATSBERICHT {monat_label} [Gesamt]: Gesendet an {mail}")
+                        ok_count += 1
+        else:
+            empfaenger = []
+            if vkls:
+                empfaenger.append(vkls[0]['email'])
+            empfaenger.extend(empfaenger_admin)
+            if not empfaenger:
+                app.logger.warning("MONATSBERICHT: Keine Empfänger konfiguriert – übersprungen.")
+                return False, "Keine Empfänger konfiguriert."
+            html    = build_html(team_id=None)
+            betreff = f'Monatsbericht Aktionstracker{firma_teil} – {monat_label}'
+            for mail in empfaenger:
+                if send_email(mail, betreff, html):
+                    app.logger.info(f"MONATSBERICHT {monat_label}: Gesendet an {mail}")
+                    ok_count += 1
+
+        if ok_count > 0:
+            execute("UPDATE wochenbericht_config SET zuletzt_gesendet_monat=? WHERE id=1", (monat_key,))
+            return True, f"Gesendet an {ok_count} Empfänger"
+        else:
+            detail = f': {_smtp_last_error}' if _smtp_last_error else ''
+            return False, f"E-Mail-Versand fehlgeschlagen{detail}"
+
+    except Exception as e:
+        app.logger.error(f"MONATSBERICHT Fehler: {e}", exc_info=True)
+        return False, f"Fehler: {e}"
+
+
+def send_monatsbericht(force=False):
+    """Wrapper für APScheduler – erstellt eigenen App-Context."""
+    with app.app_context():
+        return _do_send_monatsbericht(force=force)
+
+
 # ─── Demo-Frischhaltung: jede Woche neue Aktivitäten ─────────────────────────
 
 def _do_demo_woche_nachfuellen():
@@ -4728,8 +4968,10 @@ try:
                        id='demo_seed',        replace_existing=True)
     _scheduler.add_job(send_wochenbericht,  'cron', day_of_week='mon', hour=7, minute=0,
                        id='wochenbericht', replace_existing=True, timezone='Europe/Berlin')
+    _scheduler.add_job(send_monatsbericht, 'cron', day=1, hour=7, minute=0,
+                       id='monatsbericht', replace_existing=True, timezone='Europe/Berlin')
     _scheduler.start()
-    app.logger.info("Scheduler gestartet (Backup täglich, Foto-Cleanup täglich, Auto-Export 4-wöchentlich, Wochenbericht montags 07:00)")
+    app.logger.info("Scheduler gestartet (Backup täglich, Foto-Cleanup täglich, Auto-Export 4-wöchentlich, Wochenbericht montags 07:00, Monatsbericht am 1. des Monats 07:00)")
 except ImportError:
     app.logger.warning("APScheduler nicht installiert – automatische Jobs deaktiviert.")
 
