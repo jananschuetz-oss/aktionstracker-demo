@@ -3021,6 +3021,16 @@ def admin_display_reaktivieren(ds_id):
     return redirect(url_for('admin'))
 
 
+@app.route('/admin/displaysorte/<int:ds_id>/bearbeiten', methods=['POST'])
+@admin_required
+def admin_display_bearbeiten(ds_id):
+    name = request.form.get('name', '').strip()
+    if name:
+        execute("UPDATE displaysorte SET name=? WHERE id=?", (name, ds_id))
+        flash(f'Display-Typ „{name}" aktualisiert.', 'success')
+    return redirect(url_for('admin'))
+
+
 # ─── Routes: Excel-Import ────────────────────────────────────────────────────
 
 @app.route('/admin/import-excel/vorlage')

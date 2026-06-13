@@ -317,6 +317,12 @@
               </td>
               <td class="text-center">
                 {% if d.aktiv %}
+                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1"
+                        title="Bearbeiten"
+                        data-bs-toggle="modal"
+                        data-bs-target="#modalDisplayBearbeiten_{{ d.id }}">
+                  <i class="bi bi-pencil"></i>
+                </button>
                 <form method="POST" action="{{ url_for('admin_display_loeschen', ds_id=d.id) }}"
                       style="display:inline"
                       onsubmit="return confirm('Display-Typ „{{ d.name }}" deaktivieren?')">
@@ -973,6 +979,32 @@ document.getElementById('modalVSEdit').addEventListener('show.bs.modal', functio
     </div>
   </div>
 </div>
+
+<!-- Modals: Display-Typ bearbeiten -->
+{% for d in displaysorte %}
+<div class="modal fade" id="modalDisplayBearbeiten_{{ d.id }}" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('admin_display_bearbeiten', ds_id=d.id) }}">
+        <div class="modal-header" style="background:#1a3a5c;color:white">
+          <h5 class="modal-title"><i class="bi bi-pencil me-2"></i>Display-Typ bearbeiten</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Bezeichnung <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control" value="{{ d.name }}" required>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-check me-1"></i>Speichern</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
 
 <!-- Modals: Biersorte bearbeiten -->
 {% for b in biersorten %}
