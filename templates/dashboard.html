@@ -11,6 +11,14 @@
     {% else %}Meine Übersicht – {{ session.name }}{% endif %}
     &nbsp;|&nbsp; Jahr {{ jahr }}
   </p>
+  {% if not is_manager and heute_stats %}
+  <p class="mb-2" style="font-size:.88rem;color:rgba(255,255,255,.85)">
+    <i class="bi bi-sun me-1" style="color:#f5a623"></i>Heute:
+    <strong>{{ heute_stats.besuche or 0 }}</strong> Besuche
+    &nbsp;·&nbsp; <strong>{{ heute_stats.displays or 0 }}</strong> Displays
+    &nbsp;·&nbsp; <strong>{{ heute_stats.kisten or 0 }}</strong> {{ unit_label }}
+  </p>
+  {% endif %}
   <div class="d-flex flex-wrap gap-2 align-items-center">
     <form class="d-flex flex-wrap gap-2 align-items-center" method="GET">
       <select name="jahr" class="form-select form-select-sm" onchange="this.form.submit()"
@@ -41,6 +49,70 @@
 </div>
 
 <!-- KPI Karten -->
+{% if not is_manager %}
+<!-- REP: Laufende Woche -->
+<div class="row g-3 mb-2">
+  {% set dw = diese_woche_stats %}
+  {% set vw = vorwoche_stats %}
+  <div class="col-6 col-lg-3">
+    <div class="stat-card blue h-100">
+      <p><i class="bi bi-display me-1"></i>Displays KW {{ kw_aktuell }}</p>
+      {% set cur = (dw.displays or 0) if dw else 0 %}{% set prv = (vw.displays or 0) if vw else 0 %}
+      <h2>{{ cur }}</h2>
+      {% if cur > prv %}<p style="font-size:.8rem;margin-top:.25rem;color:#7dffb0">↑ +{{ cur - prv }} vs. Vorwoche</p>
+      {% elif cur < prv %}<p style="font-size:.8rem;margin-top:.25rem;color:#ff8a8a">↓ {{ cur - prv }} vs. Vorwoche</p>
+      {% else %}<p style="font-size:.8rem;margin-top:.25rem;opacity:.55">→ wie Vorwoche</p>{% endif %}
+      <i class="bi bi-display bg-icon"></i>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="stat-card amber h-100">
+      <p><i class="bi bi-box-seam me-1"></i>{{ unit_label }} KW {{ kw_aktuell }}</p>
+      {% set cur = (dw.kisten or 0) if dw else 0 %}{% set prv = (vw.kisten or 0) if vw else 0 %}
+      <h2>{{ cur }}</h2>
+      {% if cur > prv %}<p style="font-size:.8rem;margin-top:.25rem;color:#7dffb0">↑ +{{ cur - prv }} vs. Vorwoche</p>
+      {% elif cur < prv %}<p style="font-size:.8rem;margin-top:.25rem;color:#ff8a8a">↓ {{ cur - prv }} vs. Vorwoche</p>
+      {% else %}<p style="font-size:.8rem;margin-top:.25rem;opacity:.55">→ wie Vorwoche</p>{% endif %}
+      <i class="bi bi-box-seam bg-icon"></i>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="stat-card green h-100">
+      <p><i class="bi bi-shop me-1"></i>Besuche KW {{ kw_aktuell }}</p>
+      {% set cur = (dw.besuche or 0) if dw else 0 %}{% set prv = (vw.besuche or 0) if vw else 0 %}
+      <h2>{{ cur }}</h2>
+      {% if cur > prv %}<p style="font-size:.8rem;margin-top:.25rem;color:#7dffb0">↑ +{{ cur - prv }} vs. Vorwoche</p>
+      {% elif cur < prv %}<p style="font-size:.8rem;margin-top:.25rem;color:#ff8a8a">↓ {{ cur - prv }} vs. Vorwoche</p>
+      {% else %}<p style="font-size:.8rem;margin-top:.25rem;opacity:.55">→ wie Vorwoche</p>{% endif %}
+      <i class="bi bi-shop bg-icon"></i>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="stat-card purple h-100">
+      <p><i class="bi bi-bar-chart me-1"></i>Ø {{ unit_label }}/Besuch KW {{ kw_aktuell }}</p>
+      {% set dw_b = (dw.besuche or 0) if dw else 0 %}{% set dw_k = (dw.kisten or 0) if dw else 0 %}
+      {% set vw_b = (vw.besuche or 0) if vw else 0 %}{% set vw_k = (vw.kisten or 0) if vw else 0 %}
+      <h2>{% if dw_b %}{{ (dw_k / dw_b)|round(1) }}{% else %}–{% endif %}</h2>
+      {% set cur_avg = (dw_k / dw_b)|round(1) if dw_b else 0 %}{% set prv_avg = (vw_k / vw_b)|round(1) if vw_b else 0 %}
+      {% if cur_avg > prv_avg %}<p style="font-size:.8rem;margin-top:.25rem;color:#7dffb0">↑ besser als Vorwoche</p>
+      {% elif cur_avg < prv_avg %}<p style="font-size:.8rem;margin-top:.25rem;color:#ff8a8a">↓ schwächer als Vorwoche</p>
+      {% else %}<p style="font-size:.8rem;margin-top:.25rem;opacity:.55">→ wie Vorwoche</p>{% endif %}
+      <i class="bi bi-bar-chart bg-icon"></i>
+    </div>
+  </div>
+</div>
+<!-- REP: Monat kompakt -->
+<div class="mb-4">
+  <div class="d-flex flex-wrap align-items-center gap-3 px-3 py-2 rounded-3"
+       style="background:#f0f4f8;border:1px solid #d4dce8;font-size:.88rem;">
+    <span style="color:#1a3a5c;font-weight:600"><i class="bi bi-calendar3 me-1"></i>{{ monat_name }}</span>
+    <span class="text-muted"><span class="fw-semibold" style="color:#1a3a5c">{{ (dieser_monat_stats.displays or 0) if dieser_monat_stats else 0 }}</span> Displays</span>
+    <span class="text-muted"><span class="fw-semibold" style="color:#c8860a">{{ (dieser_monat_stats.kisten or 0) if dieser_monat_stats else 0 }}</span> {{ unit_label }}</span>
+    <span class="text-muted"><span class="fw-semibold" style="color:#27ae60">{{ (dieser_monat_stats.besuche or 0) if dieser_monat_stats else 0 }}</span> Besuche</span>
+  </div>
+</div>
+{% else %}
+<!-- MANAGER: Jahres KPI Karten -->
 <div class="row g-3 mb-4">
   <div class="col-6 col-lg-3">
     <div class="stat-card blue h-100">
@@ -67,7 +139,7 @@
     </div>
   </div>
   <div class="col-6 col-lg-3">
-    {% if is_manager and not ma_filter %}
+    {% if not ma_filter %}
     <div class="stat-card purple h-100">
       <p><i class="bi bi-people me-1"></i>Aktive Mitarbeiter</p>
       <h2>{{ jahres.mitarbeiter_aktiv or 0 }}</h2>
@@ -84,6 +156,7 @@
     {% endif %}
   </div>
 </div>
+{% endif %}
 
 <!-- Jahreszielerreichung -->
 {% if ziel and (ziel.displays_ziel or ziel.kisten_ziel) %}

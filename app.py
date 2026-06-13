@@ -1431,6 +1431,38 @@ def dashboard():
             _t_p + (_mo_kw.isoformat(), _heute.isoformat(), _heute.isoformat())
         )
 
+    # Rep-Dashboard: Tages-/Wochen-/Monatszahlen
+    heute_stats = diese_woche_stats = vorwoche_stats = dieser_monat_stats = None
+    kw_aktuell = date.today().isocalendar()[1]
+    _monat_namen = ['Januar','Februar','März','April','Mai','Juni',
+                    'Juli','August','September','Oktober','November','Dezember']
+    monat_name = _monat_namen[date.today().month - 1]
+    if not is_manager:
+        _uid = (session['user_id'],)
+        heute_stats = query(f'''
+            SELECT {DISP_IST} AS displays, {KIST_IST} AS kisten, COUNT(a.id) AS besuche
+            FROM aktivitaet a LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
+            WHERE a.datum = date('now','localtime') AND a.mitarbeiter_id = ?
+        ''', _uid, one=True)
+        diese_woche_stats = query(f'''
+            SELECT {DISP_IST} AS displays, {KIST_IST} AS kisten, COUNT(a.id) AS besuche
+            FROM aktivitaet a LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
+            WHERE strftime('%Y-%W', a.datum) = strftime('%Y-%W', date('now','localtime'))
+            AND a.mitarbeiter_id = ?
+        ''', _uid, one=True)
+        vorwoche_stats = query(f'''
+            SELECT {DISP_IST} AS displays, {KIST_IST} AS kisten, COUNT(a.id) AS besuche
+            FROM aktivitaet a LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
+            WHERE strftime('%Y-%W', a.datum) = strftime('%Y-%W', date('now','localtime','-7 days'))
+            AND a.mitarbeiter_id = ?
+        ''', _uid, one=True)
+        dieser_monat_stats = query(f'''
+            SELECT {DISP_IST} AS displays, {KIST_IST} AS kisten, COUNT(a.id) AS besuche
+            FROM aktivitaet a LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
+            WHERE strftime('%Y-%m', a.datum) = strftime('%Y-%m', date('now','localtime'))
+            AND a.mitarbeiter_id = ?
+        ''', _uid, one=True)
+
     return render_template('dashboard.html',
         jahr=jahr, kw_data=kw_data, jahres=jahres,
         rep_stats=rep_stats, letzte=letzte,
@@ -1450,6 +1482,12 @@ def dashboard():
         p_ueberfaellig=p_ueberfaellig,
         ziel=ziel,
         inaktiv_reps=inaktiv_reps,
+        heute_stats=heute_stats,
+        diese_woche_stats=diese_woche_stats,
+        vorwoche_stats=vorwoche_stats,
+        dieser_monat_stats=dieser_monat_stats,
+        kw_aktuell=kw_aktuell,
+        monat_name=monat_name,
     )
 
 
