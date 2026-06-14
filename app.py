@@ -457,6 +457,7 @@ def init_db():
             )""",
             "ALTER TABLE mitarbeiter ADD COLUMN team_id INTEGER REFERENCES team(id) ON DELETE SET NULL",
             "ALTER TABLE wochenbericht_config ADD COLUMN zuletzt_gesendet_monat TEXT DEFAULT ''",
+            "ALTER TABLE wochenbericht_config ADD COLUMN urlaubsmail_empfaenger TEXT DEFAULT ''",
         ]:
             try:
                 db.execute(migration)
@@ -2565,6 +2566,9 @@ def admin():
     # Alle Außendienst-Mitarbeiter für Dropdowns
     alle_ad = query("SELECT id, name FROM mitarbeiter WHERE rolle IN ('rep','verkaufsleiter') ORDER BY name")
 
+    cfg = query("SELECT urlaubsmail_empfaenger FROM wochenbericht_config WHERE id=1", one=True)
+    urlaubsmail_empfaenger = cfg['urlaubsmail_empfaenger'] if cfg else ''
+
     return render_template('admin.html',
         mitarbeiter=mitarbeiter,
         verkaufsstellen=verkaufsstellen,
@@ -2575,7 +2579,8 @@ def admin():
         vertretungen=vertretungen,
         alle_ad=alle_ad,
         teams=teams,
-        mail_konfiguriert=mail_konfiguriert)
+        mail_konfiguriert=mail_konfiguriert,
+        urlaubsmail_empfaenger=urlaubsmail_empfaenger)
 
 
 @app.route('/admin/mitarbeiter/neu', methods=['POST'])
@@ -2947,8 +2952,10 @@ def _send_vertretung_email(vtr_id: int, status: str):
     )
     for mgr in manager_emails:
         empfaenger.add(mgr['email'])
-    if EXPORT_EMAIL:
-        empfaenger.add(EXPORT_EMAIL)
+    cfg = query("SELECT urlaubsmail_empfaenger FROM wochenbericht_config WHERE id=1", one=True)
+    if cfg and cfg['urlaubsmail_empfaenger']:
+        for addr in [a.strip() for a in cfg['urlaubsmail_empfaenger'].split(',') if a.strip()]:
+            empfaenger.add(addr)
     for addr in empfaenger:
         send_email(addr, subject, body)
 
@@ -2975,6 +2982,15 @@ def admin_vertretung_ablehnen(vtr_id):
         flash('Urlaubsantrag abgelehnt.', 'warning')
         _send_vertretung_email(vtr_id, 'abgelehnt')
     return redirect(request.referrer or url_for('dashboard'))
+
+
+@app.route('/admin/urlaubsmail/empfaenger', methods=['POST'])
+@admin_required
+def admin_urlaubsmail_empfaenger():
+    empfaenger = request.form.get('urlaubsmail_empfaenger', '').strip()
+    execute("UPDATE wochenbericht_config SET urlaubsmail_empfaenger=? WHERE id=1", (empfaenger,))
+    flash('Urlaubsmail-Empfänger gespeichert.', 'success')
+    return redirect(url_for('admin') + '#vertretung')
 
 
 @app.route('/profil/vertretung/neu', methods=['POST'])
