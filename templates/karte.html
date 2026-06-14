@@ -570,6 +570,18 @@ let heatmapLayer = L.layerGroup();
 let heatmapAktiv = false;
 let heatmapEbene = 'betreuung';
 
+function _updateBaseMarkerOpacity() {
+  Object.entries(markers).forEach(([id, m]) => {
+    if (!heatmapAktiv) { m.setStyle({ fillOpacity: 0.92, opacity: 1 }); return; }
+    const stelle = alleStellen.find(s => String(s.id) === String(id));
+    if (repFilter.length && stelle && !stelleIstSichtbar(stelle)) {
+      m.setStyle({ fillOpacity: 0, opacity: 0 });
+    } else {
+      m.setStyle({ fillOpacity: 0.18, opacity: 0.3 });
+    }
+  });
+}
+
 const EBENE_CFG = {
   betreuung:           { leerText: 'Keine Aktivitäten', einzel: 'Aktivität', mehr: 'Aktivitäten' },
   aufbauten:           { leerText: 'Kein Aufbau',       einzel: 'Aufbau',    mehr: 'Aufbauten'   },
@@ -588,7 +600,8 @@ function _heatmapLegende() {
       '<span class="text-muted" style="font-size:.75rem">(offene Bestellungen)</span>';
   } else {
     leg.innerHTML =
-      '<span class="ms-2 me-2"><i class="bi bi-circle-fill" style="color:#6c757d"></i> Kein Eintrag</span>' +
+      '<span class="ms-2 me-2"><i class="bi bi-circle-fill" style="color:#dee2e6"></i> Nicht zugeordnet</span>' +
+      '<span class="me-2"><i class="bi bi-circle-fill" style="color:#adb5bd"></i> Kein Eintrag</span>' +
       '<span class="me-2"><i class="bi bi-circle-fill" style="color:#e74c3c"></i> Wenig</span>' +
       '<span class="me-2"><i class="bi bi-circle-fill" style="color:#f39c12"></i> Mittel</span>' +
       '<span class="me-2"><i class="bi bi-circle-fill" style="color:#27ae60"></i> Häufig</span>' +
@@ -620,7 +633,11 @@ async function ladeHeatmap(jahr) {
 
     let radius, fillColor, borderColor, opac, tooltipColor;
     if (s.anzahl === 0) {
-      radius = 6; fillColor = '#6c757d'; borderColor = '#495057'; opac = 0.82; tooltipColor = '#495057';
+      if (s.zugeordnet) {
+        radius = 6; fillColor = '#adb5bd'; borderColor = '#868e96'; opac = 0.75; tooltipColor = '#495057';
+      } else {
+        radius = 5; fillColor = '#dee2e6'; borderColor = '#adb5bd'; opac = 0.55; tooltipColor = '#6c757d';
+      }
     } else {
       const norm = Math.sqrt(s.anzahl / maxAnzahl);
       radius = Math.round(5 + norm * 11);
@@ -661,6 +678,7 @@ async function ladeHeatmap(jahr) {
       .join('');
   }
   _heatmapLegende();
+  _updateBaseMarkerOpacity();
 }
 
 function _setEbene(ebene) {
@@ -680,7 +698,7 @@ function _setEbene(ebene) {
 
 function aktiviereHeatmap() {
   heatmapAktiv = true;
-  Object.values(markers).forEach(m => m.setStyle({ fillOpacity: 0.18, opacity: 0.3 }));
+  _updateBaseMarkerOpacity();
   heatmapLayer.addTo(map);
 
   document.getElementById('btnViewGebiete').classList.replace('btn-primary',       'btn-outline-primary');
@@ -694,7 +712,7 @@ function aktiviereHeatmap() {
 function deaktiviereHeatmap() {
   heatmapAktiv = false;
   map.removeLayer(heatmapLayer);
-  Object.values(markers).forEach(m => m.setStyle({ fillOpacity: 0.92, opacity: 1 }));
+  _updateBaseMarkerOpacity();
 
   document.getElementById('btnViewGebiete').classList.replace('btn-outline-primary', 'btn-primary');
   document.getElementById('btnViewHeatmap').classList.replace('btn-danger',           'btn-outline-danger');

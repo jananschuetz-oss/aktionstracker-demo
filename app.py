@@ -4705,6 +4705,19 @@ def wochenbericht_vorschau():
         GROUP BY m.id, m.name ORDER BY kisten DESC
     ''', (montag_diese.isoformat(), sonntag_diese.isoformat()))
 
+    rep_letzte_w = query('''
+        SELECT m.id AS mitarbeiter_id,
+               COUNT(DISTINCT a.id) AS besuche,
+               COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                 THEN bp.kisten_anzahl END), 0) AS kisten
+        FROM aktivitaet a
+        JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
+        LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
+        WHERE a.datum BETWEEN ? AND ? AND m.rolle = 'rep'
+        GROUP BY m.id
+    ''', (montag_letzte.isoformat(), sonntag_letzte.isoformat()))
+    letzte_map_w = {r['mitarbeiter_id']: r for r in rep_letzte_w}
+
     offene_map = {r['mitarbeiter_id']: r['n'] for r in query(
         "SELECT a.mitarbeiter_id, COUNT(*) AS n FROM aktivitaet a "
         "JOIN mitarbeiter m ON m.id=a.mitarbeiter_id "
@@ -4761,13 +4774,19 @@ def wochenbericht_vorschau():
         return (f'<span style="color:#c8860a;font-weight:bold">{n}</span>'
                 if n > 0 else f'<span style="color:#aaa">0</span>')
 
+    def _trend_cell_w(neu, alt):
+        d = neu - alt
+        if d > 0:   return f'<span style="color:#2d8a4e;font-size:11px">&#x2191;+{d}</span>'
+        if d < 0:   return f'<span style="color:#c0392b;font-size:11px">&#x2193;{d}</span>'
+        return '<span style="color:#888;font-size:11px">±0</span>'
+
     rep_rows = ''.join(f'''
         <tr>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px">{r["name"]}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}<br>{_trend_cell_w(r["besuche"], letzte_map_w.get(r["mitarbeiter_id"], {{"besuche":0}})["besuche"])}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["bestellungen"]}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}<br>{_trend_cell_w(r["kisten"], letzte_map_w.get(r["mitarbeiter_id"], {{"kisten":0}})["kisten"])}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{_offen_col(offene_map.get(r["mitarbeiter_id"], 0))}</td>
         </tr>''' for r in rep_stats) or \
         '<tr><td colspan="6" style="padding:12px;color:#999;text-align:center">Keine Aktivitäten diese Woche</td></tr>'
@@ -4780,6 +4799,7 @@ def wochenbericht_vorschau():
 </head>
 <body>
 <div style="background:#fffbf0;border:2px dashed #c8860a;padding:10px 24px;text-align:center;font-size:13px;color:#8a5a00">
+  <a href="/einstellungen/wochenbericht" style="float:left;color:#8a5a00;text-decoration:none;font-weight:bold">&larr; Zurück</a>
   <strong>Vorschau-Modus</strong> – Diese E-Mail wird nicht versendet &nbsp;·&nbsp;
   KW {kw_nr} ({datum_von} – {datum_bis})
 </div>
@@ -4903,6 +4923,19 @@ def monatsbericht_vorschau():
         GROUP BY m.id, m.name ORDER BY kisten DESC
     ''', (erster_dieses.isoformat(), heute.isoformat()))
 
+    rep_letzte_m = query('''
+        SELECT m.id AS mitarbeiter_id,
+               COUNT(DISTINCT a.id) AS besuche,
+               COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                 THEN bp.kisten_anzahl END), 0) AS kisten
+        FROM aktivitaet a
+        JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
+        LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
+        WHERE a.datum BETWEEN ? AND ? AND m.rolle = 'rep'
+        GROUP BY m.id
+    ''', (erster_vorvorm.isoformat(), letzter_vorvorm.isoformat()))
+    letzte_map_m = {r['mitarbeiter_id']: r for r in rep_letzte_m}
+
     pipeline = query(
         "SELECT COALESCE(SUM(CASE WHEN COALESCE(bestell_status,'offen')='offen' THEN 1 END),0) AS offen,"
         "       COALESCE(SUM(CASE WHEN bestell_status='aufgebaut' THEN 1 END),0) AS aufgebaut,"
@@ -4915,13 +4948,19 @@ def monatsbericht_vorschau():
     def trend_col(neu, alt):
         return '#2d8a4e' if neu > alt else '#c0392b' if neu < alt else '#888'
 
+    def _trend_cell_m(neu, alt):
+        d = neu - alt
+        if d > 0:   return f'<span style="color:#2d8a4e;font-size:11px">&#x2191;+{d}</span>'
+        if d < 0:   return f'<span style="color:#c0392b;font-size:11px">&#x2193;{d}</span>'
+        return '<span style="color:#888;font-size:11px">±0</span>'
+
     rep_rows = ''.join(f'''
         <tr>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px">{r["name"]}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}<br>{_trend_cell_m(r["besuche"], letzte_map_m.get(r["mitarbeiter_id"], {{"besuche":0}})["besuche"])}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["bestellungen"]}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}<br>{_trend_cell_m(r["kisten"], letzte_map_m.get(r["mitarbeiter_id"], {{"kisten":0}})["kisten"])}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["displays"]}</td>
         </tr>''' for r in rep_stats) or \
         '<tr><td colspan="6" style="padding:12px;color:#999;text-align:center">Noch keine Aktivitäten diesen Monat</td></tr>'
@@ -4930,6 +4969,7 @@ def monatsbericht_vorschau():
 <html><head><meta charset="utf-8"></head>
 <body style="margin:0;padding:16px;background:#f0f4f8;font-family:Arial,Helvetica,sans-serif">
 <div style="background:#fffbf0;border:2px dashed #c8860a;padding:10px 24px;text-align:center;font-size:13px;color:#8a5a00;max-width:600px;margin:0 auto 16px;border-radius:8px">
+  <a href="/einstellungen/wochenbericht" style="float:left;color:#8a5a00;text-decoration:none;font-weight:bold">&larr; Zurück</a>
   <strong>Vorschau-Modus</strong> – laufender Monat &nbsp;·&nbsp; {erster_dieses.strftime('%d.%m.')} – {heute.strftime('%d.%m.%Y')} &nbsp;·&nbsp; wird nicht versendet
 </div>
 <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.10)">
@@ -5266,7 +5306,8 @@ def api_karte_heatmap():
             extra_join = ""
 
     stellen = query(
-        f"SELECT v.id, v.name, v.ort, v.lat, v.lng, {metric} "
+        f"SELECT v.id, v.name, v.ort, v.lat, v.lng, {metric}, "
+        f"(SELECT COUNT(*) FROM mitarbeiter_verkaufsstelle WHERE verkaufsstelle_id = v.id) > 0 AS zugeordnet "
         f"FROM verkaufsstelle v "
         f"LEFT JOIN aktivitaet a ON {' AND '.join(join_conds)} "
         f"{extra_join + ' ' if extra_join else ''}"
@@ -5277,7 +5318,8 @@ def api_karte_heatmap():
     jahre_raw = query("SELECT DISTINCT strftime('%Y', datum) AS jahr FROM aktivitaet ORDER BY jahr DESC")
     return jsonify({
         'stellen': [{'id': s['id'], 'name': s['name'], 'ort': s['ort'] or '',
-                     'lat': s['lat'], 'lng': s['lng'], 'anzahl': s['anzahl']} for s in stellen],
+                     'lat': s['lat'], 'lng': s['lng'], 'anzahl': s['anzahl'],
+                     'zugeordnet': bool(s['zugeordnet'])} for s in stellen],
         'jahre':   [j['jahr'] for j in jahre_raw],
         'jahr':    jahr,
         'ebene':   ebene,
