@@ -142,6 +142,25 @@
       color: #fff; background: var(--brand-amber);
       border-radius: .75rem .75rem 0 0; margin: 0 .25rem;
     }
+    .mobile-menu-btn {
+      flex: 1; min-width: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: none; border: none;
+      color: rgba(255,255,255,.65); padding: .5rem .15rem;
+      font-size: .6rem; font-weight: 600;
+      transition: color .2s; min-height: 56px; cursor: pointer;
+    }
+    .mobile-menu-btn i { font-size: 1.25rem; margin-bottom: 2px; display: block; }
+    .mobile-menu-btn:hover { color: var(--brand-amber); }
+    .mobile-menu-item {
+      display: flex; align-items: center; gap: .85rem;
+      padding: .85rem 1.25rem; text-decoration: none;
+      color: #1a3a5c; border-bottom: 1px solid #f0f0f0;
+      font-size: .95rem; font-weight: 500;
+    }
+    .mobile-menu-item:last-child { border-bottom: none; }
+    .mobile-menu-item i { font-size: 1.2rem; color: #2e6da4; width: 1.4rem; text-align: center; }
+    .mobile-menu-item.danger, .mobile-menu-item.danger i { color: #c0392b; }
 
     @media (max-width: 991.98px) {
       .mobile-nav { display: flex; }
@@ -209,9 +228,10 @@
     <i class="bi bi-bullseye"></i>Zielkurs
   </a>
   {% endif %}
-  <a href="{{ url_for('logout') }}">
-    <i class="bi bi-box-arrow-right"></i>Abmelden
-  </a>
+  <button class="mobile-menu-btn" type="button"
+          data-bs-toggle="offcanvas" data-bs-target="#mobileMenuSheet" aria-label="Menü">
+    <i class="bi bi-list"></i>Menü
+  </button>
   <!-- Offline-Indikator -->
   <span id="offlineDot" style="display:none;position:fixed;top:6px;right:6px;z-index:2000;
         background:#dc3545;color:#fff;border-radius:1rem;font-size:.65rem;font-weight:700;
@@ -313,7 +333,7 @@
         </li>
         <li class="nav-item">
           <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#modalVertretung"
-             style="font-size:.85rem"><i class="bi bi-person-lines-fill me-1"></i>Vertretung</a>
+             style="font-size:.85rem"><i class="bi bi-person-lines-fill me-1"></i>Urlaub / Vertretung{% if offene_urlaubsantraege and offene_urlaubsantraege > 0 %} <span class="badge bg-danger">{{ offene_urlaubsantraege }}</span>{% endif %}</a>
         </li>
         <li class="nav-item">
           <a class="nav-link" href="{{ url_for('logout') }}"><i class="bi bi-box-arrow-right"></i>Abmelden</a>
@@ -421,19 +441,24 @@
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header" style="background:#4a235a;color:white">
-        <h6 class="modal-title"><i class="bi bi-person-lines-fill me-2"></i>Meine Vertretung</h6>
+        <h6 class="modal-title"><i class="bi bi-person-lines-fill me-2"></i>Urlaub / Vertretung</h6>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
         <p class="small text-muted mb-3">
-          Legen Sie fest, wer Ihr Verkaufsgebiet in einem Zeitraum übernimmt.
-          Der Vertreter kann dann Aktivitäten für Ihre Stationen eintragen.
+          {% if session.rolle in ['admin','verkaufsleiter'] %}
+          Tragen Sie Ihren Abwesenheits-Zeitraum ein – dann werden Sie nicht als „inaktiv“ gemeldet.
+          {% else %}
+          Beantragen Sie Ihren Urlaub. Verkaufsleiter oder Leitung bestätigen ihn –
+          erst dann werden Sie im Zeitraum nicht als „inaktiv“ gemeldet.
+          {% endif %}
+          Optional können Sie einen Vertreter wählen, der Aktivitäten für Ihre Stationen eintragen darf.
         </p>
         <form method="POST" action="{{ url_for('profil_vertretung_neu') }}">
           <div class="mb-2">
-            <label class="form-label small fw-bold">Vertreter</label>
-            <select name="vertreter_id" class="form-select form-select-sm" required>
-              <option value="">– Kollegen auswählen –</option>
+            <label class="form-label small fw-bold">Vertreter <span class="text-muted fw-normal">(optional)</span></label>
+            <select name="vertreter_id" class="form-select form-select-sm">
+              <option value="">– Niemand (nur Urlaub) –</option>
               {% for k in alle_kollegen %}
               <option value="{{ k.id }}">{{ k.name }}</option>
               {% endfor %}
@@ -450,32 +475,133 @@
             </div>
           </div>
           <button type="submit" class="btn btn-sm w-100" style="background:#4a235a;color:white">
-            <i class="bi bi-plus-circle me-1"></i>Vertretung einrichten
+            {% if session.rolle in ['admin','verkaufsleiter'] %}
+            <i class="bi bi-plus-circle me-1"></i>Eintragen
+            {% else %}
+            <i class="bi bi-send me-1"></i>Urlaub anfragen
+            {% endif %}
           </button>
         </form>
         {% if meine_vertretungen %}
         <hr class="my-3">
-        <div class="small fw-bold text-muted mb-2">Bestehende Vertretungen:</div>
+        <div class="small fw-bold text-muted mb-2">Meine Urlaube / Vertretungen:</div>
         {% for vtr in meine_vertretungen %}
         {% set heute = now.date().isoformat() %}
         <div class="d-flex align-items-center justify-content-between py-1 border-bottom">
           <div class="small">
-            <i class="bi bi-person me-1"></i><strong>{{ vtr.vertreter_name }}</strong>
+            <i class="bi bi-person me-1"></i><strong>{% if vtr.vertreter_name %}{{ vtr.vertreter_name }}{% else %}Urlaub{% endif %}</strong>
             <span class="text-muted ms-2">{{ vtr.von }} – {{ vtr.bis }}</span>
-            {% if vtr.von <= heute <= vtr.bis %}
-            <span class="badge bg-success ms-1" style="font-size:.6rem">Aktiv</span>
+            {% if vtr.status == 'angefragt' %}
+            <span class="badge bg-warning text-dark ms-1" style="font-size:.6rem">⏳ Angefragt</span>
+            {% elif vtr.status == 'abgelehnt' %}
+            <span class="badge bg-danger ms-1" style="font-size:.6rem">✗ Abgelehnt</span>
+            {% else %}
+            <span class="badge bg-success ms-1" style="font-size:.6rem">✓ Bestätigt</span>
+              {% if vtr.von <= heute <= vtr.bis %}<span class="badge bg-success ms-1" style="font-size:.6rem">aktiv</span>{% endif %}
             {% endif %}
           </div>
+          {% if vtr.status != 'bestätigt' %}
           <form method="POST" action="{{ url_for('profil_vertretung_loeschen', vtr_id=vtr.id) }}"
-                onsubmit="return confirm('Vertretung löschen?')">
-            <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1">
+                onsubmit="return confirm('Eintrag zurücknehmen?')">
+            <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1" title="Zurücknehmen">
               <i class="bi bi-trash"></i>
             </button>
           </form>
+          {% endif %}
         </div>
         {% endfor %}
         {% endif %}
       </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if session.user_id %}
+<!-- Mobile Menü Offcanvas -->
+<div class="offcanvas offcanvas-bottom" tabindex="-1" id="mobileMenuSheet"
+     style="height:auto;max-height:78vh;border-radius:1rem 1rem 0 0;overflow:hidden">
+  <div style="background:#1a3a5c;color:#fff;padding:1rem 1.25rem .75rem;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+    <div class="d-flex align-items-center gap-3">
+      <div style="width:42px;height:42px;border-radius:50%;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.95rem;color:#fff;flex-shrink:0">
+        {{ (session.name or '?')[:2].upper() }}
+      </div>
+      <div>
+        <div style="font-weight:600;font-size:.95rem">{{ session.name }}</div>
+        <div style="font-size:.75rem;opacity:.7">
+          {% if session.rolle == 'admin' %}Leitung
+          {% elif session.rolle == 'verkaufsleiter' %}Verkaufsleiter
+          {% else %}Außendienst{% endif %}
+          · {{ session.kuerzel }}
+        </div>
+      </div>
+    </div>
+    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Schließen"></button>
+  </div>
+  <div style="overflow-y:auto">
+    <a href="#" class="mobile-menu-item" onclick="closeMenuAndOpen('modalVertretung');return false;">
+      <i class="bi bi-calendar-plus"></i>
+      {% if session.rolle in ['admin','verkaufsleiter'] %}Urlaub eintragen{% else %}Urlaub anfragen{% endif %}
+    </a>
+    {% if session.rolle in ('admin', 'verkaufsleiter') %}
+    <a href="{{ url_for('team_verwaltung') }}" class="mobile-menu-item" data-bs-dismiss="offcanvas">
+      <i class="bi bi-people-fill"></i>Team-Verwaltung
+    </a>
+    <a href="{{ url_for('einstellungen_wochenbericht') }}" class="mobile-menu-item" data-bs-dismiss="offcanvas">
+      <i class="bi bi-envelope-at"></i>Wochenbericht-Einstellungen
+    </a>
+    {% endif %}
+    {% if session.rolle == 'admin' %}
+    <a href="{{ url_for('admin') }}" class="mobile-menu-item" data-bs-dismiss="offcanvas">
+      <i class="bi bi-gear"></i>Admin-Panel
+    </a>
+    {% endif %}
+    <div style="height:6px;background:#f4f6fa;border-top:1px solid #e9ecef;border-bottom:1px solid #e9ecef"></div>
+    <a href="#" class="mobile-menu-item" onclick="closeMenuAndOpen('modalMeineDaten');return false;">
+      <i class="bi bi-person-circle"></i>Meine Daten
+    </a>
+    <a href="{{ url_for('faq') }}" class="mobile-menu-item" data-bs-dismiss="offcanvas">
+      <i class="bi bi-question-circle"></i>FAQ
+    </a>
+    <div style="height:6px;background:#f4f6fa;border-top:1px solid #e9ecef;border-bottom:1px solid #e9ecef"></div>
+    <a href="{{ url_for('logout') }}" class="mobile-menu-item danger">
+      <i class="bi bi-box-arrow-right"></i>Abmelden
+    </a>
+  </div>
+</div>
+
+<!-- Meine Daten Modal -->
+<div class="modal fade" id="modalMeineDaten" tabindex="-1">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('profil_daten') }}">
+        <div class="modal-header" style="background:#1a3a5c;color:white">
+          <h6 class="modal-title"><i class="bi bi-person-circle me-2"></i>Meine Daten</h6>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label small fw-bold">Name</label>
+            <input type="text" name="name" class="form-control" value="{{ session.name }}" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-bold">Kürzel</label>
+            <input type="text" name="kuerzel" class="form-control text-uppercase" value="{{ session.kuerzel }}" maxlength="5" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small fw-bold">E-Mail <span class="text-muted fw-normal">(optional)</span></label>
+            <input type="email" name="email" class="form-control" value="{{ mein_email or '' }}">
+          </div>
+          <hr class="my-3">
+          <a href="#" class="small text-muted" data-bs-dismiss="modal" data-bs-toggle="modal" data-bs-target="#modalPasswortAendern">
+            <i class="bi bi-lock me-1"></i>Passwort ändern →
+          </a>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-check me-1"></i>Speichern</button>
+        </div>
+      </form>
     </div>
   </div>
 </div>
@@ -533,6 +659,13 @@ document.addEventListener('DOMContentLoaded', function () {
 {% endif %}
 
 <script>
+// ── Mobile Menü ───────────────────────────────────────────────────────────────
+function closeMenuAndOpen(modalId) {
+  const oc = bootstrap.Offcanvas.getInstance(document.getElementById('mobileMenuSheet'));
+  if (oc) { oc.hide(); }
+  setTimeout(() => new bootstrap.Modal(document.getElementById(modalId)).show(), 300);
+}
+
 // ── Service Worker ────────────────────────────────────────────────────────────
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(() => {});

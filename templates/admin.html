@@ -410,20 +410,20 @@
   </div>
 </div>
 
-<!-- Vertretungsregelungen -->
+<!-- Urlaubs- & Vertretungsregelungen -->
 <div class="row g-4 mt-2">
   <div class="col-12">
     <div class="card">
       <div class="card-header" style="background:linear-gradient(135deg,#4a235a,#7d3c98);color:white">
-        <i class="bi bi-person-lines-fill me-2"></i>Vertretungsregelungen
+        <i class="bi bi-person-lines-fill me-2"></i>Urlaubs- &amp; Vertretungsregelungen
       </div>
       <div class="card-body">
         <div class="row g-4">
-          <!-- Neue Vertretung -->
+          <!-- Neue Abwesenheit -->
           <div class="col-md-5">
             <p class="small text-muted mb-3">
               <i class="bi bi-info-circle me-1"></i>
-              Während des Zeitraums kann der Vertreter die Verkaufsstellen des Abwesenden beim Erfassen von Aktivitäten auswählen.
+              Im Zeitraum wird der Mitarbeiter nicht als „inaktiv“ gemeldet. Mit Vertreter kann dieser zusätzlich die Verkaufsstellen des Abwesenden beim Erfassen auswählen.
             </p>
             <form method="POST" action="{{ url_for('admin_vertretung_neu') }}">
               <div class="mb-2">
@@ -436,9 +436,9 @@
                 </select>
               </div>
               <div class="mb-2">
-                <label class="form-label small fw-bold">Vertreter</label>
-                <select name="vertreter_id" class="form-select form-select-sm" required>
-                  <option value="">– Bitte auswählen –</option>
+                <label class="form-label small fw-bold">Vertreter <span class="text-muted fw-normal">(optional – leer = nur Urlaub)</span></label>
+                <select name="vertreter_id" class="form-select form-select-sm">
+                  <option value="">– Niemand (nur Urlaub) –</option>
                   {% for ma in alle_ad %}
                   <option value="{{ ma.id }}">{{ ma.name }}</option>
                   {% endfor %}
@@ -455,7 +455,7 @@
                 </div>
               </div>
               <button type="submit" class="btn btn-sm btn-primary w-100">
-                <i class="bi bi-plus-circle me-1"></i>Vertretung anlegen
+                <i class="bi bi-plus-circle me-1"></i>Urlaub / Vertretung anlegen
               </button>
             </form>
           </div>
@@ -464,24 +464,34 @@
             {% if vertretungen %}
             <table class="table table-sm table-striped mb-0">
               <thead>
-                <tr><th>Abwesend</th><th>Vertreter</th><th>Von</th><th>Bis</th><th></th></tr>
+                <tr><th>Abwesend</th><th>Vertretung</th><th>Von</th><th>Bis</th><th></th></tr>
               </thead>
               <tbody>
                 {% for vtr in vertretungen %}
                 {% set heute = now.date().isoformat() %}
                 <tr {% if vtr.von <= heute <= vtr.bis %}style="background:#f0faf0"{% endif %}>
                   <td>{{ vtr.abwesender }}</td>
-                  <td>{{ vtr.vertreter }}</td>
+                  <td>{% if vtr.vertreter %}{{ vtr.vertreter }}{% else %}<span class="badge bg-warning text-dark" style="font-size:.62rem">Urlaub</span>{% endif %}</td>
                   <td><small>{{ vtr.von }}</small></td>
                   <td><small>{{ vtr.bis }}</small></td>
                   <td class="text-center">
-                    {% if vtr.von <= heute <= vtr.bis %}
+                    {% if vtr.status == 'angefragt' %}
+                      <form method="POST" action="{{ url_for('admin_vertretung_bestaetigen', vtr_id=vtr.id) }}" style="display:inline">
+                        <button type="submit" class="btn btn-success btn-sm py-0 px-1" title="Bestätigen"><i class="bi bi-check-lg"></i></button>
+                      </form>
+                      <form method="POST" action="{{ url_for('admin_vertretung_ablehnen', vtr_id=vtr.id) }}" style="display:inline"
+                            onsubmit="return confirm('Urlaubsantrag ablehnen?')">
+                        <button type="submit" class="btn btn-outline-warning btn-sm py-0 px-1" title="Ablehnen"><i class="bi bi-x-lg"></i></button>
+                      </form>
+                    {% elif vtr.status == 'abgelehnt' %}
+                      <span class="badge bg-danger" style="font-size:.62rem">Abgelehnt</span>
+                    {% elif vtr.von <= heute <= vtr.bis %}
                       <span class="badge bg-success" style="font-size:.62rem">Aktiv</span>
                     {% endif %}
                     <form method="POST"
                           action="{{ url_for('admin_vertretung_loeschen', vtr_id=vtr.id) }}"
                           style="display:inline"
-                          onsubmit="return confirm('Vertretungsregelung löschen?')">
+                          onsubmit="return confirm('Eintrag löschen?')">
                       <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1 ms-1"
                               title="Löschen"><i class="bi bi-trash"></i></button>
                     </form>
@@ -492,7 +502,7 @@
             </table>
             {% else %}
             <p class="text-muted small text-center py-4 mb-0">
-              <i class="bi bi-calendar-x me-1"></i>Keine Vertretungsregelungen vorhanden
+              <i class="bi bi-calendar-x me-1"></i>Keine Urlaubs- oder Vertretungsregelungen vorhanden
             </p>
             {% endif %}
           </div>

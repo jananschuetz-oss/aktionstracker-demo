@@ -200,6 +200,38 @@
 </div>
 {% endif %}
 
+<!-- Offene Urlaubsanträge: Manager bestätigt/lehnt direkt ab -->
+{% if is_manager and not ma_filter and urlaubsantraege %}
+<div class="card mb-4" style="border:1px solid #b8daff">
+  <div class="card-body py-3">
+    <div class="fw-semibold mb-2" style="color:#0c5460;font-size:.9rem">
+      <i class="bi bi-calendar-check me-1"></i>Offene Urlaubsanträge
+      <span class="badge ms-1" style="background:#0dcaf0;color:#063b45;font-weight:600">{{ urlaubsantraege|length }}</span>
+    </div>
+    {% for u in urlaubsantraege %}
+    <div class="d-flex flex-wrap align-items-center gap-2 py-2" style="border-top:1px solid #f0f0f0">
+      <span class="fw-semibold" style="color:#1a3a5c"><i class="bi bi-person me-1"></i>{{ u.abwesender }}</span>
+      <span class="text-muted small">{{ u.von }} – {{ u.bis }}</span>
+      {% if u.vertreter %}
+        <span class="badge bg-light text-dark" style="font-weight:500">Vertretung: {{ u.vertreter }}</span>
+      {% else %}
+        <span class="badge bg-warning text-dark" style="font-weight:500">ohne Vertretung</span>
+      {% endif %}
+      <div class="ms-auto d-flex gap-1">
+        <form method="POST" action="{{ url_for('admin_vertretung_bestaetigen', vtr_id=u.id) }}" style="display:inline">
+          <button type="submit" class="btn btn-sm btn-success"><i class="bi bi-check-lg me-1"></i>Bestätigen</button>
+        </form>
+        <form method="POST" action="{{ url_for('admin_vertretung_ablehnen', vtr_id=u.id) }}" style="display:inline"
+              onsubmit="return confirm('Urlaubsantrag ablehnen?')">
+          <button type="submit" class="btn btn-sm btn-outline-danger" title="Ablehnen"><i class="bi bi-x-lg"></i></button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 <!-- Inaktivitäts-Warnung: Reps ohne Aktivität diese Woche -->
 {% if is_manager and not ma_filter and inaktiv_reps %}
 <div class="card mb-4 border-warning">

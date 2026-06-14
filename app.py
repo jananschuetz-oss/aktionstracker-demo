@@ -118,13 +118,15 @@ def inject_now():
         'default_password': DEFAULT_PASSWORD,
         'meine_vertretungen': [],
         'alle_kollegen':      [],
+        'offene_urlaubsantraege': 0,
+        'mein_email': '',
     }
     if session.get('user_id'):
         try:
             ctx['meine_vertretungen'] = query(
-                '''SELECT v.id, v.von, v.bis, m.name AS vertreter_name
+                '''SELECT v.id, v.von, v.bis, v.status, m.name AS vertreter_name
                    FROM vertretung v
-                   JOIN mitarbeiter m ON m.id = v.vertreter_id
+                   LEFT JOIN mitarbeiter m ON m.id = v.vertreter_id
                    WHERE v.abwesender_id = ?
                    ORDER BY v.von DESC''',
                 (session['user_id'],)
@@ -133,6 +135,17 @@ def inject_now():
                 "SELECT id, name FROM mitarbeiter WHERE rolle IN ('rep','verkaufsleiter') AND id != ? ORDER BY name",
                 (session['user_id'],)
             )
+            _me = query("SELECT email FROM mitarbeiter WHERE id=?", (session['user_id'],), one=True)
+            ctx['mein_email'] = (_me['email'] or '') if _me else ''
+            # Zähler offener Urlaubsanträge (für Navbar-Markierung der Manager)
+            if session.get('rolle') in ('admin', 'verkaufsleiter'):
+                _tc, _tp = _team_m_clause('m')
+                _cnt = query(
+                    f'''SELECT COUNT(*) AS n FROM vertretung v
+                        JOIN mitarbeiter m ON m.id = v.abwesender_id
+                        WHERE v.status = 'angefragt'{_tc}''',
+                    _tp, one=True)
+                ctx['offene_urlaubsantraege'] = _cnt['n'] if _cnt else 0
         except Exception:
             pass
     return ctx
@@ -390,9 +403,10 @@ def init_db():
             CREATE TABLE IF NOT EXISTS vertretung (
                 id            INTEGER PRIMARY KEY AUTOINCREMENT,
                 abwesender_id INTEGER NOT NULL,
-                vertreter_id  INTEGER NOT NULL,
+                vertreter_id  INTEGER,
                 von           DATE NOT NULL,
                 bis           DATE NOT NULL,
+                status        TEXT DEFAULT 'bestätigt',  -- angefragt|bestätigt|abgelehnt
                 FOREIGN KEY (abwesender_id) REFERENCES mitarbeiter(id) ON DELETE CASCADE,
                 FOREIGN KEY (vertreter_id)  REFERENCES mitarbeiter(id) ON DELETE CASCADE
             );
@@ -449,6 +463,41 @@ def init_db():
                 db.commit()
             except Exception:
                 pass  # Spalte existiert bereits
+
+        # Migration: vertreter_id nullable machen (Urlaub ohne Vertretung).
+        # SQLite kann NOT NULL nicht per ALTER entfernen → Tabelle neu aufbauen.
+        try:
+            _cols = db.execute("PRAGMA table_info(vertretung)").fetchall()
+            _vid  = next((c for c in _cols if c['name'] == 'vertreter_id'), None)
+            if _vid and _vid['notnull'] == 1:
+                db.executescript('''
+                    PRAGMA foreign_keys=off;
+                    CREATE TABLE vertretung_neu (
+                        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                        abwesender_id INTEGER NOT NULL,
+                        vertreter_id  INTEGER,
+                        von           DATE NOT NULL,
+                        bis           DATE NOT NULL,
+                        FOREIGN KEY (abwesender_id) REFERENCES mitarbeiter(id) ON DELETE CASCADE,
+                        FOREIGN KEY (vertreter_id)  REFERENCES mitarbeiter(id) ON DELETE CASCADE
+                    );
+                    INSERT INTO vertretung_neu (id, abwesender_id, vertreter_id, von, bis)
+                        SELECT id, abwesender_id, vertreter_id, von, bis FROM vertretung;
+                    DROP TABLE vertretung;
+                    ALTER TABLE vertretung_neu RENAME TO vertretung;
+                    PRAGMA foreign_keys=on;
+                ''')
+                db.commit()
+        except Exception:
+            pass
+
+        # Migration: Status-Spalte für Urlaubs-Genehmigung (angefragt/bestätigt/abgelehnt).
+        # Bestandseinträge gelten als 'bestätigt', damit nichts kippt.
+        try:
+            db.execute("ALTER TABLE vertretung ADD COLUMN status TEXT DEFAULT 'bestätigt'")
+            db.commit()
+        except Exception:
+            pass
 
         # Admin + Verkaufsleiter (Passwort via ENV ADMIN_PASSWORD konfigurierbar)
         db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Administrator', 'ADMIN', 'admin', ?)", (ADMIN_PASSWORD,))
@@ -1426,10 +1475,25 @@ def dashboard():
                 )
                 AND m.id NOT IN (
                     SELECT abwesender_id FROM vertretung
-                    WHERE von <= ? AND bis >= ?
+                    WHERE von <= ? AND bis >= ? AND status = 'bestätigt'
                 )
                 ORDER BY m.name""",
             _t_p + (_mo_kw.isoformat(), _heute.isoformat(), _heute.isoformat())
+        )
+
+    # Offene Urlaubsanträge (Manager: zum Bestätigen/Ablehnen direkt im Dashboard)
+    urlaubsantraege = []
+    if is_manager and not ma_filter:
+        _ta_sql, _ta_p = _team_m_clause('m')
+        urlaubsantraege = query(
+            f"""SELECT v.id, v.von, v.bis, v.status,
+                       m.name AS abwesender, r.name AS vertreter
+                FROM vertretung v
+                JOIN mitarbeiter m ON m.id = v.abwesender_id
+                LEFT JOIN mitarbeiter r ON r.id = v.vertreter_id
+                WHERE v.status = 'angefragt' {_ta_sql}
+                ORDER BY v.von""",
+            _ta_p
         )
 
     # Rep-Dashboard: Tages-/Wochen-/Monatszahlen
@@ -1483,6 +1547,7 @@ def dashboard():
         p_ueberfaellig=p_ueberfaellig,
         ziel=ziel,
         inaktiv_reps=inaktiv_reps,
+        urlaubsantraege=urlaubsantraege,
         heute_stats=heute_stats,
         diese_woche_stats=diese_woche_stats,
         vorwoche_stats=vorwoche_stats,
@@ -1833,7 +1898,7 @@ def neue_aktivitaet():
         '''SELECT v.id, v.abwesender_id, m.name AS abwesender_name
            FROM vertretung v
            JOIN mitarbeiter m ON m.id = v.abwesender_id
-           WHERE v.vertreter_id = ? AND v.von <= ? AND v.bis >= ?''',
+           WHERE v.vertreter_id = ? AND v.von <= ? AND v.bis >= ? AND v.status = 'bestätigt' ''',
         (session['user_id'], today, today)
     )
     eigene_vs_ids = {vs['id'] for vs in verkaufsstellen}
@@ -2474,11 +2539,11 @@ def admin():
 
     # Vertretungsregelungen
     vertretungen = query('''
-        SELECT v.id, v.von, v.bis,
+        SELECT v.id, v.von, v.bis, v.status,
                a.name AS abwesender, r.name AS vertreter
         FROM vertretung v
         JOIN mitarbeiter a ON a.id = v.abwesender_id
-        JOIN mitarbeiter r ON r.id = v.vertreter_id
+        LEFT JOIN mitarbeiter r ON r.id = v.vertreter_id
         ORDER BY v.von DESC
     ''')
     # Alle Außendienst-Mitarbeiter für Dropdowns
@@ -2737,6 +2802,34 @@ def profil_passwort():
     return redirect(request.referrer or url_for('dashboard'))
 
 
+@app.route('/profil/daten', methods=['POST'])
+@login_required
+def profil_daten():
+    name    = request.form.get('name', '').strip()
+    kuerzel = request.form.get('kuerzel', '').strip().upper()
+    email   = request.form.get('email', '').strip().lower() or None
+    if not name or not kuerzel:
+        flash('Name und Kürzel sind Pflichtfelder.', 'danger')
+        return redirect(request.referrer or url_for('dashboard'))
+    conflict = query("SELECT id FROM mitarbeiter WHERE UPPER(kuerzel)=? AND id!=?",
+                     (kuerzel, session['user_id']), one=True)
+    if conflict:
+        flash(f'Kürzel „{kuerzel}" wird bereits von jemand anderem verwendet.', 'danger')
+        return redirect(request.referrer or url_for('dashboard'))
+    execute("UPDATE mitarbeiter SET name=?, kuerzel=?, email=? WHERE id=?",
+            (name, kuerzel, email, session['user_id']))
+    session['name']    = name
+    session['kuerzel'] = kuerzel
+    flash('Ihre Daten wurden aktualisiert.', 'success')
+    return redirect(request.referrer or url_for('dashboard'))
+
+
+@app.route('/faq')
+@login_required
+def faq():
+    return render_template('faq.html')
+
+
 @app.route('/admin/vertretung/neu', methods=['POST'])
 @manager_required
 def admin_vertretung_neu():
@@ -2746,10 +2839,10 @@ def admin_vertretung_neu():
     vertreter_id  = request.form.get('vertreter_id',  type=int)
     von           = request.form.get('von', '').strip()
     bis           = request.form.get('bis', '').strip()
-    if not all([abwesender_id, vertreter_id, von, bis]):
-        flash('Alle Felder sind Pflichtfelder.', 'danger')
+    if not all([abwesender_id, von, bis]):
+        flash('Abwesender Mitarbeiter, Von und Bis sind Pflichtfelder.', 'danger')
         return redirect(_redir)
-    if abwesender_id == vertreter_id:
+    if vertreter_id and abwesender_id == vertreter_id:
         flash('Abwesender und Vertreter dürfen nicht dieselbe Person sein.', 'danger')
         return redirect(_redir)
     # VKL: nur Reps im eigenen Team als abwesend eintragen
@@ -2759,20 +2852,57 @@ def admin_vertretung_neu():
             flash('Keine Berechtigung für diesen Mitarbeiter.', 'danger')
             return redirect(_redir)
     execute(
-        "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis) VALUES (?,?,?,?)",
+        "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis, status) VALUES (?,?,?,?,'bestätigt')",
         (abwesender_id, vertreter_id, von, bis)
     )
-    flash('Vertretungsregelung gespeichert.', 'success')
+    flash('Urlaub / Vertretung gespeichert.', 'success')
     return redirect(_redir)
 
 
 @app.route('/admin/vertretung/<int:vtr_id>/loeschen', methods=['POST'])
 @manager_required
 def admin_vertretung_loeschen(vtr_id):
+    if not _vertretung_team_ok(vtr_id):
+        flash('Keine Berechtigung für diesen Eintrag.', 'danger')
+        return redirect(request.referrer or url_for('dashboard'))
     execute("DELETE FROM vertretung WHERE id=?", (vtr_id,))
-    flash('Vertretungsregelung gelöscht.', 'success')
-    is_admin = session.get('rolle') == 'admin'
-    return redirect(url_for('admin') if is_admin else url_for('team_verwaltung'))
+    flash('Eintrag gelöscht.', 'success')
+    return redirect(request.referrer or url_for('dashboard'))
+
+
+def _vertretung_team_ok(vtr_id):
+    """True wenn der aktuelle Manager diesen Vertretungs-/Urlaubseintrag bearbeiten darf.
+    Admin: immer. VKL: nur wenn der Abwesende im eigenen Team ist."""
+    if session.get('rolle') == 'admin':
+        return True
+    if session.get('rolle') == 'verkaufsleiter' and session.get('team_id'):
+        row = query('''SELECT m.team_id FROM vertretung v
+                       JOIN mitarbeiter m ON m.id = v.abwesender_id
+                       WHERE v.id = ?''', (vtr_id,), one=True)
+        return bool(row and row['team_id'] == session.get('team_id'))
+    return False
+
+
+@app.route('/admin/vertretung/<int:vtr_id>/bestaetigen', methods=['POST'])
+@manager_required
+def admin_vertretung_bestaetigen(vtr_id):
+    if not _vertretung_team_ok(vtr_id):
+        flash('Keine Berechtigung für diesen Antrag.', 'danger')
+    else:
+        execute("UPDATE vertretung SET status='bestätigt' WHERE id=?", (vtr_id,))
+        flash('Urlaub bestätigt.', 'success')
+    return redirect(request.referrer or url_for('dashboard'))
+
+
+@app.route('/admin/vertretung/<int:vtr_id>/ablehnen', methods=['POST'])
+@manager_required
+def admin_vertretung_ablehnen(vtr_id):
+    if not _vertretung_team_ok(vtr_id):
+        flash('Keine Berechtigung für diesen Antrag.', 'danger')
+    else:
+        execute("UPDATE vertretung SET status='abgelehnt' WHERE id=?", (vtr_id,))
+        flash('Urlaubsantrag abgelehnt.', 'warning')
+    return redirect(request.referrer or url_for('dashboard'))
 
 
 @app.route('/profil/vertretung/neu', methods=['POST'])
@@ -2781,17 +2911,22 @@ def profil_vertretung_neu():
     vertreter_id = request.form.get('vertreter_id', type=int)
     von          = request.form.get('von', '').strip()
     bis          = request.form.get('bis', '').strip()
-    if not all([vertreter_id, von, bis]):
-        flash('Alle Felder sind Pflichtfelder.', 'danger')
+    if not all([von, bis]):
+        flash('Von und Bis sind Pflichtfelder.', 'danger')
         return redirect(request.referrer or url_for('dashboard'))
-    if vertreter_id == session['user_id']:
+    if vertreter_id and vertreter_id == session['user_id']:
         flash('Sie können sich nicht selbst als Vertreter eintragen.', 'danger')
         return redirect(request.referrer or url_for('dashboard'))
+    # VKL/GF tragen ihren eigenen Urlaub direkt bestätigt ein; Reps müssen anfragen.
+    _status = 'bestätigt' if session.get('rolle') in ('admin', 'verkaufsleiter') else 'angefragt'
     execute(
-        "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis) VALUES (?,?,?,?)",
-        (session['user_id'], vertreter_id, von, bis)
+        "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis, status) VALUES (?,?,?,?,?)",
+        (session['user_id'], vertreter_id, von, bis, _status)
     )
-    flash('Vertretung eingetragen.', 'success')
+    if _status == 'angefragt':
+        flash('Urlaub angefragt – wartet auf Bestätigung durch Verkaufsleiter oder Leitung.', 'success')
+    else:
+        flash('Urlaub / Vertretung eingetragen.', 'success')
     return redirect(request.referrer or url_for('dashboard'))
 
 
@@ -2802,8 +2937,12 @@ def profil_vertretung_loeschen(vtr_id):
     if not vtr or vtr['abwesender_id'] != session['user_id']:
         flash('Nicht gefunden oder keine Berechtigung.', 'danger')
         return redirect(request.referrer or url_for('dashboard'))
+    # Bestätigten Urlaub kann nur VKL/GF wieder entfernen.
+    if vtr['status'] == 'bestätigt':
+        flash('Bestätigter Urlaub kann nur von Verkaufsleiter oder Leitung gelöscht werden.', 'danger')
+        return redirect(request.referrer or url_for('dashboard'))
     execute("DELETE FROM vertretung WHERE id=?", (vtr_id,))
-    flash('Vertretung gelöscht.', 'success')
+    flash('Eintrag zurückgenommen.', 'success')
     return redirect(request.referrer or url_for('dashboard'))
 
 
@@ -3456,19 +3595,19 @@ def team_verwaltung():
     # Vertretungen des eigenen Teams
     if is_vkl and session.get('team_id'):
         vertretungen = query("""
-            SELECT v.id, v.von, v.bis, ab.name AS abwesender, vtr.name AS vertreter
+            SELECT v.id, v.von, v.bis, v.status, ab.name AS abwesender, vtr.name AS vertreter
             FROM vertretung v
             JOIN mitarbeiter ab  ON ab.id  = v.abwesender_id
-            JOIN mitarbeiter vtr ON vtr.id = v.vertreter_id
+            LEFT JOIN mitarbeiter vtr ON vtr.id = v.vertreter_id
             WHERE ab.team_id = ?
             ORDER BY v.bis DESC
         """, (session['team_id'],))
     else:
         vertretungen = query("""
-            SELECT v.id, v.von, v.bis, ab.name AS abwesender, vtr.name AS vertreter
+            SELECT v.id, v.von, v.bis, v.status, ab.name AS abwesender, vtr.name AS vertreter
             FROM vertretung v
             JOIN mitarbeiter ab  ON ab.id  = v.abwesender_id
-            JOIN mitarbeiter vtr ON vtr.id = v.vertreter_id
+            LEFT JOIN mitarbeiter vtr ON vtr.id = v.vertreter_id
             ORDER BY v.bis DESC
         """)
 
@@ -3589,7 +3728,7 @@ def team_vergleich():
             SELECT m.id, m.name, m.kuerzel FROM mitarbeiter m
             WHERE m.team_id=? AND m.rolle='rep'
               AND m.id NOT IN (SELECT DISTINCT mitarbeiter_id FROM aktivitaet WHERE datum>=?)
-              AND m.id NOT IN (SELECT abwesender_id FROM vertretung WHERE von<=? AND bis>=?)
+              AND m.id NOT IN (SELECT abwesender_id FROM vertretung WHERE von<=? AND bis>=? AND status='bestätigt')
             ORDER BY m.name
         """, (tid, mo_kw.isoformat(), heute.isoformat(), heute.isoformat()))
         inaktiv_per[tid] = inaktiv

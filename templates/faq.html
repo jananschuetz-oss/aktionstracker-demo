@@ -1,0 +1,259 @@
+{% extends 'base.html' %}
+{% block title %}FAQ – Aktions Tracker – {{ company_short }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1><i class="bi bi-question-circle me-2"></i>Häufige Fragen</h1>
+  <p>Antworten auf die wichtigsten Fragen rund um den Aktions Tracker</p>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="accordion" id="faqAccordion">
+
+      <div class="accordion-item border-0 border-bottom">
+        <h2 class="accordion-header">
+          <button class="accordion-button collapsed fw-semibold" type="button"
+                  data-bs-toggle="collapse" data-bs-target="#faq1">
+            1. Wo melde ich mich an?
+          </button>
+        </h2>
+        <div id="faq1" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+          <div class="accordion-body text-muted">
+            Unter der URL, die Sie bei der Einrichtung erhalten haben.<br>
+            <strong>Benutzername:</strong> E-Mail-Adresse oder Kürzel.<br>
+            <strong>Passwort:</strong> das zugeschickte Standard-Passwort.<br>
+            <span class="text-success"><i class="bi bi-lightbulb me-1"></i>Tipp:</span>
+            Passwort beim ersten Login direkt ändern — Menü (unten rechts) → Meine Daten → Passwort ändern.
+          </div>
+        </div>
+      </div>
+
+      <div class="accordion-item border-0 border-bottom">
+        <h2 class="accordion-header">
+          <button class="accordion-button collapsed fw-semibold" type="button"
+                  data-bs-toggle="collapse" data-bs-target="#faq2">
+            2. Wie lege ich neue Mitarbeiter an?
+          </button>
+        </h2>
+        <div id="faq2" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+          <div class="accordion-body text-muted">
+            Admin-Panel → Mitarbeiter → Neu anlegen. Benötigte Felder:<br>
+            <ul class="mt-2 mb-0">
+              <li>Name (Vor- und Nachname)</li>
+              <li>Kürzel (2–4 Buchstaben, z.&nbsp;B. MK für Max Kellner)</li>
+              <li>Rolle: Mitarbeiter</li>
+              <li>Team auswählen (falls mehrere Teams vorhanden)</li>
+            </ul>
+            Der neue Account ist sofort aktiv und nutzt das Standard-Passwort.
+          </div>
+        </div>
+      </div>
+
+      <div class="accordion-item border-0 border-bottom">
+        <h2 class="accordion-header">
+          <button class="accordion-button collapsed fw-semibold" type="button"
+                  data-bs-toggle="collapse" data-bs-target="#faq3">
+            3. Wie gebe ich Mitarbeitern ihre Zugangsdaten weiter?
+          </button>
+        </h2>
+        <div id="faq3" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+          <div class="accordion-body text-muted">
+            Schicken Sie jedem Mitarbeiter die System-URL sowie sein Kürzel und das Standard-Passwort — per WhatsApp oder kurzer E-Mail genügt.<br>
+            Bitten Sie die Mitarbeiter, das Passwort beim ersten Login eigenständig zu ändern.
+          </div>
+        </div>
+      </div>
+
+      <div class="accordion-item border-0 border-bottom">
+        <h2 class="accordion-header">
+          <button class="accordion-button collapsed fw-semibold" type="button"
+                  data-bs-toggle="collapse" data-bs-target="#faq4">
+            4. Müssen wir unsere Kundenliste selbst einpflegen?
+          </button>
+        </h2>
+        <div id="faq4" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+          <div class="accordion-body text-muted">
+            Nein. Schicken Sie uns Ihre Excel-Liste (Name und Adresse der Verkaufsstellen) möglichst vor dem Go-Live an
+            <a href="mailto:info@aktionstracker.de">info@aktionstracker.de</a> — wir importieren alles für Sie, kostenlos und ohne Aufwand auf Ihrer Seite.<br>
+            So können Ihre Mitarbeiter vom ersten Tag an mit den richtigen Verkaufsstellen loslegen.
+          </div>
+        </div>
+      </div>
+
+      <div class="accordion-item border-0 border-bottom">
+        <h2 class="accordion-header">
+          <button class="accordion-button collapsed fw-semibold" type="button"
+                  data-bs-toggle="collapse" data-bs-target="#faq5">
+            5. Wann bekomme ich den ersten Wochenbericht?
+          </button>
+        </h2>
+        <div id="faq5" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+          <div class="accordion-body text-muted">
+            Jeden Montag um 07:00 Uhr automatisch per E-Mail. Der erste Bericht kann noch dünn ausfallen, wenn erst wenige Besuche erfasst wurden — das ist normal.<br>
+            Ab Woche 2–3 sehen Sie die typischen Muster und Kennzahlen Ihres Teams.<br>
+            <span class="text-success"><i class="bi bi-lightbulb me-1"></i>Sofort testen:</span>
+            Admin-Panel → Einstellungen → Wochen-/Monatsbericht → „Jetzt senden".
+          </div>
+        </div>
+      </div>
+
+      <div class="accordion-item border-0 border-bottom">
+        <h2 class="accordion-header">
+          <button class="accordion-button collapsed fw-semibold" type="button"
+                  data-bs-toggle="collapse" data-bs-target="#faq6">
+            6. Wer bekommt den Wochenbericht und wie ändere ich das?
+          </button>
+        </h2>
+        <div id="faq6" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+          <div class="accordion-body text-muted">
+            Die Empfänger wurden bei der Einrichtung konfiguriert. Zum Anpassen:<br>
+            Admin-Panel → Einstellungen → Wochen-/Monatsbericht → E-Mail-Adressen eintragen (bis zu 3 Empfänger möglich).<br>
+            <i class="bi bi-info-circle me-1"></i>Die gleichen Empfänger erhalten auch den Monatsbericht.
+          </div>
+        </div>
+      </div>
+
+      <div class="accordion-item border-0 border-bottom">
+        <h2 class="accordion-header">
+          <button class="accordion-button collapsed fw-semibold" type="button"
+                  data-bs-toggle="collapse" data-bs-target="#faq7">
+            7. Wie erfasst ein Mitarbeiter seinen ersten Besuch?
+          </button>
+        </h2>
+        <div id="faq7" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+          <div class="accordion-body text-muted">
+            Auf dem Smartphone im Browser:
+            <ol class="mt-2 mb-0">
+              <li>System-URL öffnen und einloggen</li>
+              <li>„Eintragen" (mittlerer Button unten) antippen</li>
+              <li>Verkaufsstelle aus der Liste wählen (oder neu anlegen)</li>
+              <li>Datum, Displays, Einheiten, Foto (optional) und Notiz eintragen</li>
+              <li>Speichern — fertig</li>
+            </ol>
+            Der gesamte Vorgang dauert unter 60 Sekunden. Keine App-Installation nötig.
+          </div>
+        </div>
+      </div>
+
+      <div class="accordion-item border-0 border-bottom">
+        <h2 class="accordion-header">
+          <button class="accordion-button collapsed fw-semibold" type="button"
+                  data-bs-toggle="collapse" data-bs-target="#faq8">
+            8. Was ist ein Kürzel und wozu brauche ich es?
+          </button>
+        </h2>
+        <div id="faq8" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+          <div class="accordion-body text-muted">
+            Das Kürzel (z.&nbsp;B. „MK") ist eine Kurzform des Namens, mit der sich Mitarbeiter schneller einloggen können als mit der vollen E-Mail-Adresse.<br>
+            Es muss innerhalb des Systems eindeutig sein. Empfehlung: Initiale oder erste 2–3 Buchstaben des Nachnamens.
+          </div>
+        </div>
+      </div>
+
+      <div class="accordion-item border-0 border-bottom">
+        <h2 class="accordion-header">
+          <button class="accordion-button collapsed fw-semibold" type="button"
+                  data-bs-toggle="collapse" data-bs-target="#faq9">
+            9. Wie setze ich ein vergessenes Passwort zurück?
+          </button>
+        </h2>
+        <div id="faq9" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+          <div class="accordion-body text-muted">
+            Drei Wege:
+            <ul class="mt-2 mb-0">
+              <li><strong>Mitarbeiter selbst:</strong> „Passwort vergessen" auf dem Login (setzt eine hinterlegte E-Mail voraus)</li>
+              <li><strong>Verkaufsleiter:</strong> Team-Verwaltung → Mitarbeiter → Passwort zurücksetzen</li>
+              <li><strong>Leitung / GF:</strong> Admin-Panel → Mitarbeiter → Passwort zurücksetzen</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="accordion-item border-0 border-bottom">
+        <h2 class="accordion-header">
+          <button class="accordion-button collapsed fw-semibold" type="button"
+                  data-bs-toggle="collapse" data-bs-target="#faq10">
+            10. Wie speichere ich die App auf dem Homescreen?
+          </button>
+        </h2>
+        <div id="faq10" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+          <div class="accordion-body text-muted">
+            <strong>iPhone (Safari):</strong>
+            <ol class="mt-1 mb-2">
+              <li>System-URL in Safari öffnen (nicht Chrome)</li>
+              <li>Teilen-Button antippen <span style="font-size:1.1em">⬆</span></li>
+              <li>„Zum Home-Bildschirm" wählen → Hinzufügen</li>
+            </ol>
+            <strong>Android (Chrome):</strong>
+            <ol class="mt-1 mb-0">
+              <li>System-URL in Chrome öffnen</li>
+              <li>Drei-Punkte-Menü oben rechts antippen</li>
+              <li>„Zum Startbildschirm hinzufügen" wählen → Hinzufügen</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
+      <div class="accordion-item border-0 border-bottom">
+        <h2 class="accordion-header">
+          <button class="accordion-button collapsed fw-semibold" type="button"
+                  data-bs-toggle="collapse" data-bs-target="#faq11">
+            11. Wann bekomme ich den Monatsbericht?
+          </button>
+        </h2>
+        <div id="faq11" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+          <div class="accordion-body text-muted">
+            Jeden 1. des Monats um 07:00 Uhr automatisch per E-Mail. Der Monatsbericht fasst den gesamten Vormonat zusammen:
+            <ul class="mt-2 mb-0">
+              <li>Besuche, Displays und Bestellmengen — Vormonat vs. Vorvormonat</li>
+              <li>Aufschlüsselung je Mitarbeiter</li>
+              <li>Pipeline-Status (offen / aufgebaut / storniert)</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="accordion-item border-0 border-bottom">
+        <h2 class="accordion-header">
+          <button class="accordion-button collapsed fw-semibold" type="button"
+                  data-bs-toggle="collapse" data-bs-target="#faq12">
+            12. Was sieht mein Außendienstmitarbeiter nach dem Login?
+          </button>
+        </h2>
+        <div id="faq12" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+          <div class="accordion-body text-muted">
+            Der Mitarbeiter sieht ein persönliches Dashboard für die laufende Woche:
+            <ul class="mt-2 mb-0">
+              <li>4 KPI-Kacheln: Besuche, Displays, Bestellungen, Ø-{{ unit_label }} — jeweils mit Trend-Pfeil vs. Vorwoche</li>
+              <li>„Heute"-Zeile: Aktivitäten des heutigen Tages direkt im Header</li>
+              <li>Kompakte Monatszeile: laufender Monat kumuliert auf einen Blick</li>
+            </ul>
+            Beim Eintragen sieht der Mitarbeiter farbige Verlaufskacheln der letzten Besuche beim selben Kunden.
+          </div>
+        </div>
+      </div>
+
+      <div class="accordion-item border-0">
+        <h2 class="accordion-header">
+          <button class="accordion-button collapsed fw-semibold" type="button"
+                  data-bs-toggle="collapse" data-bs-target="#faq13">
+            13. An wen wende ich mich bei Fragen oder Problemen?
+          </button>
+        </h2>
+        <div id="faq13" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+          <div class="accordion-body text-muted">
+            Direkt an Jan Anschütz — Antwortzeit in der Regel innerhalb weniger Stunden.
+            <div class="mt-2">
+              <a href="mailto:info@aktionstracker.de" class="btn btn-sm btn-primary">
+                <i class="bi bi-envelope me-1"></i>info@aktionstracker.de
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}

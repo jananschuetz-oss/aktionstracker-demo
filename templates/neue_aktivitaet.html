@@ -234,7 +234,7 @@
                 </div>
                 <div class="input-group input-group-sm">
                   <button type="button" class="btn btn-outline-secondary"
-                          onclick="changeVal('bier_{{ bier.id }}', -1)">−</button>
+                          onclick="changeVal('bier_{{ bier.id }}', -5)">−</button>
                   <input type="number"
                          name="bier_{{ bier.id }}"
                          id="bier_{{ bier.id }}"
@@ -244,7 +244,7 @@
                          value="" min="0" max="9999" placeholder="0"
                          oninput="updateCard({{ bier.id }}, this.value)">
                   <button type="button" class="btn btn-outline-secondary"
-                          onclick="changeVal('bier_{{ bier.id }}', 1)">+</button>
+                          onclick="changeVal('bier_{{ bier.id }}', 5)">+</button>
                 </div>
               </div>
             </div>
