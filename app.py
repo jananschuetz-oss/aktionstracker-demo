@@ -4986,7 +4986,7 @@ def monatsbericht_vorschau():
     vorher = _stats(erster_vorvorm, letzter_vorvorm)
 
     rep_stats = query('''
-        SELECT m.name,
+        SELECT m.id AS mitarbeiter_id, m.name,
                COUNT(DISTINCT a.id) AS besuche,
                COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung' THEN a.id END) AS bestellungen,
                COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.id END) AS aufbauten,
