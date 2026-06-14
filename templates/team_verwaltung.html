@@ -197,6 +197,41 @@
     </div>
   </div>
 
+  {% set offene = vertretungen | selectattr('status', 'equalto', 'angefragt') | list %}
+  {% if offene %}
+  <div class="border-bottom overflow-hidden">
+    <div class="d-flex align-items-center gap-2 px-3 py-2" style="background:#fff8e1">
+      <i class="bi bi-hourglass-split text-warning"></i>
+      <span class="fw-semibold small">Offene Anträge</span>
+      <span class="badge bg-warning text-dark">{{ offene | length }}</span>
+    </div>
+    <table class="table table-sm mb-0">
+      <tbody>
+        {% for vtr in offene %}
+        <tr>
+          <td class="ps-3 align-middle fw-semibold">{{ vtr.abwesender }}</td>
+          <td class="align-middle small">{{ vtr.von }} – {{ vtr.bis }}</td>
+          <td class="align-middle small text-muted">{% if vtr.vertreter %}{{ vtr.vertreter }}{% else %}nur Urlaub{% endif %}</td>
+          <td class="pe-2 text-end align-middle">
+            <form method="POST" action="{{ url_for('admin_vertretung_bestaetigen', vtr_id=vtr.id) }}" style="display:inline">
+              <button type="submit" class="btn btn-sm btn-success">
+                <i class="bi bi-check-lg me-1"></i>Bestätigen
+              </button>
+            </form>
+            <form method="POST" action="{{ url_for('admin_vertretung_ablehnen', vtr_id=vtr.id) }}" style="display:inline"
+                  onsubmit="return confirm('Antrag von {{ vtr.abwesender }} ablehnen?')">
+              <button type="submit" class="btn btn-sm btn-outline-danger ms-1">
+                <i class="bi bi-x-lg me-1"></i>Ablehnen
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
   <div class="card-body p-0">
     {% if vertretungen %}
     <table class="table table-hover mb-0">

@@ -458,11 +458,8 @@
                 <i class="bi bi-plus-circle me-1"></i>Urlaub / Vertretung anlegen
               </button>
             </form>
-          </div>
-          <!-- Benachrichtigungs-Empfänger -->
-          <div class="col-12">
-            <hr class="my-1">
-            <form method="POST" action="{{ url_for('admin_urlaubsmail_empfaenger') }}" class="d-flex align-items-end gap-2 flex-wrap">
+            <hr class="mt-3 mb-2">
+            <form method="POST" action="{{ url_for('admin_urlaubsmail_empfaenger') }}" class="d-flex align-items-end gap-2">
               <div class="flex-grow-1">
                 <label class="form-label small fw-bold mb-1">
                   <i class="bi bi-envelope me-1"></i>Urlaubsmail senden an <span class="text-muted fw-normal">(zusätzlich zu VKL &amp; Admin)</span>
@@ -471,13 +468,47 @@
                        placeholder="z.B. buero@firma.de, chef@firma.de"
                        value="{{ urlaubsmail_empfaenger or '' }}">
               </div>
-              <button type="submit" class="btn btn-sm btn-outline-secondary mb-0" style="white-space:nowrap">
+              <button type="submit" class="btn btn-sm btn-outline-secondary" style="white-space:nowrap">
                 <i class="bi bi-floppy me-1"></i>Speichern
               </button>
             </form>
           </div>
           <!-- Bestehende Vertretungen -->
           <div class="col-md-7">
+            {% set offene = vertretungen | selectattr('status', 'equalto', 'angefragt') | list %}
+            {% if offene %}
+            <div class="rounded border border-warning mb-3 overflow-hidden">
+              <div class="d-flex align-items-center gap-2 px-3 py-2" style="background:#fff8e1">
+                <i class="bi bi-hourglass-split text-warning"></i>
+                <span class="fw-semibold small">Offene Anträge</span>
+                <span class="badge bg-warning text-dark">{{ offene | length }}</span>
+              </div>
+              <table class="table table-sm mb-0">
+                <tbody>
+                  {% for vtr in offene %}
+                  <tr>
+                    <td class="ps-3 align-middle fw-semibold">{{ vtr.abwesender }}</td>
+                    <td class="align-middle small">{{ vtr.von }} – {{ vtr.bis }}</td>
+                    <td class="align-middle small text-muted">{% if vtr.vertreter %}{{ vtr.vertreter }}{% else %}nur Urlaub{% endif %}</td>
+                    <td class="pe-2 text-end align-middle">
+                      <form method="POST" action="{{ url_for('admin_vertretung_bestaetigen', vtr_id=vtr.id) }}" style="display:inline">
+                        <button type="submit" class="btn btn-success btn-sm">
+                          <i class="bi bi-check-lg me-1"></i>Bestätigen
+                        </button>
+                      </form>
+                      <form method="POST" action="{{ url_for('admin_vertretung_ablehnen', vtr_id=vtr.id) }}" style="display:inline"
+                            onsubmit="return confirm('Antrag von {{ vtr.abwesender }} ablehnen?')">
+                        <button type="submit" class="btn btn-outline-danger btn-sm ms-1">
+                          <i class="bi bi-x-lg me-1"></i>Ablehnen
+                        </button>
+                      </form>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% endif %}
             {% if vertretungen %}
             <table class="table table-sm table-striped mb-0">
               <thead>
