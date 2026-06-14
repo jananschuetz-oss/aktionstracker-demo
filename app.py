@@ -2943,21 +2943,23 @@ def _send_vertretung_email(vtr_id: int, status: str):
           Diese Nachricht wurde automatisch vom Aktionstracker gesendet.</p>
       </div>
     </div>"""
-    empfaenger = set()
     if vtr['abwesender_email']:
-        empfaenger.add(vtr['abwesender_email'])
-    manager_emails = query(
-        "SELECT email FROM mitarbeiter WHERE rolle IN ('admin','verkaufsleiter') AND aktiv=1 AND email IS NOT NULL AND email != ''",
-        ()
-    )
-    for mgr in manager_emails:
-        empfaenger.add(mgr['email'])
-    cfg = query("SELECT urlaubsmail_empfaenger FROM wochenbericht_config WHERE id=1", one=True)
-    if cfg and cfg['urlaubsmail_empfaenger']:
-        for addr in [a.strip() for a in cfg['urlaubsmail_empfaenger'].split(',') if a.strip()]:
-            empfaenger.add(addr)
-    for addr in empfaenger:
-        send_email(addr, subject, body)
+        send_email(vtr['abwesender_email'], subject, body)
+    if status == 'bestätigt':
+        manager_emails = query(
+            "SELECT email FROM mitarbeiter WHERE rolle IN ('admin','verkaufsleiter') AND aktiv=1 AND email IS NOT NULL AND email != ''",
+            ()
+        )
+        gesendet = {vtr['abwesender_email']} if vtr['abwesender_email'] else set()
+        for mgr in manager_emails:
+            if mgr['email'] not in gesendet:
+                send_email(mgr['email'], subject, body)
+                gesendet.add(mgr['email'])
+        cfg = query("SELECT urlaubsmail_empfaenger FROM wochenbericht_config WHERE id=1", one=True)
+        if cfg and cfg['urlaubsmail_empfaenger']:
+            for addr in [a.strip() for a in cfg['urlaubsmail_empfaenger'].split(',') if a.strip()]:
+                if addr not in gesendet:
+                    send_email(addr, subject, body)
 
 
 @app.route('/admin/vertretung/<int:vtr_id>/bestaetigen', methods=['POST'])
