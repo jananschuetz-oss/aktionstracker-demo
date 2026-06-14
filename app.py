@@ -1362,15 +1362,18 @@ def dashboard():
             "SELECT COUNT(*) AS n FROM aktivitaet a WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen' AND a.mitarbeiter_id=?",
             (session['user_id'],), one=True)['n']
         offene_rep_liste = query(
-            """SELECT v.name AS station, a.datum,
+            """SELECT v.name AS station, v.strasse, v.ort, a.datum,
                       COALESCE(a.anzahl_displays, 0) AS displays,
                       COALESCE((SELECT SUM(kisten_anzahl) FROM bestellposition WHERE aktivitaet_id=a.id), 0) AS kisten,
                       CAST((julianday('now') - julianday(a.datum)) AS INTEGER) AS alter_tage
                FROM aktivitaet a JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id
                WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen'
-                 AND a.mitarbeiter_id=?
+                 AND (a.mitarbeiter_id=?
+                      OR a.verkaufsstelle_id IN (
+                          SELECT verkaufsstelle_id FROM mitarbeiter_verkaufsstelle WHERE mitarbeiter_id=?
+                      ))
                ORDER BY a.datum ASC""",
-            (session['user_id'],)
+            (session['user_id'], session['user_id'])
         )
 
     # Top Biersorten – direkt über bestellposition, kein Display-Problem hier

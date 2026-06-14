@@ -233,7 +233,10 @@
     {% set tage = b.alter_tage %}
     <div class="d-flex align-items-center gap-2 py-2{% if not loop.last or offene_rep_liste|length > 3 %} border-bottom{% endif %}" style="font-size:.87rem">
       <span style="width:10px;height:10px;border-radius:50%;flex-shrink:0;display:inline-block;background:{% if tage >= 5 %}#e24b4a{% elif tage >= 2 %}#ef9f27{% else %}#639922{% endif %}"></span>
-      <span class="fw-semibold" style="color:#1a3a5c">{{ b.station }}</span>
+      <div>
+        <div class="fw-semibold" style="color:#1a3a5c">{{ b.station }}</div>
+        {% if b.strasse or b.ort %}<div style="font-size:.76rem;color:#6c757d;margin-top:1px">{{ b.strasse }}{% if b.strasse and b.ort %}, {% endif %}{{ b.ort }}</div>{% endif %}
+      </div>
       <span class="text-muted ms-auto" style="white-space:nowrap;font-size:.82rem">
         {% if b.kisten %}{{ b.kisten }} {{ unit_label }}{% endif %}{% if b.kisten and b.displays %} · {% endif %}{% if b.displays %}{{ b.displays }} Disp.{% endif %}
       </span>
@@ -254,7 +257,10 @@
       {% set tage = b.alter_tage %}
       <div class="d-flex align-items-center gap-2 py-2 border-top" style="font-size:.87rem">
         <span style="width:10px;height:10px;border-radius:50%;flex-shrink:0;display:inline-block;background:{% if tage >= 5 %}#e24b4a{% elif tage >= 2 %}#ef9f27{% else %}#639922{% endif %}"></span>
-        <span class="fw-semibold" style="color:#1a3a5c">{{ b.station }}</span>
+        <div>
+          <div class="fw-semibold" style="color:#1a3a5c">{{ b.station }}</div>
+          {% if b.strasse or b.ort %}<div style="font-size:.76rem;color:#6c757d;margin-top:1px">{{ b.strasse }}{% if b.strasse and b.ort %}, {% endif %}{{ b.ort }}</div>{% endif %}
+        </div>
         <span class="text-muted ms-auto" style="white-space:nowrap;font-size:.82rem">
           {% if b.kisten %}{{ b.kisten }} {{ unit_label }}{% endif %}{% if b.kisten and b.displays %} · {% endif %}{% if b.displays %}{{ b.displays }} Disp.{% endif %}
         </span>
