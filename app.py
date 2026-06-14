@@ -5043,12 +5043,15 @@ def monatsbericht_vorschau():
         </tr>''' for r in rep_stats) or \
         '<tr><td colspan="6" style="padding:12px;color:#999;text-align:center">Noch keine Aktivitäten diesen Monat</td></tr>'
 
+    tage_aktuell  = (heute - erster_dieses).days + 1
+    tage_vormonat = (letzter_vorvorm - erster_vorvorm).days + 1
+
     html = f'''<!DOCTYPE html>
 <html><head><meta charset="utf-8"></head>
 <body style="margin:0;padding:16px;background:#f0f4f8;font-family:Arial,Helvetica,sans-serif">
 <div style="background:#fffbf0;border:2px dashed #c8860a;padding:10px 24px;text-align:center;font-size:13px;color:#8a5a00;max-width:600px;margin:0 auto 16px;border-radius:8px">
   <a href="/einstellungen/wochenbericht" style="float:left;color:#8a5a00;text-decoration:none;font-weight:bold">&larr; Zurück</a>
-  <strong>Vorschau-Modus</strong> – laufender Monat &nbsp;·&nbsp; {erster_dieses.strftime('%d.%m.')} – {heute.strftime('%d.%m.%Y')} &nbsp;·&nbsp; wird nicht versendet
+  <strong>Vorschau</strong> &nbsp;·&nbsp; {monat_name}: {erster_dieses.strftime('%d.%m.')}–{heute.strftime('%d.%m.')} ({tage_aktuell} Tage) &nbsp;·&nbsp; {vmonat_name}: vollständig ({tage_vormonat} Tage) &nbsp;·&nbsp; wird nicht versendet
 </div>
 <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.10)">
 
