@@ -80,7 +80,7 @@
         <label class="form-label mb-1 small fw-bold">KW</label>
         <select name="kw" class="form-select form-select-sm" onchange="this.form.submit()">
           <option value="">Alle</option>
-          {% for w in range(1, 54) %}
+          {% for w in range(53, 0, -1) %}
           <option value="{{ w }}" {% if kw_filter == w|string %}selected{% endif %}>KW {{ '%02d'|format(w) }}</option>
           {% endfor %}
         </select>

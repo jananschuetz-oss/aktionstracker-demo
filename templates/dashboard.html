@@ -50,57 +50,6 @@
 
 <!-- KPI Karten -->
 {% if not is_manager %}
-<!-- REP: Laufende Woche -->
-<div class="row g-3 mb-2">
-  {% set dw = diese_woche_stats %}
-  {% set vw = vorwoche_stats %}
-  <div class="col-6 col-lg-3">
-    <div class="stat-card blue h-100">
-      <p><i class="bi bi-display me-1"></i>Displays KW {{ kw_aktuell }}</p>
-      {% set cur = (dw.displays or 0) if dw else 0 %}{% set prv = (vw.displays or 0) if vw else 0 %}
-      <h2>{{ cur }}</h2>
-      {% if cur > prv %}<p style="font-size:.8rem;margin-top:.25rem;color:#7dffb0">↑ +{{ cur - prv }} vs. Vorwoche</p>
-      {% elif cur < prv %}<p style="font-size:.8rem;margin-top:.25rem;color:#ff8a8a">↓ {{ cur - prv }} vs. Vorwoche</p>
-      {% else %}<p style="font-size:.8rem;margin-top:.25rem;opacity:.55">→ wie Vorwoche</p>{% endif %}
-      <i class="bi bi-display bg-icon"></i>
-    </div>
-  </div>
-  <div class="col-6 col-lg-3">
-    <div class="stat-card amber h-100">
-      <p><i class="bi bi-box-seam me-1"></i>{{ unit_label }} KW {{ kw_aktuell }}</p>
-      {% set cur = (dw.kisten or 0) if dw else 0 %}{% set prv = (vw.kisten or 0) if vw else 0 %}
-      <h2>{{ cur }}</h2>
-      {% if cur > prv %}<p style="font-size:.8rem;margin-top:.25rem;color:#7dffb0">↑ +{{ cur - prv }} vs. Vorwoche</p>
-      {% elif cur < prv %}<p style="font-size:.8rem;margin-top:.25rem;color:#ff8a8a">↓ {{ cur - prv }} vs. Vorwoche</p>
-      {% else %}<p style="font-size:.8rem;margin-top:.25rem;opacity:.55">→ wie Vorwoche</p>{% endif %}
-      <i class="bi bi-box-seam bg-icon"></i>
-    </div>
-  </div>
-  <div class="col-6 col-lg-3">
-    <div class="stat-card green h-100">
-      <p><i class="bi bi-shop me-1"></i>Besuche KW {{ kw_aktuell }}</p>
-      {% set cur = (dw.besuche or 0) if dw else 0 %}{% set prv = (vw.besuche or 0) if vw else 0 %}
-      <h2>{{ cur }}</h2>
-      {% if cur > prv %}<p style="font-size:.8rem;margin-top:.25rem;color:#7dffb0">↑ +{{ cur - prv }} vs. Vorwoche</p>
-      {% elif cur < prv %}<p style="font-size:.8rem;margin-top:.25rem;color:#ff8a8a">↓ {{ cur - prv }} vs. Vorwoche</p>
-      {% else %}<p style="font-size:.8rem;margin-top:.25rem;opacity:.55">→ wie Vorwoche</p>{% endif %}
-      <i class="bi bi-shop bg-icon"></i>
-    </div>
-  </div>
-  <div class="col-6 col-lg-3">
-    <div class="stat-card purple h-100">
-      <p><i class="bi bi-bar-chart me-1"></i>Ø {{ unit_label }}/Besuch KW {{ kw_aktuell }}</p>
-      {% set dw_b = (dw.besuche or 0) if dw else 0 %}{% set dw_k = (dw.kisten or 0) if dw else 0 %}
-      {% set vw_b = (vw.besuche or 0) if vw else 0 %}{% set vw_k = (vw.kisten or 0) if vw else 0 %}
-      <h2>{% if dw_b %}{{ (dw_k / dw_b)|round(1) }}{% else %}–{% endif %}</h2>
-      {% set cur_avg = (dw_k / dw_b)|round(1) if dw_b else 0 %}{% set prv_avg = (vw_k / vw_b)|round(1) if vw_b else 0 %}
-      {% if cur_avg > prv_avg %}<p style="font-size:.8rem;margin-top:.25rem;color:#7dffb0">↑ besser als Vorwoche</p>
-      {% elif cur_avg < prv_avg %}<p style="font-size:.8rem;margin-top:.25rem;color:#ff8a8a">↓ schwächer als Vorwoche</p>
-      {% else %}<p style="font-size:.8rem;margin-top:.25rem;opacity:.55">→ wie Vorwoche</p>{% endif %}
-      <i class="bi bi-bar-chart bg-icon"></i>
-    </div>
-  </div>
-</div>
 <!-- REP: Monat kompakt -->
 <div class="mb-4">
   <div class="d-flex flex-wrap align-items-center gap-3 px-3 py-2 rounded-3"
@@ -108,7 +57,7 @@
     <span style="color:#1a3a5c;font-weight:600"><i class="bi bi-calendar3 me-1"></i>{{ monat_name }}</span>
     <span class="text-muted"><span class="fw-semibold" style="color:#1a3a5c">{{ (dieser_monat_stats.displays or 0) if dieser_monat_stats else 0 }}</span> Displays</span>
     <span class="text-muted"><span class="fw-semibold" style="color:#c8860a">{{ (dieser_monat_stats.kisten or 0) if dieser_monat_stats else 0 }}</span> {{ unit_label }}</span>
-    <span class="text-muted"><span class="fw-semibold" style="color:#27ae60">{{ (dieser_monat_stats.besuche or 0) if dieser_monat_stats else 0 }}</span> Besuche</span>
+    <span class="text-muted" style="font-size:.82rem"><span class="fw-semibold" style="color:#555">{{ (dieser_monat_stats.besuche or 0) if dieser_monat_stats else 0 }}</span> Besuche</span>
   </div>
 </div>
 {% else %}
@@ -158,8 +107,8 @@
 </div>
 {% endif %}
 
-<!-- Jahreszielerreichung -->
-{% if ziel and (ziel.displays_ziel or ziel.kisten_ziel) %}
+<!-- Jahreszielerreichung (nur Manager – Reps sehen das im Zielkurs) -->
+{% if is_manager and ziel and (ziel.displays_ziel or ziel.kisten_ziel) %}
 <div class="card mb-4">
   <div class="card-body py-3">
     <div class="fw-semibold mb-3" style="color:#1a3a5c;font-size:.9rem">
@@ -273,35 +222,55 @@
   </div>
 </div>
 {% else %}
-{% if vorgemerkt > 0 %}
-<div class="mb-4">
-  <button class="d-flex align-items-center gap-2 px-3 py-2 rounded-3 w-100 border-0 text-start"
-          style="background:#fffbf0;border:1px solid #f0c674!important;font-size:.9rem;cursor:pointer"
-          type="button" data-bs-toggle="collapse" data-bs-target="#repBestellungenCollapse"
-          aria-expanded="false">
-    <i class="bi bi-clock-history" style="color:#c8860a"></i>
-    <span class="flex-grow-1">
-      <strong style="color:#c8860a">{{ vorgemerkt }}</strong>
-      <span class="text-muted"> offene Bestellung{{ '' if vorgemerkt == 1 else 'en' }} — tippen zum Anzeigen</span>
-    </span>
-    <i class="bi bi-chevron-down" style="color:#c8860a"></i>
-  </button>
-  <div class="collapse" id="repBestellungenCollapse">
-    <div class="px-3 pt-1 pb-2" style="background:#fffdf5;border:1px solid #f0c674;border-top:none;border-radius:0 0 .5rem .5rem">
-      {% for b in offene_rep_liste %}
-      <div class="d-flex justify-content-between align-items-center py-1{% if not loop.last %} border-bottom{% endif %}" style="font-size:.85rem">
-        <span><i class="bi bi-shop me-1" style="color:#c8860a"></i><strong>{{ b.station }}</strong></span>
-        <span class="text-muted">
-          {{ b.datum }}{% if b.displays %} · {{ b.displays }} Disp.{% endif %}{% if b.kisten %} · {{ b.kisten }} {{ unit_label }}{% endif %}
+{% if offene_rep_liste %}
+<div class="card mb-4" style="border:1px solid #f0c674">
+  <div class="card-body py-3">
+    <div class="fw-semibold mb-2" style="color:#1a3a5c;font-size:.9rem">
+      <i class="bi bi-clock-history me-1" style="color:#c8860a"></i>Offene Aufbauten
+      <span class="badge ms-1" style="background:#fdecc8;color:#8a5a00;font-weight:600">{{ vorgemerkt }}</span>
+    </div>
+    {% for b in offene_rep_liste[:3] %}
+    {% set tage = b.alter_tage %}
+    <div class="d-flex align-items-center gap-2 py-2{% if not loop.last or offene_rep_liste|length > 3 %} border-bottom{% endif %}" style="font-size:.87rem">
+      <span style="width:10px;height:10px;border-radius:50%;flex-shrink:0;display:inline-block;background:{% if tage >= 5 %}#e24b4a{% elif tage >= 2 %}#ef9f27{% else %}#639922{% endif %}"></span>
+      <span class="fw-semibold" style="color:#1a3a5c">{{ b.station }}</span>
+      <span class="text-muted ms-auto" style="white-space:nowrap;font-size:.82rem">
+        {% if b.kisten %}{{ b.kisten }} {{ unit_label }}{% endif %}{% if b.kisten and b.displays %} · {% endif %}{% if b.displays %}{{ b.displays }} Disp.{% endif %}
+      </span>
+      <span style="font-size:.78rem;white-space:nowrap;font-weight:{% if tage >= 5 %}600{% else %}400{% endif %};color:{% if tage >= 5 %}#a32d2d{% elif tage >= 2 %}#854f0b{% else %}#0f6e56{% endif %}">
+        {% if tage == 0 %}heute{% elif tage == 1 %}gestern{% else %}{{ tage }} Tage{% endif %}
+      </span>
+    </div>
+    {% endfor %}
+    {% if offene_rep_liste|length > 3 %}
+    <button class="d-flex align-items-center justify-content-center gap-1 w-100 border-0 bg-transparent pt-2"
+            style="font-size:.83rem;color:#c8860a;cursor:pointer"
+            type="button" data-bs-toggle="collapse" data-bs-target="#repBestellungenExtra">
+      <span>{{ offene_rep_liste|length - 3 }} weitere anzeigen</span>
+      <i class="bi bi-chevron-down"></i>
+    </button>
+    <div class="collapse" id="repBestellungenExtra">
+      {% for b in offene_rep_liste[3:] %}
+      {% set tage = b.alter_tage %}
+      <div class="d-flex align-items-center gap-2 py-2 border-top" style="font-size:.87rem">
+        <span style="width:10px;height:10px;border-radius:50%;flex-shrink:0;display:inline-block;background:{% if tage >= 5 %}#e24b4a{% elif tage >= 2 %}#ef9f27{% else %}#639922{% endif %}"></span>
+        <span class="fw-semibold" style="color:#1a3a5c">{{ b.station }}</span>
+        <span class="text-muted ms-auto" style="white-space:nowrap;font-size:.82rem">
+          {% if b.kisten %}{{ b.kisten }} {{ unit_label }}{% endif %}{% if b.kisten and b.displays %} · {% endif %}{% if b.displays %}{{ b.displays }} Disp.{% endif %}
+        </span>
+        <span style="font-size:.78rem;white-space:nowrap;font-weight:{% if tage >= 5 %}600{% else %}400{% endif %};color:{% if tage >= 5 %}#a32d2d{% elif tage >= 2 %}#854f0b{% else %}#0f6e56{% endif %}">
+          {% if tage == 0 %}heute{% elif tage == 1 %}gestern{% else %}{{ tage }} Tage{% endif %}
         </span>
       </div>
       {% endfor %}
     </div>
+    {% endif %}
   </div>
 </div>
 {% endif %}
 {% endif %}
 
+{% if is_manager %}
 <!-- Charts Row -->
 <div class="row g-3 mb-4">
   <div class="col-lg-8">
@@ -432,6 +401,7 @@
   </div>
   {% endif %}
 </div>
+{% endif %}{# Ende is_manager – Charts + KW-Tabelle #}
 
 <!-- Letzte Aktivitäten -->
 <div class="card">
@@ -479,7 +449,7 @@
 <script>
 const COLORS = ['#1a3a5c','#2e6da4','#c8860a','#f5a623','#145a32','#27ae60','#4a235a','#8e44ad'];
 
-{% if kw_data %}
+{% if is_manager and kw_data %}
 const kwCtx = document.getElementById('kwChart').getContext('2d');
 new Chart(kwCtx, {
   type: 'bar',
@@ -527,7 +497,7 @@ new Chart(kwCtx, {
 });
 {% endif %}
 
-{% if bier_namen %}
+{% if is_manager and bier_namen %}
 const bierData = {{ bier_kist|safe }};
 if (bierData.length > 0) {
   const bierCtx = document.getElementById('bierChart').getContext('2d');

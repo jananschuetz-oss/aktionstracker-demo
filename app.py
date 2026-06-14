@@ -1364,7 +1364,8 @@ def dashboard():
         offene_rep_liste = query(
             """SELECT v.name AS station, a.datum,
                       COALESCE(a.anzahl_displays, 0) AS displays,
-                      COALESCE((SELECT SUM(kisten_anzahl) FROM bestellposition WHERE aktivitaet_id=a.id), 0) AS kisten
+                      COALESCE((SELECT SUM(kisten_anzahl) FROM bestellposition WHERE aktivitaet_id=a.id), 0) AS kisten,
+                      CAST((julianday('now') - julianday(a.datum)) AS INTEGER) AS alter_tage
                FROM aktivitaet a JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id
                WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen'
                  AND a.mitarbeiter_id=?
