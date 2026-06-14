@@ -332,8 +332,16 @@
              style="font-size:.85rem"><i class="bi bi-lock me-1"></i>Passwort</a>
         </li>
         <li class="nav-item">
+          {% if session.rolle == 'admin' %}
+          <a class="nav-link" href="{{ url_for('admin') }}#vertretung"
+             style="font-size:.85rem"><i class="bi bi-person-lines-fill me-1"></i>Urlaub / Vertretung{% if offene_urlaubsantraege and offene_urlaubsantraege > 0 %} <span class="badge bg-danger">{{ offene_urlaubsantraege }}</span>{% endif %}</a>
+          {% elif session.rolle == 'verkaufsleiter' %}
+          <a class="nav-link" href="{{ url_for('team_verwaltung') }}#vertretung"
+             style="font-size:.85rem"><i class="bi bi-person-lines-fill me-1"></i>Urlaub / Vertretung{% if offene_urlaubsantraege and offene_urlaubsantraege > 0 %} <span class="badge bg-danger">{{ offene_urlaubsantraege }}</span>{% endif %}</a>
+          {% else %}
           <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#modalVertretung"
              style="font-size:.85rem"><i class="bi bi-person-lines-fill me-1"></i>Urlaub / Vertretung{% if offene_urlaubsantraege and offene_urlaubsantraege > 0 %} <span class="badge bg-danger">{{ offene_urlaubsantraege }}</span>{% endif %}</a>
+          {% endif %}
         </li>
         <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'faq' %}active{% endif %}"
