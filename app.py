@@ -2899,6 +2899,60 @@ def _vertretung_team_ok(vtr_id):
     return False
 
 
+def _send_vertretung_email(vtr_id: int, status: str):
+    """Sendet E-Mail-Benachrichtigung nach Urlaubsentscheidung an Rep + VKL/Admin."""
+    vtr = query(
+        """SELECT v.von, v.bis, m.name AS abwesender_name, m.email AS abwesender_email,
+                  vt.name AS vertreter_name
+           FROM vertretung v
+           JOIN mitarbeiter m ON m.id = v.abwesender_id
+           LEFT JOIN mitarbeiter vt ON vt.id = v.vertreter_id
+           WHERE v.id=?""",
+        (vtr_id,), one=True
+    )
+    if not vtr:
+        return
+    farbe  = '#2cc4b0' if status == 'bestätigt' else '#e24b4a'
+    icon   = '✓' if status == 'bestätigt' else '✗'
+    subject = f"Urlaubsantrag {icon} {status} – {vtr['abwesender_name']}"
+    vertreter_zeile = (
+        f"<tr><td style='padding:.35rem .7rem;background:#f4f6fa;font-weight:600'>Vertretung</td>"
+        f"<td style='padding:.35rem .7rem'>{vtr['vertreter_name']}</td></tr>"
+    ) if vtr['vertreter_name'] else ''
+    body = f"""
+    <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto">
+      <div style="background:#1a3a5c;color:#fff;padding:1.4rem 1.6rem;border-radius:6px 6px 0 0">
+        <h2 style="margin:0;font-size:1.2rem">Urlaubsantrag <span style="color:{farbe}">{icon} {status}</span></h2>
+      </div>
+      <div style="padding:1.4rem 1.6rem;border:1px solid #e0e0e0;border-top:none;border-radius:0 0 6px 6px">
+        <p style="margin:0 0 1rem">Hallo {vtr['abwesender_name']},</p>
+        <p style="margin:0 0 1rem">dein Urlaubsantrag wurde
+          <strong style="color:{farbe}">{status}</strong>.</p>
+        <table style="width:100%;border-collapse:collapse;margin:0 0 1rem">
+          <tr><td style="padding:.35rem .7rem;background:#f4f6fa;font-weight:600">Zeitraum</td>
+              <td style="padding:.35rem .7rem">{vtr['von']} bis {vtr['bis']}</td></tr>
+          {vertreter_zeile}
+        </table>
+        <hr style="border:none;border-top:1px solid #e8e8e8;margin:1rem 0">
+        <p style="color:#777;font-size:.82rem;margin:0">
+          Diese Nachricht wurde automatisch vom Aktionstracker gesendet.</p>
+      </div>
+    </div>"""
+    empfaenger = set()
+    if vtr['abwesender_email']:
+        empfaenger.add(vtr['abwesender_email'])
+    manager_emails = query(
+        "SELECT email FROM mitarbeiter WHERE rolle IN ('admin','verkaufsleiter') AND aktiv=1 AND email IS NOT NULL AND email != ''",
+        ()
+    )
+    for mgr in manager_emails:
+        empfaenger.add(mgr['email'])
+    if EXPORT_EMAIL:
+        empfaenger.add(EXPORT_EMAIL)
+    for addr in empfaenger:
+        send_email(addr, subject, body)
+
+
 @app.route('/admin/vertretung/<int:vtr_id>/bestaetigen', methods=['POST'])
 @manager_required
 def admin_vertretung_bestaetigen(vtr_id):
@@ -2907,6 +2961,7 @@ def admin_vertretung_bestaetigen(vtr_id):
     else:
         execute("UPDATE vertretung SET status='bestätigt' WHERE id=?", (vtr_id,))
         flash('Urlaub bestätigt.', 'success')
+        _send_vertretung_email(vtr_id, 'bestätigt')
     return redirect(request.referrer or url_for('dashboard'))
 
 
@@ -2918,6 +2973,7 @@ def admin_vertretung_ablehnen(vtr_id):
     else:
         execute("UPDATE vertretung SET status='abgelehnt' WHERE id=?", (vtr_id,))
         flash('Urlaubsantrag abgelehnt.', 'warning')
+        _send_vertretung_email(vtr_id, 'abgelehnt')
     return redirect(request.referrer or url_for('dashboard'))
 
 

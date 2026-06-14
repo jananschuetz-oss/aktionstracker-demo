@@ -336,6 +336,12 @@
              style="font-size:.85rem"><i class="bi bi-person-lines-fill me-1"></i>Urlaub / Vertretung{% if offene_urlaubsantraege and offene_urlaubsantraege > 0 %} <span class="badge bg-danger">{{ offene_urlaubsantraege }}</span>{% endif %}</a>
         </li>
         <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'faq' %}active{% endif %}"
+             href="{{ url_for('faq') }}" style="font-size:.85rem">
+            <i class="bi bi-question-circle me-1"></i>Hilfe
+          </a>
+        </li>
+        <li class="nav-item">
           <a class="nav-link" href="{{ url_for('logout') }}"><i class="bi bi-box-arrow-right"></i>Abmelden</a>
         </li>
       </ul>
