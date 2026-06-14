@@ -1354,12 +1354,23 @@ def dashboard():
 
     # KONZEPT-V2: Pipeline-Kennzahlen (Manager: Teaser mit Link; Rep: nur eigene offene)
     p_aufgebaut = p_storniert = p_ueberfaellig = 0
+    offene_rep_liste = []
     if is_manager:
         vorgemerkt, p_aufgebaut, p_storniert, p_ueberfaellig = _bestell_kennzahlen()
     else:
         vorgemerkt = query(
             "SELECT COUNT(*) AS n FROM aktivitaet a WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen' AND a.mitarbeiter_id=?",
             (session['user_id'],), one=True)['n']
+        offene_rep_liste = query(
+            """SELECT v.name AS station, a.datum,
+                      COALESCE(a.anzahl_displays, 0) AS displays,
+                      COALESCE((SELECT SUM(kisten_anzahl) FROM bestellposition WHERE aktivitaet_id=a.id), 0) AS kisten
+               FROM aktivitaet a JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id
+               WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen'
+                 AND a.mitarbeiter_id=?
+               ORDER BY a.datum ASC""",
+            (session['user_id'],)
+        )
 
     # Top Biersorten – direkt über bestellposition, kein Display-Problem hier
     if is_manager:
@@ -1542,6 +1553,7 @@ def dashboard():
         ma_filter=ma_filter,
         alle_ma=alle_ma,
         vorgemerkt=vorgemerkt,
+        offene_rep_liste=offene_rep_liste,
         p_aufgebaut=p_aufgebaut,
         p_storniert=p_storniert,
         p_ueberfaellig=p_ueberfaellig,

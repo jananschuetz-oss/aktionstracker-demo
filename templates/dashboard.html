@@ -273,14 +273,33 @@
   </div>
 </div>
 {% else %}
+{% if vorgemerkt > 0 %}
 <div class="mb-4">
-  <div class="d-flex align-items-center gap-2 px-3 py-2 rounded-3"
-       style="background:#fffbf0;border:1px solid #f0c674;font-size:.9rem">
+  <button class="d-flex align-items-center gap-2 px-3 py-2 rounded-3 w-100 border-0 text-start"
+          style="background:#fffbf0;border:1px solid #f0c674!important;font-size:.9rem;cursor:pointer"
+          type="button" data-bs-toggle="collapse" data-bs-target="#repBestellungenCollapse"
+          aria-expanded="false">
     <i class="bi bi-clock-history" style="color:#c8860a"></i>
-    <span><strong>{{ vorgemerkt or 0 }}</strong> vorgemerkte Bestellung{{ '' if vorgemerkt == 1 else 'en' }}
-      <span class="text-muted">— für später bestellt, noch nicht aufgebaut (zählt nicht im IST)</span></span>
+    <span class="flex-grow-1">
+      <strong style="color:#c8860a">{{ vorgemerkt }}</strong>
+      <span class="text-muted"> offene Bestellung{{ '' if vorgemerkt == 1 else 'en' }} — tippen zum Anzeigen</span>
+    </span>
+    <i class="bi bi-chevron-down" style="color:#c8860a"></i>
+  </button>
+  <div class="collapse" id="repBestellungenCollapse">
+    <div class="px-3 pt-1 pb-2" style="background:#fffdf5;border:1px solid #f0c674;border-top:none;border-radius:0 0 .5rem .5rem">
+      {% for b in offene_rep_liste %}
+      <div class="d-flex justify-content-between align-items-center py-1{% if not loop.last %} border-bottom{% endif %}" style="font-size:.85rem">
+        <span><i class="bi bi-shop me-1" style="color:#c8860a"></i><strong>{{ b.station }}</strong></span>
+        <span class="text-muted">
+          {{ b.datum }}{% if b.displays %} · {{ b.displays }} Disp.{% endif %}{% if b.kisten %} · {{ b.kisten }} {{ unit_label }}{% endif %}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
   </div>
 </div>
+{% endif %}
 {% endif %}
 
 <!-- Charts Row -->

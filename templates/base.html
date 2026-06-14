@@ -574,6 +574,35 @@
 <div class="modal fade" id="modalMeineDaten" tabindex="-1">
   <div class="modal-dialog modal-sm modal-dialog-centered">
     <div class="modal-content">
+      {% if session.rolle == 'rep' %}
+      <!-- Rep: nur lesen, kein Bearbeiten -->
+      <div class="modal-header" style="background:#1a3a5c;color:white">
+        <h6 class="modal-title"><i class="bi bi-person-circle me-2"></i>Meine Daten</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <div class="small fw-bold text-muted mb-1">Name</div>
+          <div class="fw-semibold">{{ session.name }}</div>
+        </div>
+        <div class="mb-3">
+          <div class="small fw-bold text-muted mb-1">Kürzel</div>
+          <div class="fw-semibold text-uppercase">{{ session.kuerzel }}</div>
+        </div>
+        <div class="mb-2">
+          <div class="small fw-bold text-muted mb-1">E-Mail</div>
+          <div class="fw-semibold">{{ mein_email or '–' }}</div>
+        </div>
+        <hr class="my-3">
+        <a href="#" class="small text-muted" data-bs-dismiss="modal" data-bs-toggle="modal" data-bs-target="#modalPasswortAendern">
+          <i class="bi bi-lock me-1"></i>Passwort ändern →
+        </a>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Schließen</button>
+      </div>
+      {% else %}
+      <!-- VKL / Admin: bearbeiten erlaubt -->
       <form method="POST" action="{{ url_for('profil_daten') }}">
         <div class="modal-header" style="background:#1a3a5c;color:white">
           <h6 class="modal-title"><i class="bi bi-person-circle me-2"></i>Meine Daten</h6>
@@ -602,6 +631,7 @@
           <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-check me-1"></i>Speichern</button>
         </div>
       </form>
+      {% endif %}
     </div>
   </div>
 </div>
