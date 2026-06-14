@@ -4858,13 +4858,14 @@ def wochenbericht_vorschau():
         if d < 0:   return f'<span style="color:#c0392b;font-size:11px">&#x2193;{d}</span>'
         return '<span style="color:#888;font-size:11px">±0</span>'
 
+    _rep_0 = {'besuche': 0, 'kisten': 0}
     rep_rows = ''.join(f'''
         <tr>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px">{r["name"]}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}<br>{_trend_cell_w(r["besuche"], letzte_map_w.get(r["mitarbeiter_id"], {{"besuche":0}})["besuche"])}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}<br>{_trend_cell_w(r["besuche"], letzte_map_w.get(r["mitarbeiter_id"], _rep_0)["besuche"])}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["bestellungen"]}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}<br>{_trend_cell_w(r["kisten"], letzte_map_w.get(r["mitarbeiter_id"], {{"kisten":0}})["kisten"])}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}<br>{_trend_cell_w(r["kisten"], letzte_map_w.get(r["mitarbeiter_id"], _rep_0)["kisten"])}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{_offen_col(offene_map.get(r["mitarbeiter_id"], 0))}</td>
         </tr>''' for r in rep_stats) or \
         '<tr><td colspan="6" style="padding:12px;color:#999;text-align:center">Keine Aktivitäten diese Woche</td></tr>'
@@ -5032,13 +5033,14 @@ def monatsbericht_vorschau():
         if d < 0:   return f'<span style="color:#c0392b;font-size:11px">&#x2193;{d}</span>'
         return '<span style="color:#888;font-size:11px">±0</span>'
 
+    _rep_0 = {'besuche': 0, 'kisten': 0}
     rep_rows = ''.join(f'''
         <tr>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px">{r["name"]}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}<br>{_trend_cell_m(r["besuche"], letzte_map_m.get(r["mitarbeiter_id"], {{"besuche":0}})["besuche"])}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}<br>{_trend_cell_m(r["besuche"], letzte_map_m.get(r["mitarbeiter_id"], _rep_0)["besuche"])}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["bestellungen"]}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}<br>{_trend_cell_m(r["kisten"], letzte_map_m.get(r["mitarbeiter_id"], {{"kisten":0}})["kisten"])}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}<br>{_trend_cell_m(r["kisten"], letzte_map_m.get(r["mitarbeiter_id"], _rep_0)["kisten"])}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["displays"]}</td>
         </tr>''' for r in rep_stats) or \
         '<tr><td colspan="6" style="padding:12px;color:#999;text-align:center">Noch keine Aktivitäten diesen Monat</td></tr>'
