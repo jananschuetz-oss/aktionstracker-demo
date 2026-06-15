@@ -4049,7 +4049,7 @@ def _do_send_wochenbericht(force=False):
                     WHERE a.datum BETWEEN ? AND ? AND m.rolle=\'rep\'{tf}
                     GROUP BY m.id
                 ''', [montag_letzte.isoformat(), sonntag_letzte.isoformat()] + t_p) or []
-                letzte_map = {r['mitarbeiter_id']: r for r in _rs_vw}
+                letzte_map = {r['mitarbeiter_id']: dict(r) for r in _rs_vw}
 
                 def _delta_w(val, mid, key):
                     prev = letzte_map.get(mid, {}).get(key, 0)
@@ -4218,10 +4218,10 @@ def _do_send_wochenbericht(force=False):
             ok_count = 0
 
             # Multi-Team: VKLs in 2+ verschiedenen Teams -> separate Berichte
-            vkl_teams = list(dict.fromkeys(v['team_id'] for v in vkls if v.get('team_id')))
+            vkl_teams = list(dict.fromkeys(v['team_id'] for v in vkls if v['team_id']))
             if len(vkl_teams) >= 2:
                 for v in vkls:
-                    if not v.get('team_id'):
+                    if not v['team_id']:
                         continue
                     tname   = team_map.get(v['team_id'], f'Team {v["team_id"]}')
                     html    = build_html(team_id=v['team_id'], team_name=tname)
@@ -4370,7 +4370,7 @@ def _do_send_monatsbericht(force=False):
                 WHERE a.datum BETWEEN ? AND ? AND m.rolle='rep'{tf}
                 GROUP BY m.id
             ''', [erster_vorvorm.isoformat(), letzter_vorvorm.isoformat()] + t_p) or []
-            vorvorm_map = {r['mitarbeiter_id']: r for r in _rs_vm}
+            vorvorm_map = {r['mitarbeiter_id']: dict(r) for r in _rs_vm}
 
             def _delta_m(val, mid, key):
                 prev = vorvorm_map.get(mid, {}).get(key, 0)
@@ -4483,10 +4483,10 @@ def _do_send_monatsbericht(force=False):
         firma_teil = f' – {FIRMA_NAME}' if FIRMA_NAME else ''
         ok_count   = 0
 
-        vkl_teams = list(dict.fromkeys(v['team_id'] for v in vkls if v.get('team_id')))
+        vkl_teams = list(dict.fromkeys(v['team_id'] for v in vkls if v['team_id']))
         if len(vkl_teams) >= 2:
             for v in vkls:
-                if not v.get('team_id'):
+                if not v['team_id']:
                     continue
                 tname   = team_map.get(v['team_id'], f'Team {v["team_id"]}')
                 html    = build_html(team_id=v['team_id'], team_name=tname)
