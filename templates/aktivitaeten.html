@@ -242,6 +242,10 @@
               &nbsp;·&nbsp;
               <i class="bi bi-tag me-1"></i>{{ a.typ or '–' }}
             </small>
+            {% set dp = disp_detail.get(a.id) %}
+            {% if dp %}
+            <br><small style="color:#2e6da4">{% for d in dp %}<i class="bi bi-display me-1"></i>{{ d.anzahl }}× {{ d.name }}{% if not loop.last %} &nbsp;·&nbsp; {% endif %}{% endfor %}</small>
+            {% endif %}
             {% if is_manager %}
             <br><small class="text-muted"><i class="bi bi-person me-1"></i>{{ a.mitarbeiter }}</small>
             {% endif %}
