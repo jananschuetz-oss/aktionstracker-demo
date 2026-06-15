@@ -1363,7 +1363,7 @@ def dashboard():
             "SELECT COUNT(*) AS n FROM aktivitaet a WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen' AND a.mitarbeiter_id=?",
             (session['user_id'],), one=True)['n']
         offene_rep_liste = query(
-            """SELECT v.name AS station, v.strasse, v.ort, a.datum,
+            """SELECT v.name AS station, v.strasse, v.ort, a.datum, a.notizen,
                       COALESCE(a.anzahl_displays, 0) AS displays,
                       COALESCE((SELECT SUM(kisten_anzahl) FROM bestellposition WHERE aktivitaet_id=a.id), 0) AS kisten,
                       CAST((julianday('now') - julianday(a.datum)) AS INTEGER) AS alter_tage
