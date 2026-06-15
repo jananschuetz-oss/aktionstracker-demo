@@ -233,12 +233,14 @@
     {% set tage = b.alter_tage %}
     <div class="d-flex align-items-center gap-2 py-2{% if not loop.last or offene_rep_liste|length > 3 %} border-bottom{% endif %}" style="font-size:.87rem">
       <span style="width:10px;height:10px;border-radius:50%;flex-shrink:0;display:inline-block;background:{% if tage >= 5 %}#e24b4a{% elif tage >= 2 %}#ef9f27{% else %}#639922{% endif %}"></span>
-      <div style="min-width:0;flex:1">
+      <div style="flex-shrink:0">
         <div class="fw-semibold" style="color:#1a3a5c">{{ b.station }}</div>
         {% if b.strasse or b.ort %}<div style="font-size:.76rem;color:#6c757d;margin-top:1px">{{ b.strasse }}{% if b.strasse and b.ort %}, {% endif %}{{ b.ort }}</div>{% endif %}
-        {% if b.notizen %}<div style="font-size:.76rem;color:#5f6b7a;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><i class="bi bi-chat-left-text me-1" style="font-size:.7rem"></i>{{ b.notizen }}</div>{% endif %}
       </div>
-      <span class="text-muted ms-auto" style="white-space:nowrap;font-size:.82rem;flex-shrink:0">
+      <div style="flex:1;min-width:0;padding:0 4px">
+        {% if b.notizen %}<span style="font-size:.76rem;color:#5f6b7a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block"><i class="bi bi-chat-left-text me-1" style="font-size:.7rem"></i>{{ b.notizen }}</span>{% endif %}
+      </div>
+      <span style="white-space:nowrap;font-size:.82rem;flex-shrink:0;color:#6c757d">
         {% if b.kisten %}{{ b.kisten }} {{ unit_label }}{% endif %}{% if b.kisten and b.displays %} · {% endif %}{% if b.displays %}{{ b.displays }} Disp.{% endif %}
       </span>
       <span style="font-size:.78rem;white-space:nowrap;flex-shrink:0;font-weight:{% if tage >= 5 %}600{% else %}400{% endif %};color:{% if tage >= 5 %}#a32d2d{% elif tage >= 2 %}#854f0b{% else %}#0f6e56{% endif %}">
@@ -258,12 +260,14 @@
       {% set tage = b.alter_tage %}
       <div class="d-flex align-items-center gap-2 py-2 border-top" style="font-size:.87rem">
         <span style="width:10px;height:10px;border-radius:50%;flex-shrink:0;display:inline-block;background:{% if tage >= 5 %}#e24b4a{% elif tage >= 2 %}#ef9f27{% else %}#639922{% endif %}"></span>
-        <div style="min-width:0;flex:1">
+        <div style="flex-shrink:0">
           <div class="fw-semibold" style="color:#1a3a5c">{{ b.station }}</div>
           {% if b.strasse or b.ort %}<div style="font-size:.76rem;color:#6c757d;margin-top:1px">{{ b.strasse }}{% if b.strasse and b.ort %}, {% endif %}{{ b.ort }}</div>{% endif %}
-          {% if b.notizen %}<div style="font-size:.76rem;color:#5f6b7a;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><i class="bi bi-chat-left-text me-1" style="font-size:.7rem"></i>{{ b.notizen }}</div>{% endif %}
         </div>
-        <span class="text-muted ms-auto" style="white-space:nowrap;font-size:.82rem;flex-shrink:0">
+        <div style="flex:1;min-width:0;padding:0 4px">
+          {% if b.notizen %}<span style="font-size:.76rem;color:#5f6b7a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block"><i class="bi bi-chat-left-text me-1" style="font-size:.7rem"></i>{{ b.notizen }}</span>{% endif %}
+        </div>
+        <span style="white-space:nowrap;font-size:.82rem;flex-shrink:0;color:#6c757d">
           {% if b.kisten %}{{ b.kisten }} {{ unit_label }}{% endif %}{% if b.kisten and b.displays %} · {% endif %}{% if b.displays %}{{ b.displays }} Disp.{% endif %}
         </span>
         <span style="font-size:.78rem;white-space:nowrap;flex-shrink:0;font-weight:{% if tage >= 5 %}600{% else %}400{% endif %};color:{% if tage >= 5 %}#a32d2d{% elif tage >= 2 %}#854f0b{% else %}#0f6e56{% endif %}">
