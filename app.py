@@ -4877,8 +4877,8 @@ def wochenbericht_vorschau():
 <style>body{{margin:0;padding:0;background:#f0f4f8;font-family:Arial,Helvetica,sans-serif}}</style>
 </head>
 <body>
-<div style="background:#fffbf0;border:2px dashed #c8860a;padding:10px 24px;text-align:center;font-size:13px;color:#8a5a00">
-  <a href="/einstellungen/wochenbericht" style="float:left;color:#8a5a00;text-decoration:none;font-weight:bold">&larr; Zurück</a>
+<div style="position:relative;background:#fffbf0;border:2px dashed #c8860a;padding:10px 24px;text-align:center;font-size:13px;color:#8a5a00">
+  <a href="/einstellungen/wochenbericht" style="position:absolute;left:16px;top:50%;transform:translateY(-50%);color:#8a5a00;text-decoration:none;font-weight:bold">&larr; Zurück</a>
   <strong>Vorschau-Modus</strong> – Diese E-Mail wird nicht versendet &nbsp;·&nbsp;
   KW {kw_nr} ({datum_von} – {datum_bis})
 </div>
@@ -5051,8 +5051,8 @@ def monatsbericht_vorschau():
     html = f'''<!DOCTYPE html>
 <html><head><meta charset="utf-8"></head>
 <body style="margin:0;padding:16px;background:#f0f4f8;font-family:Arial,Helvetica,sans-serif">
-<div style="background:#fffbf0;border:2px dashed #c8860a;padding:10px 24px;text-align:center;font-size:13px;color:#8a5a00;max-width:600px;margin:0 auto 16px;border-radius:8px">
-  <a href="/einstellungen/wochenbericht" style="float:left;color:#8a5a00;text-decoration:none;font-weight:bold">&larr; Zurück</a>
+<div style="position:relative;background:#fffbf0;border:2px dashed #c8860a;padding:10px 24px;text-align:center;font-size:13px;color:#8a5a00;max-width:600px;margin:0 auto 16px;border-radius:8px">
+  <a href="/einstellungen/wochenbericht" style="position:absolute;left:16px;top:50%;transform:translateY(-50%);color:#8a5a00;text-decoration:none;font-weight:bold">&larr; Zurück</a>
   <strong>Vorschau</strong> &nbsp;·&nbsp; {monat_name}: {erster_dieses.strftime('%d.%m.')}–{heute.strftime('%d.%m.')} ({tage_aktuell} Tage) &nbsp;·&nbsp; {vmonat_name}: vollständig ({tage_vormonat} Tage) &nbsp;·&nbsp; wird nicht versendet
 </div>
 <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.10)">
