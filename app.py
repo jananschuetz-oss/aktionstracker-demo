@@ -3396,6 +3396,20 @@ def admin_import_excel():
     return redirect(url_for('admin'))
 
 
+@app.route('/admin/demo-seed', methods=['POST'])
+@admin_required
+def admin_demo_seed():
+    """Manueller Trigger: Demo-Aktivitäten für die Vorwoche nachfüllen."""
+    _do_demo_woche_nachfuellen(force=True)
+    from datetime import date, timedelta
+    today      = date.today()
+    letzter_mo = today - timedelta(days=today.weekday() + 7)
+    letzter_fr = letzter_mo + timedelta(days=4)
+    kw         = letzter_mo.isocalendar()[1]
+    flash(f'Demo-Daten für KW {kw} ({letzter_mo.strftime("%d.%m.")}–{letzter_fr.strftime("%d.%m.")}) wurden eingefügt.', 'success')
+    return redirect(url_for('admin'))
+
+
 # ─── Routes: Vergleich & Zielzahlen ──────────────────────────────────────────
 
 @app.route('/vergleich')
@@ -4031,11 +4045,11 @@ def _do_send_wochenbericht(force=False):
                                                THEN a.id END) AS aufbauten,
                            COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,\'Aufbau\')=\'Aufbau\'
                                              THEN bp.kisten_anzahl END), 0) AS kisten
-                    FROM aktivitaet a
-                    JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
+                    FROM mitarbeiter m
+                    LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
                     LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
-                    WHERE a.datum BETWEEN ? AND ? AND m.rolle = \'rep\'{tf}
-                    GROUP BY m.id, m.name ORDER BY kisten DESC
+                    WHERE m.rolle = \'rep\' AND m.aktiv = 1{tf}
+                    GROUP BY m.id, m.name ORDER BY kisten DESC, m.name
                 ''', [montag_diese.isoformat(), sonntag_diese.isoformat()] + t_p)
 
                 _rs_vw = query(f'''
@@ -4350,11 +4364,11 @@ def _do_send_monatsbericht(force=False):
                                          THEN bp.kisten_anzahl END), 0) AS kisten,
                        COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
                                          THEN a.anzahl_displays END), 0) AS displays
-                FROM aktivitaet a
-                JOIN mitarbeiter m ON m.id=a.mitarbeiter_id
-                LEFT JOIN bestellposition bp ON bp.aktivitaet_id=a.id
-                WHERE a.datum BETWEEN ? AND ? AND m.rolle='rep'{tf}
-                GROUP BY m.id, m.name ORDER BY kisten DESC
+                FROM mitarbeiter m
+                LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
+                LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
+                WHERE m.rolle = 'rep' AND m.aktiv = 1{tf}
+                GROUP BY m.id, m.name ORDER BY kisten DESC, m.name
             ''', [erster_vormonat.isoformat(), letzter_vormonat.isoformat()] + t_p)
 
             _rs_vm = query(f'''
@@ -4538,10 +4552,10 @@ def send_monatsbericht(force=False):
 
 # ─── Demo-Frischhaltung: jede Woche neue Aktivitäten ─────────────────────────
 
-def _do_demo_woche_nachfuellen():
+def _do_demo_woche_nachfuellen(force=False):
     """Fügt der vergangenen Woche je 5 Aktivitäten pro Rep hinzu (Mix: Aufbau/Bestellung/Besuch).
     Läuft jeden Sonntag 23:30 – Daten sind bereit für den Montags-Wochenbericht.
-    Idempotent: Falls die Woche bereits Einträge hat, wird nichts eingefügt."""
+    Idempotent: Falls die Woche bereits Einträge hat, wird nichts eingefügt (außer force=True)."""
     import random as rnd
     from datetime import date, timedelta
 
@@ -4557,12 +4571,12 @@ def _do_demo_woche_nachfuellen():
     biere   = db.execute("SELECT id FROM biersorte WHERE aktiv=1").fetchall()
     bier_ids = [b['id'] for b in biere]
 
-    # Bereits Daten für diese Woche? → überspringen
+    # Bereits Daten für diese Woche? → überspringen (außer manueller Force)
     existing = db.execute(
         "SELECT COUNT(*) FROM aktivitaet WHERE datum BETWEEN ? AND ?",
         (letzter_mo.isoformat(), letzter_fr.isoformat())
     ).fetchone()[0]
-    if existing > 0:
+    if existing > 0 and not force:
         app.logger.info(f"Demo-Seed KW {kw}/{letzter_mo.year}: {existing} Einträge vorhanden, übersprungen.")
         return
 
@@ -4776,11 +4790,11 @@ def wochenbericht_vorschau():
                COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.id END) AS aufbauten,
                COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
                                  THEN bp.kisten_anzahl END), 0) AS kisten
-        FROM aktivitaet a
-        JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
+        FROM mitarbeiter m
+        LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
         LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
-        WHERE a.datum BETWEEN ? AND ? AND m.rolle = 'rep'
-        GROUP BY m.id, m.name ORDER BY kisten DESC
+        WHERE m.rolle = 'rep' AND m.aktiv = 1
+        GROUP BY m.id, m.name ORDER BY kisten DESC, m.name
     ''', (montag_diese.isoformat(), sonntag_diese.isoformat()))
 
     rep_letzte_w = query('''
@@ -4995,11 +5009,11 @@ def monatsbericht_vorschau():
                                  THEN bp.kisten_anzahl END), 0) AS kisten,
                COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
                                  THEN a.anzahl_displays END), 0) AS displays
-        FROM aktivitaet a
-        JOIN mitarbeiter m ON m.id=a.mitarbeiter_id
-        LEFT JOIN bestellposition bp ON bp.aktivitaet_id=a.id
-        WHERE a.datum BETWEEN ? AND ? AND m.rolle='rep'
-        GROUP BY m.id, m.name ORDER BY kisten DESC
+        FROM mitarbeiter m
+        LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
+        LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
+        WHERE m.rolle = 'rep' AND m.aktiv = 1
+        GROUP BY m.id, m.name ORDER BY kisten DESC, m.name
     ''', (erster_dieses.isoformat(), heute.isoformat()))
 
     rep_letzte_m = query('''

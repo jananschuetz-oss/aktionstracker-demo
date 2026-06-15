@@ -587,6 +587,32 @@
     </div>
   </div>
 
+  <!-- Demo-Daten Nachfüllen -->
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header" style="background:linear-gradient(135deg,#c8860a,#e6a820)">
+        <i class="bi bi-arrow-repeat me-2"></i>Demo-Daten Vorwoche
+      </div>
+      <div class="card-body">
+        <p class="small text-muted mb-3">
+          <i class="bi bi-info-circle me-1"></i>
+          Fügt für jeden Rep ~10 Aktivitäten (Aufbau/Bestellung/Besuch) in die Vorwoche ein.
+          Läuft automatisch jeden Sonntag 23:30 – hier manuell auslösen:
+        </p>
+        <form method="POST" action="{{ url_for('admin_demo_seed') }}"
+              onsubmit="return confirm('Demo-Aktivitäten für die Vorwoche jetzt einfügen?')">
+          <button type="submit" class="btn w-100" style="background:#c8860a;color:#fff">
+            <i class="bi bi-play-fill me-2"></i>Vorwoche jetzt befüllen
+          </button>
+        </form>
+        <div class="form-text mt-2">
+          <i class="bi bi-exclamation-triangle me-1"></i>
+          Nur in der Demo-App verfügbar.
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- E-Mail / Passwort-Reset -->
   <div class="col-md-6">
     <div class="card">
