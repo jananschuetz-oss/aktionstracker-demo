@@ -4294,7 +4294,7 @@ def _do_send_monatsbericht(force=False):
         erster_vorvorm   = letzter_vorvorm.replace(day=1)
 
         monat_key = erster_vormonat.strftime('%Y-%m')
-        if not force and config.get('zuletzt_gesendet_monat') == monat_key:
+        if not force and config['zuletzt_gesendet_monat'] == monat_key:
             app.logger.info("MONATSBERICHT: Dieser Monat bereits gesendet – übersprungen.")
             return False, "Dieser Monat bereits gesendet."
 
@@ -4304,7 +4304,7 @@ def _do_send_monatsbericht(force=False):
         vmonat_name = _monat_namen[erster_vorvorm.month - 1]
         monat_label = f"{monat_name} {erster_vormonat.year}"
 
-        empfaenger_admin = [e for e in [config.get('empfaenger_2'), config.get('empfaenger_3')] if e]
+        empfaenger_admin = [e for e in [config['empfaenger_2'], config['empfaenger_3']] if e]
         vkls     = query("SELECT email, name, team_id FROM mitarbeiter "
                          "WHERE rolle='verkaufsleiter' AND email IS NOT NULL AND email != ''") or []
         teams    = query("SELECT id, name FROM team ORDER BY name") or []

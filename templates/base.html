@@ -558,15 +558,15 @@
       {% if session.rolle in ['admin','verkaufsleiter'] %}Urlaub eintragen{% else %}Urlaub anfragen{% endif %}
     </a>
     {% if session.rolle in ('admin', 'verkaufsleiter') %}
-    <a href="{{ url_for('team_verwaltung') }}" class="mobile-menu-item" data-bs-dismiss="offcanvas">
+    <a href="{{ url_for('team_verwaltung') }}" class="mobile-menu-item">
       <i class="bi bi-people-fill"></i>Team-Verwaltung
     </a>
-    <a href="{{ url_for('einstellungen_wochenbericht') }}" class="mobile-menu-item" data-bs-dismiss="offcanvas">
+    <a href="{{ url_for('einstellungen_wochenbericht') }}" class="mobile-menu-item">
       <i class="bi bi-envelope-at"></i>Wochenbericht-Einstellungen
     </a>
     {% endif %}
     {% if session.rolle == 'admin' %}
-    <a href="{{ url_for('admin') }}" class="mobile-menu-item" data-bs-dismiss="offcanvas">
+    <a href="{{ url_for('admin') }}" class="mobile-menu-item">
       <i class="bi bi-gear"></i>Admin-Panel
     </a>
     {% endif %}
@@ -574,7 +574,7 @@
     <a href="#" class="mobile-menu-item" onclick="closeMenuAndOpen('modalMeineDaten');return false;">
       <i class="bi bi-person-circle"></i>Meine Daten
     </a>
-    <a href="{{ url_for('faq') }}" class="mobile-menu-item" data-bs-dismiss="offcanvas">
+    <a href="{{ url_for('faq') }}" class="mobile-menu-item">
       <i class="bi bi-question-circle"></i>FAQ
     </a>
     <div style="height:6px;background:#f4f6fa;border-top:1px solid #e9ecef;border-bottom:1px solid #e9ecef"></div>
