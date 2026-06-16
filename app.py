@@ -190,7 +190,7 @@ def execute(sql, args=()):
     return cur.lastrowid
 
 
-FOTO_AUFBEWAHRUNG_WOCHEN = 4   # Fotos werden nach 4 Wochen gelöscht (werden vorher per Auto-Export an Kunden geschickt)
+FOTO_AUFBEWAHRUNG_WOCHEN = 6   # Fotos werden nach 6 Wochen gelöscht (Export am 1. um 08:00, Cleanup um 09:00)
 
 # ── E-Mail versenden ──────────────────────────────────────────────────────────
 
@@ -4085,17 +4085,28 @@ def api_verkaufsstellen():
 
 # ─── Auto-Export ──────────────────────────────────────────────────────────────
 
-def erstelle_fotos_zip_bytes(wochen: int = 4):
-    """Erstellt ZIP-Archiv aller Fotos der letzten `wochen` Wochen.
-    Gibt (zip_bytes, anzahl) zurück."""
-    grenzwert = (date.today() - timedelta(weeks=wochen)).isoformat()
-    fotos = query(
-        "SELECT a.datum, m.kuerzel, a.foto_pfad "
-        "FROM aktivitaet a JOIN mitarbeiter m ON m.id = a.mitarbeiter_id "
-        "WHERE a.foto_pfad IS NOT NULL AND a.foto_pfad != '' AND a.datum >= ? "
-        "ORDER BY a.datum",
-        (grenzwert,)
+def erstelle_fotos_zip_bytes(wochen: int = None, von: str = None, bis: str = None):
+    """Erstellt ZIP-Archiv aller Fotos in einem Zeitraum.
+    Entweder von/bis (YYYY-MM-DD) oder wochen (Anzahl Wochen zurück). Gibt (zip_bytes, anzahl) zurück."""
+    _sql_basis = (
+        "SELECT a.datum, m.kuerzel, a.foto_pfad, "
+        "       COALESCE(a.aktionstyp, 'Aufbau') AS aktionstyp, "
+        "       COALESCE(v.name, '') AS vs_name "
+        "FROM aktivitaet a "
+        "JOIN mitarbeiter m ON m.id = a.mitarbeiter_id "
+        "LEFT JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id "
     )
+    if von and bis:
+        fotos = query(_sql_basis + "WHERE a.foto_pfad IS NOT NULL AND a.foto_pfad != '' AND a.datum BETWEEN ? AND ? ORDER BY a.datum", (von, bis))
+    else:
+        w = wochen or 4
+        grenzwert = (date.today() - timedelta(weeks=w)).isoformat()
+        fotos = query(_sql_basis + "WHERE a.foto_pfad IS NOT NULL AND a.foto_pfad != '' AND a.datum >= ? ORDER BY a.datum", (grenzwert,))
+
+    def _safe(s):
+        import re
+        return re.sub(r'[^\w\-]', '-', s).strip('-')
+
     buf   = io.BytesIO()
     count = 0
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -4103,7 +4114,7 @@ def erstelle_fotos_zip_bytes(wochen: int = 4):
             pfad = os.path.join(UPLOAD_FOLDER, f['foto_pfad'])
             if os.path.exists(pfad):
                 ext     = os.path.splitext(f['foto_pfad'])[1]
-                arcname = f"{f['datum']}_{f['kuerzel']}_{count+1:03d}{ext}"
+                arcname = f"{f['datum']}_{f['kuerzel']}_{_safe(f['vs_name'])}_{_safe(f['aktionstyp'])}_{count+1:03d}{ext}"
                 zf.write(pfad, arcname)
                 count += 1
     buf.seek(0)
@@ -4111,31 +4122,40 @@ def erstelle_fotos_zip_bytes(wochen: int = 4):
 
 
 def auto_export_job():
-    """Automatischer 4-Wochen-Export: Excel-Jahresauswertung + Foto-ZIP per E-Mail."""
+    """Monatlicher Export am 1. jeden Monats: Excel-Jahresauswertung + Foto-ZIP des Vormonats."""
     if not EXPORT_EMAIL:
         app.logger.info("AUTO_EXPORT: EXPORT_EMAIL nicht gesetzt – übersprungen.")
         return
     with app.app_context():
         try:
-            jahr      = date.today().year
-            heute_str = date.today().strftime('%d.%m.%Y')
+            heute             = date.today()
+            letzter_vormonat  = heute - timedelta(days=1)
+            erster_vormonat   = letzter_vormonat.replace(day=1)
+            _monat_namen = ['Januar','Februar','März','April','Mai','Juni',
+                            'Juli','August','September','Oktober','November','Dezember']
+            monat_label  = f"{_monat_namen[erster_vormonat.month - 1]} {erster_vormonat.year}"
+            von_str      = erster_vormonat.isoformat()
+            bis_str      = letzter_vormonat.isoformat()
+
+            jahr        = heute.year
+            heute_str   = heute.strftime('%d.%m.%Y')
 
             excel_bytes           = _build_excel_bytes(jahr, is_admin=True)
-            zip_bytes, foto_count = erstelle_fotos_zip_bytes(wochen=4)
+            zip_bytes, foto_count = erstelle_fotos_zip_bytes(von=von_str, bis=bis_str)
 
             body = f"""
             <div style="font-family:sans-serif;max-width:600px;color:#222">
-              <h2 style="color:#1a3a5c">Aktions Tracker – Automatischer Export</h2>
+              <h2 style="color:#1a3a5c">Aktions Tracker – Monatlicher Export</h2>
               <p>Sehr geehrte Damen und Herren,</p>
-              <p>anbei erhalten Sie den automatischen Datenexport vom <strong>{heute_str}</strong>.</p>
+              <p>anbei erhalten Sie den automatischen Datenexport für <strong>{monat_label}</strong>.</p>
               <ul>
                 <li><strong>Excel-Auswertung:</strong> Jahresübersicht {jahr}
                     (KW-Übersicht, Mitarbeiter-Ranking, Aktivitäten-Detail, Produktübersicht)</li>
-                <li><strong>Foto-Archiv:</strong> {foto_count} Foto(s) der letzten 4 Wochen als ZIP</li>
+                <li><strong>Foto-Archiv:</strong> {foto_count} Foto(s) aus {monat_label} als ZIP</li>
               </ul>
               <p style="color:#666;font-size:.9em">
-                Die Fotos werden im System automatisch nach {FOTO_AUFBEWAHRUNG_WOCHEN} Wochen gelöscht –
-                dieses Archiv enthält alle Aufnahmen des abgelaufenen Zeitraums.<br>
+                Die Fotos werden im System nach {FOTO_AUFBEWAHRUNG_WOCHEN} Wochen automatisch gelöscht –
+                dieses Archiv enthält alle Aufnahmen des Vormonats ({von_str} bis {bis_str}).<br>
                 Die Excel-Datei enthält den vollständigen Jahresstand zum Exportzeitpunkt.
               </p>
               <hr style="border:none;border-top:1px solid #eee;margin:1.5rem 0">
@@ -4151,17 +4171,17 @@ def auto_export_job():
                  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
             ]
             if foto_count > 0:
-                zip_name = f"Fotos_{date.today().strftime('%Y-%m-%d')}.zip"
+                zip_name = f"Fotos_{erster_vormonat.strftime('%Y-%m')}.zip"
                 attachments.append((zip_name, zip_bytes, "application/zip"))
 
             ok = send_email_with_attachments(
                 EXPORT_EMAIL,
-                f"Aktions Tracker – Automatischer Export {heute_str}",
+                f"Aktions Tracker – Export {monat_label}",
                 body,
                 attachments
             )
             if ok:
-                app.logger.info(f"AUTO_EXPORT: Gesendet an {EXPORT_EMAIL} ({foto_count} Foto(s))")
+                app.logger.info(f"AUTO_EXPORT: Gesendet an {EXPORT_EMAIL} ({foto_count} Foto(s), {monat_label})")
             else:
                 app.logger.error("AUTO_EXPORT: E-Mail-Versand fehlgeschlagen")
         except Exception as e:
@@ -4266,7 +4286,7 @@ def _do_send_wochenbericht(force=False):
                     FROM mitarbeiter m
                     LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
                     LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
-                    WHERE m.rolle = \'rep\' AND m.aktiv = 1{tf}
+                    WHERE m.rolle = \'rep\'{tf}
                     GROUP BY m.id, m.name ORDER BY kisten DESC, m.name
                 ''', [montag_diese.isoformat(), sonntag_diese.isoformat()] + t_p)
 
@@ -4585,7 +4605,7 @@ def _do_send_monatsbericht(force=False):
                 FROM mitarbeiter m
                 LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
                 LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
-                WHERE m.rolle = 'rep' AND m.aktiv = 1{tf}
+                WHERE m.rolle = 'rep'{tf}
                 GROUP BY m.id, m.name ORDER BY kisten DESC, m.name
             ''', [erster_vormonat.isoformat(), letzter_vormonat.isoformat()] + t_p)
 
@@ -4715,6 +4735,15 @@ def _do_send_monatsbericht(force=False):
         firma_teil = f' – {FIRMA_NAME}' if FIRMA_NAME else ''
         ok_count   = 0
 
+        # Foto-ZIP für Vormonat erstellen
+        von_str           = erster_vormonat.isoformat()
+        bis_str           = letzter_vormonat.isoformat()
+        zip_bytes, foto_count = erstelle_fotos_zip_bytes(von=von_str, bis=bis_str)
+        attachments = []
+        if foto_count > 0:
+            zip_name = f"Fotos_{erster_vormonat.strftime('%Y-%m')}.zip"
+            attachments.append((zip_name, zip_bytes, "application/zip"))
+
         vkl_teams = list(dict.fromkeys(v['team_id'] for v in vkls if v['team_id']))
         if len(vkl_teams) >= 2:
             for v in vkls:
@@ -4723,8 +4752,8 @@ def _do_send_monatsbericht(force=False):
                 tname   = team_map.get(v['team_id'], f'Team {v["team_id"]}')
                 html    = build_html(team_id=v['team_id'], team_name=tname)
                 betreff = f'Monatsbericht{firma_teil} – {tname} – {monat_label}'
-                if send_email(v['email'], betreff, html):
-                    app.logger.info(f"MONATSBERICHT {monat_label} [{tname}]: Gesendet an {v['email']}")
+                if send_email_with_attachments(v['email'], betreff, html, attachments):
+                    app.logger.info(f"MONATSBERICHT {monat_label} [{tname}]: Gesendet an {v['email']} ({foto_count} Fotos)")
                     ok_count += 1
                 else:
                     app.logger.error(f"MONATSBERICHT {monat_label} [{tname}]: Fehler bei {v['email']}")
@@ -4732,8 +4761,8 @@ def _do_send_monatsbericht(force=False):
                 html_g  = build_html(team_id=None, team_name='Alle Teams')
                 betreff = f'Monatsbericht{firma_teil} – Alle Teams – {monat_label}'
                 for mail in empfaenger_admin:
-                    if send_email(mail, betreff, html_g):
-                        app.logger.info(f"MONATSBERICHT {monat_label} [Gesamt]: Gesendet an {mail}")
+                    if send_email_with_attachments(mail, betreff, html_g, attachments):
+                        app.logger.info(f"MONATSBERICHT {monat_label} [Gesamt]: Gesendet an {mail} ({foto_count} Fotos)")
                         ok_count += 1
         else:
             empfaenger = []
@@ -4746,8 +4775,8 @@ def _do_send_monatsbericht(force=False):
             html    = build_html(team_id=None)
             betreff = f'Monatsbericht Aktionstracker{firma_teil} – {monat_label}'
             for mail in empfaenger:
-                if send_email(mail, betreff, html):
-                    app.logger.info(f"MONATSBERICHT {monat_label}: Gesendet an {mail}")
+                if send_email_with_attachments(mail, betreff, html, attachments):
+                    app.logger.info(f"MONATSBERICHT {monat_label}: Gesendet an {mail} ({foto_count} Fotos)")
                     ok_count += 1
 
         if ok_count > 0:
@@ -5011,7 +5040,7 @@ def wochenbericht_vorschau():
         FROM mitarbeiter m
         LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
         LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
-        WHERE m.rolle = 'rep' AND m.aktiv = 1
+        WHERE m.rolle = 'rep'
         GROUP BY m.id, m.name ORDER BY kisten DESC, m.name
     ''', (montag_diese.isoformat(), sonntag_diese.isoformat()))
 
@@ -5230,7 +5259,7 @@ def monatsbericht_vorschau():
         FROM mitarbeiter m
         LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
         LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
-        WHERE m.rolle = 'rep' AND m.aktiv = 1
+        WHERE m.rolle = 'rep'
         GROUP BY m.id, m.name ORDER BY kisten DESC, m.name
     ''', (erster_dieses.isoformat(), heute.isoformat()))
 
@@ -5687,17 +5716,19 @@ init_db()
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
     _scheduler = BackgroundScheduler(daemon=True, timezone='Europe/Berlin')
-    _scheduler.add_job(backup_db,           'interval', days=1,  id='backup_db',      replace_existing=True)
-    _scheduler.add_job(cleanup_alte_fotos,  'interval', days=1,  id='cleanup_fotos',  replace_existing=True)
-    _scheduler.add_job(auto_export_job,     'interval', weeks=4, id='auto_export',    replace_existing=True)
+    _scheduler.add_job(backup_db,              'interval', days=1, id='backup_db',    replace_existing=True)
+    _scheduler.add_job(send_wochenbericht,     'cron', day_of_week='mon', hour=7, minute=0,
+                       id='wochenbericht',     replace_existing=True, timezone='Europe/Berlin')
+    _scheduler.add_job(send_monatsbericht,     'cron', day=1, hour=7, minute=0,
+                       id='monatsbericht',     replace_existing=True, timezone='Europe/Berlin')
+    _scheduler.add_job(auto_export_job,        'cron', day=1, hour=8, minute=0,
+                       id='auto_export',       replace_existing=True, timezone='Europe/Berlin')
+    _scheduler.add_job(cleanup_alte_fotos,     'cron', day=1, hour=9, minute=0,
+                       id='cleanup_fotos',     replace_existing=True, timezone='Europe/Berlin')
     _scheduler.add_job(demo_woche_nachfuellen, 'cron', day_of_week='sun', hour=23, minute=30,
-                       id='demo_seed',        replace_existing=True)
-    _scheduler.add_job(send_wochenbericht,  'cron', day_of_week='mon', hour=7, minute=0,
-                       id='wochenbericht', replace_existing=True, timezone='Europe/Berlin')
-    _scheduler.add_job(send_monatsbericht, 'cron', day=1, hour=7, minute=0,
-                       id='monatsbericht', replace_existing=True, timezone='Europe/Berlin')
+                       id='demo_seed',         replace_existing=True)
     _scheduler.start()
-    app.logger.info("Scheduler gestartet (Backup täglich, Foto-Cleanup täglich, Auto-Export 4-wöchentlich, Wochenbericht montags 07:00, Monatsbericht am 1. des Monats 07:00)")
+    app.logger.info("Scheduler gestartet (Backup täglich, Wochenbericht Mo 07:00, Monatsbericht 1. 07:00, Export 1. 08:00, Foto-Cleanup 1. 09:00)")
 except ImportError:
     app.logger.warning("APScheduler nicht installiert – automatische Jobs deaktiviert.")
 
