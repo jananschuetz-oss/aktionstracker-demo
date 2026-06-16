@@ -96,6 +96,33 @@ All configuration is via environment variables — no config files. Key variable
 | `EXPORT_EMAIL` | Recipient for automatic 4-week Excel exports |
 | `APP_BASE_URL` | Full URL used in outbound email links |
 
+## Vor jedem Deploy: Lokaler Pflicht-Test
+
+Vor jedem `git push` (Railway deployt automatisch) den lokalen Server starten und diese Routen prüfen — alle müssen 200 zurückgeben (außer bekannte 404er):
+
+```bash
+# Server starten (venv + Demo-Env)
+TOUREN_MODUS=an INIT_DEMO_USERS=true venv/Scripts/python app.py &
+sleep 6
+
+# Admin einloggen
+COOKIE=$(mktemp)
+curl -sc "$COOKIE" http://127.0.0.1:5000/ -X POST -d "email=admin&passwort=admin123" > /dev/null
+
+# Pflicht-Routen
+curl -so /dev/null -w "Dashboard (admin):       %{http_code}\n" -b "$COOKIE" http://127.0.0.1:5000/dashboard
+curl -so /dev/null -w "Tourenplanung (admin):   %{http_code}\n" -b "$COOKIE" http://127.0.0.1:5000/tourenplanung
+curl -so /dev/null -w "Wochenbericht-Vorschau:  %{http_code}\n" -b "$COOKIE" http://127.0.0.1:5000/einstellungen/wochenbericht/vorschau
+curl -so /dev/null -w "Monatsbericht-Vorschau:  %{http_code}\n" -b "$COOKIE" http://127.0.0.1:5000/einstellungen/monatsbericht/vorschau
+
+# Rep einloggen
+COOKIE_REP=$(mktemp)
+curl -sc "$COOKIE_REP" http://127.0.0.1:5000/ -X POST -d "email=MM&passwort=start123" > /dev/null
+curl -so /dev/null -w "Dashboard (rep):         %{http_code}\n" -b "$COOKIE_REP" http://127.0.0.1:5000/dashboard
+```
+
+Schlägt eine Route mit 500 fehl → erst fixen, dann pushen.
+
 ## Background Jobs (APScheduler)
 
 All jobs run in Europe/Berlin timezone:
