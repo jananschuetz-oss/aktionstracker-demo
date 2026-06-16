@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, send_file, g, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, send_file, g, flash, jsonify, abort
 import sqlite3
 import os
 try:
@@ -439,6 +439,8 @@ def init_db():
                 reihenfolge       INTEGER DEFAULT 0,
                 notiz             TEXT,
                 erledigt          INTEGER DEFAULT 0,
+                geloescht         INTEGER DEFAULT 0,
+                geloescht_am      TEXT,
                 aktivitaet_id     INTEGER REFERENCES aktivitaet(id) ON DELETE SET NULL,
                 erstellt_von      INTEGER REFERENCES mitarbeiter(id) ON DELETE SET NULL,
                 erstellt_am       TEXT DEFAULT (datetime('now'))
@@ -1594,12 +1596,12 @@ def dashboard():
             _vs_ids = [r['verkaufsstelle_id'] for r in assigned]
             _ph = ','.join('?' * len(_vs_ids))
             alle_verkaufsstellen_rep = query(
-                f"SELECT id, name, ort, strasse, typ, landkreis FROM verkaufsstelle WHERE aktiv=1 AND id IN ({_ph}) ORDER BY name",
+                f"SELECT id, name, ort, strasse, typ FROM verkaufsstelle WHERE aktiv=1 AND id IN ({_ph}) ORDER BY name",
                 _vs_ids
             )
         else:
             alle_verkaufsstellen_rep = query(
-                "SELECT id, name, ort, strasse, typ, landkreis FROM verkaufsstelle WHERE aktiv=1 ORDER BY name"
+                "SELECT id, name, ort, strasse, typ FROM verkaufsstelle WHERE aktiv=1 ORDER BY name"
             )
 
     return render_template('dashboard.html',
@@ -1649,7 +1651,7 @@ def tourenplanung():
     today = date.today()
     _tm_sql, _tm_p = _team_m_clause('m')
     reps = query(
-        f"SELECT id, name, kuerzel FROM mitarbeiter m WHERE rolle='rep' AND aktiv=1 {_tm_sql} ORDER BY name",
+        f"SELECT id, name, kuerzel FROM mitarbeiter m WHERE rolle='rep' {_tm_sql} ORDER BY name",
         _tm_p
     )
 
@@ -3163,7 +3165,7 @@ def _send_vertretung_email(vtr_id: int, status: str):
         send_email(vtr['abwesender_email'], subject, body)
     if status == 'bestätigt':
         manager_emails = query(
-            "SELECT email FROM mitarbeiter WHERE rolle IN ('admin','verkaufsleiter') AND aktiv=1 AND email IS NOT NULL AND email != ''",
+            "SELECT email FROM mitarbeiter WHERE rolle IN ('admin','verkaufsleiter') AND email IS NOT NULL AND email != ''",
             ()
         )
         gesendet = {vtr['abwesender_email']} if vtr['abwesender_email'] else set()
