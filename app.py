@@ -49,6 +49,7 @@ LOGO_URL       = os.environ.get('LOGO_URL',       '')    # externe Bild-URL oder
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123')
 EXPORT_EMAIL   = os.environ.get('EXPORT_EMAIL',   '')        # E-Mail für automatischen 4-Wochen-Export
 KARTE_MODUS    = os.environ.get('KARTE_MODUS',   'basis')   # 'aus' | 'basis' | 'heatmap'
+TOUREN_MODUS   = os.getenv('TOUREN_MODUS', 'aus')             # 'aus' | 'an'
 UNIT_LABEL       = os.environ.get('UNIT_LABEL',      'Einheiten')  # Mengenbezeichnung z.B. 'Kisten', 'Kartons', 'Paletten'
 MAX_MITARBEITER  = int(os.environ.get('MAX_MITARBEITER', 0))  # 0 = kein Limit (nicht konfiguriert)
 DEFAULT_PASSWORD = os.environ.get('DEFAULT_PASSWORD', 'start123')  # Standard-Passwort für neue Mitarbeiter
@@ -100,6 +101,15 @@ def isoweek_filter(s):
     except Exception:
         return ''
 
+@app.template_filter('weekday_de')
+def weekday_de_filter(s):
+    """Gibt den deutschen Wochentagsnamen für ein 'YYYY-MM-DD' Datum zurück."""
+    _namen = ['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag','Sonntag']
+    try:
+        return _namen[date.fromisoformat(str(s)).weekday()]
+    except Exception:
+        return ''
+
 @app.before_request
 def check_session_lifetime():
     """Session-Timer bei jedem Request erneuern (Sliding Window, 8h Inaktivität)."""
@@ -113,6 +123,7 @@ def inject_now():
         'company_short': COMPANY_SHORT,
         'logo_url':      LOGO_URL or '/static/logo.png',
         'karte_modus':      KARTE_MODUS,
+        'touren_modus':     TOUREN_MODUS,
         'unit_label':       UNIT_LABEL,
         'max_mitarbeiter':  MAX_MITARBEITER,
         'default_password': DEFAULT_PASSWORD,
@@ -419,6 +430,19 @@ def init_db():
                 zuletzt_gesendet TEXT  DEFAULT ''
             );
             INSERT OR IGNORE INTO wochenbericht_config (id) VALUES (1);
+
+            CREATE TABLE IF NOT EXISTS tagesplan (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                mitarbeiter_id    INTEGER NOT NULL REFERENCES mitarbeiter(id) ON DELETE CASCADE,
+                verkaufsstelle_id INTEGER NOT NULL REFERENCES verkaufsstelle(id) ON DELETE CASCADE,
+                datum             TEXT NOT NULL,
+                reihenfolge       INTEGER DEFAULT 0,
+                notiz             TEXT,
+                erledigt          INTEGER DEFAULT 0,
+                aktivitaet_id     INTEGER REFERENCES aktivitaet(id) ON DELETE SET NULL,
+                erstellt_von      INTEGER REFERENCES mitarbeiter(id) ON DELETE SET NULL,
+                erstellt_am       TEXT DEFAULT (datetime('now'))
+            );
         ''')
 
         # Migrationen für bestehende DBs
@@ -458,6 +482,8 @@ def init_db():
             "ALTER TABLE mitarbeiter ADD COLUMN team_id INTEGER REFERENCES team(id) ON DELETE SET NULL",
             "ALTER TABLE wochenbericht_config ADD COLUMN zuletzt_gesendet_monat TEXT DEFAULT ''",
             "ALTER TABLE wochenbericht_config ADD COLUMN urlaubsmail_empfaenger TEXT DEFAULT ''",
+            "ALTER TABLE tagesplan ADD COLUMN geloescht INTEGER DEFAULT 0",
+            "ALTER TABLE tagesplan ADD COLUMN geloescht_am TEXT",
         ]:
             try:
                 db.execute(migration)
@@ -1544,6 +1570,38 @@ def dashboard():
             AND a.mitarbeiter_id = ?
         ''', _uid, one=True)
 
+    # Tagesplan für Rep: heute + nächste 6 Tage (nur wenn TOUREN_MODUS aktiv)
+    tagesplan_rep = []
+    alle_verkaufsstellen_rep = []
+    if TOUREN_MODUS != 'aus' and not is_manager:
+        tagesplan_rep = query('''
+            SELECT tp.id, tp.datum, tp.reihenfolge, tp.notiz, tp.erledigt,
+                   v.name AS station, v.strasse, v.ort, v.id AS vs_id
+            FROM tagesplan tp
+            JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
+            WHERE tp.mitarbeiter_id = ?
+              AND tp.datum >= date('now','localtime')
+              AND tp.datum <= date('now','localtime','+6 days')
+              AND COALESCE(tp.geloescht, 0) = 0
+            ORDER BY tp.datum, tp.reihenfolge, tp.id
+        ''', (session['user_id'],))
+        # Stationsliste für Self-Service-Formular
+        assigned = query(
+            "SELECT verkaufsstelle_id FROM mitarbeiter_verkaufsstelle WHERE mitarbeiter_id=?",
+            (session['user_id'],)
+        )
+        if assigned:
+            _vs_ids = [r['verkaufsstelle_id'] for r in assigned]
+            _ph = ','.join('?' * len(_vs_ids))
+            alle_verkaufsstellen_rep = query(
+                f"SELECT id, name, ort, strasse, typ, landkreis FROM verkaufsstelle WHERE aktiv=1 AND id IN ({_ph}) ORDER BY name",
+                _vs_ids
+            )
+        else:
+            alle_verkaufsstellen_rep = query(
+                "SELECT id, name, ort, strasse, typ, landkreis FROM verkaufsstelle WHERE aktiv=1 ORDER BY name"
+            )
+
     return render_template('dashboard.html',
         jahr=jahr, kw_data=kw_data, jahres=jahres,
         rep_stats=rep_stats, letzte=letzte,
@@ -1571,7 +1629,158 @@ def dashboard():
         dieser_monat_stats=dieser_monat_stats,
         kw_aktuell=kw_aktuell,
         monat_name=monat_name,
+        tagesplan_rep=tagesplan_rep,
+        alle_verkaufsstellen_rep=alle_verkaufsstellen_rep,
+        today_str=date.today().isoformat(),
+        tomorrow_str=(date.today() + timedelta(days=1)).isoformat(),
     )
+
+
+# ─── Tourenplanung ───────────────────────────────────────────────────────────
+
+@app.route('/tourenplanung')
+@login_required
+def tourenplanung():
+    if TOUREN_MODUS == 'aus':
+        abort(404)
+    if session.get('rolle') not in ('admin', 'verkaufsleiter'):
+        return redirect(url_for('dashboard'))
+    modus = request.args.get('modus', 'tag')
+    today = date.today()
+    _tm_sql, _tm_p = _team_m_clause('m')
+    reps = query(
+        f"SELECT id, name, kuerzel FROM mitarbeiter m WHERE rolle='rep' AND aktiv=1 {_tm_sql} ORDER BY name",
+        _tm_p
+    )
+
+    # Tag-Modus
+    datum = request.args.get('datum', today.isoformat())
+    datum_woche = [(today + timedelta(days=i)).isoformat() for i in range(7)]
+    plan_tag = query(f'''
+        SELECT tp.id, tp.datum, tp.reihenfolge, tp.notiz, tp.erledigt,
+               COALESCE(tp.geloescht, 0) AS geloescht, tp.geloescht_am,
+               v.name AS station, v.ort, v.id AS vs_id,
+               m.name AS mitarbeiter, m.kuerzel, m.id AS ma_id
+        FROM tagesplan tp
+        JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
+        JOIN mitarbeiter m ON m.id = tp.mitarbeiter_id
+        WHERE tp.datum = ? {_tm_sql.replace('AND', 'AND', 1)}
+        ORDER BY m.name, tp.reihenfolge, tp.id
+    ''', (datum,) + _tm_p) if modus == 'tag' else []
+
+    # Wochen-Modus
+    woche_start_str = request.args.get('woche', None)
+    if woche_start_str:
+        try:
+            woche_start = date.fromisoformat(woche_start_str)
+        except ValueError:
+            woche_start = today - timedelta(days=today.weekday())
+    else:
+        woche_start = today - timedelta(days=today.weekday())
+    woche_start = woche_start - timedelta(days=woche_start.weekday())  # ensure Monday
+    woche_ende = woche_start + timedelta(days=6)
+    woche_tage = [(woche_start + timedelta(days=i)).isoformat() for i in range(7)]
+    plan_woche = query(f'''
+        SELECT tp.id, tp.datum, tp.reihenfolge, tp.notiz, tp.erledigt,
+               COALESCE(tp.geloescht, 0) AS geloescht, tp.geloescht_am,
+               v.name AS station, v.ort, v.id AS vs_id,
+               m.name AS mitarbeiter, m.kuerzel, m.id AS ma_id
+        FROM tagesplan tp
+        JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
+        JOIN mitarbeiter m ON m.id = tp.mitarbeiter_id
+        WHERE tp.datum >= ? AND tp.datum <= ? {_tm_sql}
+        ORDER BY m.name, tp.datum, tp.reihenfolge, tp.id
+    ''', (woche_start.isoformat(), woche_ende.isoformat()) + _tm_p) if modus == 'woche' else []
+
+    return render_template('tourenplanung.html',
+        reps=reps,
+        modus=modus,
+        # Tag
+        datum=datum,
+        datum_woche=datum_woche,
+        plan_tag=plan_tag,
+        today_str=today.isoformat(),
+        tomorrow_str=(today + timedelta(days=1)).isoformat(),
+        # Woche
+        woche_start=woche_start.isoformat(),
+        woche_ende=woche_ende.isoformat(),
+        woche_tage=woche_tage,
+        plan_woche=plan_woche,
+        prev_woche=(woche_start - timedelta(days=7)).isoformat(),
+        next_woche=(woche_start + timedelta(days=7)).isoformat(),
+    )
+
+
+@app.route('/tourenplanung/neu', methods=['POST'])
+@login_required
+def tourenplanung_neu():
+    if TOUREN_MODUS == 'aus':
+        abort(404)
+    is_manager = session.get('rolle') in ('admin', 'verkaufsleiter')
+    is_rep = session.get('rolle') == 'rep'
+    if not is_manager and not is_rep:
+        abort(403)
+    ma_id  = request.form.get('mitarbeiter_id', type=int)
+    vs_ids = request.form.getlist('verkaufsstelle_id')
+    datum  = request.form.get('datum', date.today().isoformat()).strip()
+    notiz  = request.form.get('notiz', '').strip()
+    # Reps dürfen nur für sich selbst planen
+    if is_rep and ma_id != session['user_id']:
+        abort(403)
+    if not ma_id or not vs_ids or not datum:
+        flash('Bitte alle Pflichtfelder ausfüllen.', 'warning')
+        if is_manager:
+            return redirect(url_for('tourenplanung', datum=datum))
+        return redirect(url_for('dashboard'))
+    for vs_id in vs_ids:
+        max_r = query(
+            "SELECT COALESCE(MAX(reihenfolge), 0) AS m FROM tagesplan WHERE mitarbeiter_id=? AND datum=?",
+            (ma_id, datum), one=True
+        )['m']
+        execute(
+            "INSERT INTO tagesplan (mitarbeiter_id, verkaufsstelle_id, datum, reihenfolge, notiz, erstellt_von) VALUES (?,?,?,?,?,?)",
+            (ma_id, int(vs_id), datum, max_r + 1, notiz or None, session['user_id'])
+        )
+    if is_manager:
+        return redirect(url_for('tourenplanung', datum=datum, ma=ma_id))
+    return redirect(url_for('dashboard') + '#tab-tagesplan-btn')
+
+
+@app.route('/tourenplanung/<int:tp_id>/loeschen', methods=['POST'])
+@login_required
+def tourenplanung_loeschen(tp_id):
+    if TOUREN_MODUS == 'aus':
+        abort(404)
+    row = query("SELECT datum, mitarbeiter_id, erledigt FROM tagesplan WHERE id=?", (tp_id,), one=True)
+    if not row:
+        abort(404)
+    is_manager = session.get('rolle') in ('admin', 'verkaufsleiter')
+    if not is_manager and row['mitarbeiter_id'] != session['user_id']:
+        abort(403)
+    if not is_manager and (row['erledigt'] or row['datum'] <= date.today().isoformat()):
+        abort(403)
+    execute(
+        "UPDATE tagesplan SET geloescht=1, geloescht_am=datetime('now','localtime') WHERE id=?",
+        (tp_id,)
+    )
+    if is_manager:
+        return redirect(url_for('tourenplanung', datum=row['datum'], ma=row['mitarbeiter_id']))
+    return redirect(url_for('dashboard') + '#tab-tagesplan-btn')
+
+
+@app.route('/tourenplanung/<int:tp_id>/erledigt', methods=['POST'])
+@login_required
+def tourenplanung_erledigt(tp_id):
+    if TOUREN_MODUS == 'aus':
+        abort(404)
+    row = query("SELECT mitarbeiter_id, erledigt FROM tagesplan WHERE id=?", (tp_id,), one=True)
+    if not row:
+        abort(404)
+    is_manager = session.get('rolle') in ('admin', 'verkaufsleiter')
+    if not is_manager and row['mitarbeiter_id'] != session['user_id']:
+        abort(403)
+    execute("UPDATE tagesplan SET erledigt=? WHERE id=?", (0 if row['erledigt'] else 1, tp_id))
+    return redirect(request.referrer or url_for('dashboard'))
 
 
 # ─── API: Letzter Besuch ─────────────────────────────────────────────────────
@@ -2034,6 +2243,13 @@ def neue_aktivitaet():
 
         if foto_pfad:
             cleanup_alte_fotos()
+
+        # Passenden Tagesplan-Stop automatisch als erledigt markieren (nur wenn TOUREN_MODUS aktiv)
+        if TOUREN_MODUS != 'aus':
+            execute(
+                "UPDATE tagesplan SET erledigt=1 WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? AND erledigt=0 AND COALESCE(geloescht,0)=0",
+                (session['user_id'], vs_id, datum)
+            )
 
         flash('Aktivität erfolgreich gespeichert!', 'success')
         return redirect(url_for('neue_aktivitaet'))

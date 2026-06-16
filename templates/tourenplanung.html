@@ -1,0 +1,284 @@
+{% extends 'base.html' %}
+{% block title %}Besuchsplanung – Aktions Tracker{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div>
+    <h1><i class="bi bi-map me-2"></i>Besuchsplanung</h1>
+    <p class="mb-0">Tages- und Wochenplanung aller Mitarbeiter</p>
+  </div>
+</div>
+
+<!-- Modus-Umschalter -->
+<div class="d-flex gap-2 mb-3">
+  <a href="{{ url_for('tourenplanung', modus='tag', datum=datum) }}"
+     class="btn btn-sm {{ 'btn-primary' if modus == 'tag' else 'btn-outline-secondary' }}">
+    <i class="bi bi-calendar-day me-1"></i>Tagesansicht
+  </a>
+  <a href="{{ url_for('tourenplanung', modus='woche', woche=woche_start) }}"
+     class="btn btn-sm {{ 'btn-primary' if modus == 'woche' else 'btn-outline-secondary' }}">
+    <i class="bi bi-calendar-week me-1"></i>Wochenansicht
+  </a>
+</div>
+
+{# ══════════════════════════════ TAG-MODUS ══════════════════════════════ #}
+{% if modus == 'tag' %}
+
+<!-- Tagwahl -->
+<div class="card mb-4">
+  <div class="card-body py-2">
+    <div class="d-flex flex-wrap gap-1">
+      {% for d in datum_woche %}
+      <a href="{{ url_for('tourenplanung', modus='tag', datum=d) }}"
+         class="btn btn-sm {{ 'btn-primary' if d == datum else 'btn-outline-secondary' }}"
+         style="font-size:.8rem;padding:4px 10px;min-width:64px;text-align:center">
+        <span class="d-block fw-semibold">
+          {% if d == today_str %}Heute
+          {% elif d == tomorrow_str %}Morgen
+          {% else %}{{ d | weekday_de }}{% endif %}
+        </span>
+        <span style="font-size:.7rem;opacity:.75">{{ d[8:10] }}.{{ d[5:7] }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- Rep-Liste für den Tag -->
+{% for rep in reps %}
+  {% set alle_stops   = plan_tag | selectattr('ma_id', 'equalto', rep.id) | list %}
+  {% set rep_stops    = alle_stops | rejectattr('geloescht') | list %}
+  {% set del_stops    = alle_stops | selectattr('geloescht') | list %}
+  {% set offen_n      = rep_stops | rejectattr('erledigt') | list | length %}
+  {% set erledigt_n   = rep_stops | selectattr('erledigt') | list | length %}
+  <div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center py-2" style="background:#f0f4f8">
+      <span class="fw-semibold" style="color:#1a3a5c">
+        <span class="badge me-2" style="background:#1a3a5c">{{ rep.kuerzel }}</span>{{ rep.name }}
+      </span>
+      <span class="d-flex gap-2 align-items-center flex-wrap justify-content-end">
+        {% if rep_stops %}
+          <span class="badge" style="background:#e2e8f0;color:#4a5568;font-size:.75rem">
+            {{ erledigt_n }}/{{ rep_stops|length }} erledigt
+          </span>
+          {% if offen_n %}
+          <span class="badge" style="background:#fff3cd;color:#856404;font-size:.75rem">{{ offen_n }} offen</span>
+          {% else %}
+          <span class="badge" style="background:#d4edda;color:#155724;font-size:.75rem"><i class="bi bi-check2-all me-1"></i>Alle erledigt</span>
+          {% endif %}
+        {% else %}
+          <span class="badge" style="background:#e2e8f0;color:#adb5bd;font-size:.75rem">Kein Plan</span>
+        {% endif %}
+        {% if del_stops %}
+        <span class="badge" style="background:#f8d7da;color:#721c24;font-size:.75rem">
+          <i class="bi bi-trash me-1"></i>{{ del_stops|length }} gelöscht
+        </span>
+        {% endif %}
+      </span>
+    </div>
+    <div class="list-group list-group-flush">
+      {% for stop in rep_stops %}
+      <div class="list-group-item d-flex align-items-center gap-3 py-2 px-3 {{ 'bg-light' if stop.erledigt else '' }}">
+        {% if stop.erledigt %}
+        <i class="bi bi-check-circle-fill flex-shrink-0" style="color:#27ae60;font-size:1.1rem"></i>
+        {% else %}
+        <i class="bi bi-circle flex-shrink-0" style="color:#cbd5e0;font-size:1.1rem"></i>
+        {% endif %}
+        <span class="fw-bold flex-shrink-0" style="color:#adb5bd;min-width:22px;font-size:.85rem">{{ loop.index }}.</span>
+        <div style="flex:1;min-width:0">
+          <div class="fw-semibold {{ 'text-decoration-line-through text-muted' if stop.erledigt else '' }}"
+               style="font-size:.9rem;color:#1a3a5c">{{ stop.station }}</div>
+          {% if stop.ort %}<div style="font-size:.76rem;color:#6c757d">{{ stop.ort }}</div>{% endif %}
+          {% if stop.notiz %}<div style="font-size:.76rem;color:#2c7a7b"><i class="bi bi-chat-left-text me-1"></i>{{ stop.notiz }}</div>{% endif %}
+        </div>
+        {% if stop.erledigt %}
+        <span class="badge flex-shrink-0" style="background:#d4edda;color:#155724;font-size:.72rem">Erledigt</span>
+        {% else %}
+        <span class="badge flex-shrink-0" style="background:#fff3cd;color:#856404;font-size:.72rem">Offen</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+      {% if not rep_stops %}
+      <div class="list-group-item py-3 text-center" style="color:#adb5bd;font-size:.85rem">
+        Noch kein Tagesplan eingetragen
+      </div>
+      {% endif %}
+      {% if del_stops %}
+      <div class="list-group-item p-0">
+        <button class="btn btn-link w-100 text-start py-2 px-3" style="font-size:.8rem;color:#721c24;text-decoration:none"
+                type="button" data-bs-toggle="collapse" data-bs-target="#del-tag-{{ rep.id }}">
+          <i class="bi bi-trash me-1"></i>{{ del_stops|length }} gelöschte Stops anzeigen
+        </button>
+        <div class="collapse" id="del-tag-{{ rep.id }}">
+          {% for stop in del_stops %}
+          <div class="d-flex align-items-center gap-3 py-2 px-3 {{ 'border-top' if loop.first else '' }}"
+               style="background:#fff5f5;opacity:.75;{% if not loop.last %}border-bottom:1px solid #f5c6cb{% endif %}">
+            <i class="bi bi-trash flex-shrink-0" style="color:#dc3545;font-size:.95rem"></i>
+            <div style="flex:1;min-width:0">
+              <div class="text-decoration-line-through" style="font-size:.88rem;color:#721c24">{{ stop.station }}</div>
+              {% if stop.ort %}<div style="font-size:.75rem;color:#adb5bd">{{ stop.ort }}</div>{% endif %}
+              {% if stop.geloescht_am %}<div style="font-size:.72rem;color:#adb5bd">Gelöscht: {{ stop.geloescht_am[:16] }}</div>{% endif %}
+            </div>
+            <span class="badge flex-shrink-0" style="background:#f8d7da;color:#721c24;font-size:.72rem">Gelöscht</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+{% else %}
+<div class="card">
+  <div class="text-center py-5" style="color:#adb5bd">
+    <i class="bi bi-people" style="font-size:2.5rem"></i>
+    <p class="mt-3 mb-0 fw-semibold" style="color:#6c757d">Keine Mitarbeiter gefunden</p>
+  </div>
+</div>
+{% endfor %}
+
+{# ══════════════════════════════ WOCHEN-MODUS ══════════════════════════════ #}
+{% elif modus == 'woche' %}
+
+<!-- Wochenwahl -->
+<div class="card mb-4">
+  <div class="card-body py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <a href="{{ url_for('tourenplanung', modus='woche', woche=prev_woche) }}"
+       class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-chevron-left"></i> Vorwoche
+    </a>
+    <span class="fw-semibold" style="color:#1a3a5c;font-size:.95rem">
+      <i class="bi bi-calendar-week me-1"></i>
+      {{ woche_start[8:10] }}.{{ woche_start[5:7] }} – {{ woche_ende[8:10] }}.{{ woche_ende[5:7] }}.{{ woche_ende[0:4] }}
+    </span>
+    <a href="{{ url_for('tourenplanung', modus='woche', woche=next_woche) }}"
+       class="btn btn-sm btn-outline-secondary">
+      Nächste Woche <i class="bi bi-chevron-right"></i>
+    </a>
+  </div>
+</div>
+
+<!-- Rep-Liste für die Woche -->
+{% for rep in reps %}
+  {% set alle_stops   = plan_woche | selectattr('ma_id', 'equalto', rep.id) | list %}
+  {% set rep_stops    = alle_stops | rejectattr('geloescht') | list %}
+  {% set del_stops    = alle_stops | selectattr('geloescht') | list %}
+  {% set offen_n      = rep_stops | rejectattr('erledigt') | list | length %}
+  {% set erledigt_n   = rep_stops | selectattr('erledigt') | list | length %}
+  <div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center py-2" style="background:#f0f4f8">
+      <span class="fw-semibold" style="color:#1a3a5c">
+        <span class="badge me-2" style="background:#1a3a5c">{{ rep.kuerzel }}</span>{{ rep.name }}
+      </span>
+      <span class="d-flex gap-2 align-items-center flex-wrap justify-content-end">
+        {% if rep_stops %}
+          <span class="badge" style="background:#e2e8f0;color:#4a5568;font-size:.75rem">{{ rep_stops|length }} Stops</span>
+          <span class="badge" style="background:#d4edda;color:#155724;font-size:.75rem">{{ erledigt_n }} ✓</span>
+          {% if offen_n %}
+          <span class="badge" style="background:#fff3cd;color:#856404;font-size:.75rem">{{ offen_n }} offen</span>
+          {% endif %}
+        {% else %}
+          <span class="badge" style="background:#e2e8f0;color:#adb5bd;font-size:.75rem">Kein Plan</span>
+        {% endif %}
+        {% if del_stops %}
+        <span class="badge" style="background:#f8d7da;color:#721c24;font-size:.75rem">
+          <i class="bi bi-trash me-1"></i>{{ del_stops|length }} gelöscht
+        </span>
+        {% endif %}
+      </span>
+    </div>
+    <div class="card-body p-0">
+      {% if rep_stops %}
+        {% for tag_datum in woche_tage %}
+          {% set tag_stops = rep_stops | selectattr('datum', 'equalto', tag_datum) | list %}
+          {% set tag_del   = del_stops | selectattr('datum', 'equalto', tag_datum) | list %}
+          {% set tag_offen = tag_stops | rejectattr('erledigt') | list | length %}
+          {% set tag_erl   = tag_stops | selectattr('erledigt') | list | length %}
+          <div class="{{ 'border-bottom' if not loop.last else '' }}">
+            <div class="d-flex align-items-center px-3 py-2 gap-2"
+                 style="background:{% if tag_datum == today_str %}#eef4fb{% else %}#fafbfc{% endif %};border-bottom:1px solid #e9ecef">
+              <span class="fw-semibold" style="min-width:90px;font-size:.85rem;color:#1a3a5c">
+                {% if tag_datum == today_str %}<span class="badge me-1" style="background:#1a3a5c;font-size:.7rem">Heute</span>{% endif %}
+                {{ tag_datum | weekday_de }}, {{ tag_datum[8:10] }}.{{ tag_datum[5:7] }}
+              </span>
+              {% if tag_stops or tag_del %}
+              <span class="ms-auto d-flex gap-1 flex-wrap">
+                {% if tag_erl %}<span class="badge" style="background:#d4edda;color:#155724;font-size:.7rem">{{ tag_erl }} ✓</span>{% endif %}
+                {% if tag_offen %}<span class="badge" style="background:#fff3cd;color:#856404;font-size:.7rem">{{ tag_offen }} offen</span>{% endif %}
+                {% if tag_del %}<span class="badge" style="background:#f8d7da;color:#721c24;font-size:.7rem"><i class="bi bi-trash me-1"></i>{{ tag_del|length }}</span>{% endif %}
+              </span>
+              {% else %}
+              <span class="ms-2 text-muted" style="font-size:.8rem">— kein Plan</span>
+              {% endif %}
+            </div>
+            {% for stop in tag_stops %}
+            <div class="d-flex align-items-center gap-3 px-3 py-2 {{ 'bg-light' if stop.erledigt else '' }}"
+                 style="{% if not loop.last or tag_del %}border-bottom:1px solid #f0f0f0{% endif %}">
+              {% if stop.erledigt %}
+              <i class="bi bi-check-circle-fill flex-shrink-0" style="color:#27ae60;font-size:1rem"></i>
+              {% else %}
+              <i class="bi bi-circle flex-shrink-0" style="color:#cbd5e0;font-size:1rem"></i>
+              {% endif %}
+              <span class="fw-bold flex-shrink-0" style="color:#adb5bd;min-width:20px;font-size:.8rem">{{ loop.index }}.</span>
+              <div style="flex:1;min-width:0">
+                <span class="fw-semibold {{ 'text-decoration-line-through text-muted' if stop.erledigt else '' }}"
+                      style="font-size:.88rem;color:#1a3a5c">{{ stop.station }}</span>
+                {% if stop.ort %}<span class="ms-2" style="font-size:.76rem;color:#6c757d">{{ stop.ort }}</span>{% endif %}
+                {% if stop.notiz %}<div style="font-size:.76rem;color:#2c7a7b"><i class="bi bi-chat-left-text me-1"></i>{{ stop.notiz }}</div>{% endif %}
+              </div>
+              {% if stop.erledigt %}
+              <span class="badge flex-shrink-0" style="background:#d4edda;color:#155724;font-size:.72rem">Erledigt</span>
+              {% else %}
+              <span class="badge flex-shrink-0" style="background:#fff3cd;color:#856404;font-size:.72rem">Offen</span>
+              {% endif %}
+            </div>
+            {% endfor %}
+            {% for stop in tag_del %}
+            <div class="d-flex align-items-center gap-3 px-3 py-2"
+                 style="background:#fff5f5;opacity:.75;{% if not loop.last %}border-bottom:1px solid #f5c6cb{% endif %}">
+              <i class="bi bi-trash flex-shrink-0" style="color:#dc3545;font-size:.9rem"></i>
+              <div style="flex:1;min-width:0">
+                <span class="text-decoration-line-through" style="font-size:.88rem;color:#721c24">{{ stop.station }}</span>
+                {% if stop.ort %}<span class="ms-2" style="font-size:.75rem;color:#adb5bd">{{ stop.ort }}</span>{% endif %}
+                {% if stop.geloescht_am %}<div style="font-size:.72rem;color:#adb5bd">Gelöscht: {{ stop.geloescht_am[:16] }}</div>{% endif %}
+              </div>
+              <span class="badge flex-shrink-0" style="background:#f8d7da;color:#721c24;font-size:.72rem">Gelöscht</span>
+            </div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+      {% else %}
+      <div class="py-3 text-center" style="color:#adb5bd;font-size:.85rem">
+        {% if del_stops %}
+          Alle {{ del_stops|length }} geplante{{ 'r Stop' if del_stops|length == 1 else ' Stops' }} gelöscht
+        {% else %}
+          Noch kein Wochenplan eingetragen
+        {% endif %}
+      </div>
+      {% if del_stops %}
+        {% for stop in del_stops %}
+        <div class="d-flex align-items-center gap-3 px-3 py-2 border-top"
+             style="background:#fff5f5;opacity:.75">
+          <i class="bi bi-trash flex-shrink-0" style="color:#dc3545;font-size:.9rem"></i>
+          <div style="flex:1;min-width:0">
+            <span class="text-decoration-line-through" style="font-size:.88rem;color:#721c24">{{ stop.station }}</span>
+            <span class="ms-2" style="font-size:.75rem;color:#adb5bd">{{ stop.datum[8:10] }}.{{ stop.datum[5:7] }}</span>
+            {% if stop.geloescht_am %}<div style="font-size:.72rem;color:#adb5bd">Gelöscht: {{ stop.geloescht_am[:16] }}</div>{% endif %}
+          </div>
+          <span class="badge flex-shrink-0" style="background:#f8d7da;color:#721c24;font-size:.72rem">Gelöscht</span>
+        </div>
+        {% endfor %}
+      {% endif %}
+      {% endif %}
+    </div>
+  </div>
+{% else %}
+<div class="card">
+  <div class="text-center py-5" style="color:#adb5bd">
+    <i class="bi bi-people" style="font-size:2.5rem"></i>
+    <p class="mt-3 mb-0 fw-semibold" style="color:#6c757d">Keine Mitarbeiter gefunden</p>
+  </div>
+</div>
+{% endfor %}
+
+{% endif %}
+{% endblock %}

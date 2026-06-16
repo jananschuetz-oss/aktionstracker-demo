@@ -51,7 +51,7 @@
 <!-- KPI Karten -->
 {% if not is_manager %}
 <!-- REP: Monat kompakt -->
-<div class="mb-4">
+<div class="mb-3">
   <div class="d-flex flex-wrap align-items-center gap-3 px-3 py-2 rounded-3"
        style="background:#f0f4f8;border:1px solid #d4dce8;font-size:.88rem;">
     <span style="color:#1a3a5c;font-weight:600"><i class="bi bi-calendar3 me-1"></i>{{ monat_name }}</span>
@@ -60,6 +60,39 @@
     <span class="text-muted" style="font-size:.82rem"><span class="fw-semibold" style="color:#555">{{ (dieser_monat_stats.besuche or 0) if dieser_monat_stats else 0 }}</span> Besuche</span>
   </div>
 </div>
+
+{% if touren_modus != 'aus' %}
+<!-- REP: Tab-Navigation (Übersicht / Tagesplan) -->
+<style>
+#repTabs .nav-link { color: #1a3a5c !important; background: transparent; border-color: transparent; font-weight: 500; }
+#repTabs .nav-link:hover { color: #2c7a7b !important; border-color: #dee2e6 #dee2e6 transparent; }
+#repTabs .nav-link.active { color: #1a3a5c !important; background: #fff !important; border-color: #dee2e6 #dee2e6 #fff !important; font-weight: 600; }
+</style>
+<ul class="nav nav-tabs mb-3" id="repTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="tab-uebersicht-btn" data-bs-toggle="tab"
+            data-bs-target="#tab-uebersicht" type="button" role="tab">
+      <i class="bi bi-speedometer2 me-1"></i>Übersicht
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-tagesplan-btn" data-bs-toggle="tab"
+            data-bs-target="#tab-tagesplan" type="button" role="tab">
+      <i class="bi bi-map me-1"></i>Tagesplan
+      {% if tagesplan_rep %}
+        {% set offen = namespace(n=0) %}
+        {% for t in tagesplan_rep %}{% if not t.erledigt %}{% set offen.n = offen.n + 1 %}{% endif %}{% endfor %}
+        {% if offen.n > 0 %}<span class="badge ms-1" style="background:#1a3a5c">{{ offen.n }}</span>{% endif %}
+      {% endif %}
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content" id="repTabContent">
+<!-- ── TAB 1: ÜBERSICHT ── -->
+<div class="tab-pane fade show active" id="tab-uebersicht" role="tabpanel">
+{% endif %}{# /touren_modus #}
+
 {% else %}
 <!-- MANAGER: Jahres KPI Karten -->
 <div class="row g-3 mb-4">
@@ -455,6 +488,217 @@
     </div>
   </div>
 </div>
+
+{% if not is_manager and touren_modus != 'aus' %}
+</div>{# /tab-pane #tab-uebersicht #}
+
+<!-- ── TAB 2: TAGESPLAN ── -->
+<div class="tab-pane fade" id="tab-tagesplan" role="tabpanel">
+
+<!-- Stop selbst hinzufügen -->
+<div class="card mb-3">
+  <div class="card-body py-3 px-3">
+    <form method="POST" action="{{ url_for('tourenplanung_neu') }}" id="stopForm">
+      <input type="hidden" name="mitarbeiter_id" value="{{ session.user_id }}">
+
+      <!-- Zeile 1: Datum -->
+      <div class="mb-2">
+        <label class="form-label mb-1" style="font-size:.8rem;color:#555;font-weight:600">Datum</label>
+        <input type="date" name="datum" class="form-control form-control-sm"
+               value="{{ today_str }}" required style="max-width:160px">
+      </div>
+
+      <!-- Zeile 2: Filter-Tabs -->
+      <div class="mb-2">
+        <label class="form-label mb-1" style="font-size:.8rem;color:#555;font-weight:600">Filter</label>
+        <div class="d-flex flex-wrap gap-2 mb-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary vs-filter-btn active"
+                  data-filter="alle" style="font-size:.78rem">Alle</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary vs-filter-btn"
+                  data-filter="typ" style="font-size:.78rem"><i class="bi bi-tag me-1"></i>Art</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary vs-filter-btn"
+                  data-filter="ort" style="font-size:.78rem"><i class="bi bi-geo-alt me-1"></i>Stadt</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary vs-filter-btn"
+                  data-filter="landkreis" style="font-size:.78rem"><i class="bi bi-map me-1"></i>Landkreis</button>
+        </div>
+        <!-- Filterwert-Auswahl -->
+        <select id="vsFilterWert" class="form-select form-select-sm d-none" style="max-width:min(280px,100%)">
+          <option value="">– Bitte wählen –</option>
+        </select>
+      </div>
+
+      <!-- Zeile 3: Stationsauswahl + Button -->
+      <div class="d-flex gap-2 align-items-end flex-wrap">
+        <div style="flex:1;min-width:200px">
+          <label class="form-label mb-1" style="font-size:.8rem;color:#555;font-weight:600">Verkaufsstelle</label>
+          <select name="verkaufsstelle_id" id="vsHauptSelect" class="form-select form-select-sm" required>
+            <option value="">– Bitte wählen –</option>
+            {% for vs in alle_verkaufsstellen_rep %}
+            <option value="{{ vs.id }}"
+                    data-typ="{{ vs.typ or '' }}"
+                    data-ort="{{ vs.ort or '' }}"
+                    data-landkreis="{{ vs.landkreis or '' }}">
+              {{ vs.name }}{% if vs.ort %} – {{ vs.ort }}{% endif %}{% if vs.strasse %} ({{ vs.strasse }}){% endif %}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <button type="submit" class="btn btn-sm" style="background:#1a3a5c;color:#fff;padding:6px 16px">
+            <i class="bi bi-plus-lg me-1"></i>Stop
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function () {
+  const filterBtns   = document.querySelectorAll('.vs-filter-btn');
+  const filterWert   = document.getElementById('vsFilterWert');
+  const hauptSelect  = document.getElementById('vsHauptSelect');
+  if (!filterBtns.length || !filterWert || !hauptSelect) return;
+
+  const alleOptionen = Array.from(hauptSelect.options).slice(1);
+
+  function uniqueSorted(arr) {
+    return [...new Set(arr.filter(Boolean))].sort((a, b) => a.localeCompare(b, 'de'));
+  }
+
+  let aktivFilter = 'alle';
+  let aktivWert   = '';
+
+  function filterAnwenden() {
+    hauptSelect.innerHTML = '<option value="">– Bitte wählen –</option>';
+    alleOptionen.forEach(opt => {
+      if (aktivFilter === 'alle') {
+        hauptSelect.appendChild(opt.cloneNode(true));
+      } else {
+        const val = opt.dataset[aktivFilter] || '';
+        if (!aktivWert || val === aktivWert) {
+          hauptSelect.appendChild(opt.cloneNode(true));
+        }
+      }
+    });
+  }
+
+  function filterWertBefuellen(filterKey) {
+    const werte = uniqueSorted(alleOptionen.map(o => o.dataset[filterKey] || ''));
+    filterWert.innerHTML = '<option value="">Alle</option>';
+    werte.forEach(w => {
+      const o = document.createElement('option');
+      o.value = w; o.textContent = w;
+      filterWert.appendChild(o);
+    });
+    filterWert.classList.remove('d-none');
+    aktivWert = '';
+    filterAnwenden();
+  }
+
+  filterBtns.forEach(btn => {
+    btn.addEventListener('click', function () {
+      filterBtns.forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      aktivFilter = this.dataset.filter;
+      if (aktivFilter === 'alle') {
+        filterWert.classList.add('d-none');
+        filterWert.innerHTML = '';
+        aktivWert = '';
+        filterAnwenden();
+      } else {
+        filterWertBefuellen(aktivFilter);
+      }
+    });
+  });
+
+  filterWert.addEventListener('change', function () {
+    aktivWert = this.value;
+    filterAnwenden();
+  });
+})();
+</script>
+
+{% if tagesplan_rep %}
+  {# Stops gruppiert nach Datum #}
+  {% set aktuelles_datum = namespace(d='') %}
+  {% for stop in tagesplan_rep %}
+    {% if stop.datum != aktuelles_datum.d %}
+      {% if not loop.first %}</div>{% endif %}
+      {% set aktuelles_datum.d = stop.datum %}
+      <div class="mb-3">
+      <div class="fw-semibold mb-2" style="color:#1a3a5c;font-size:.85rem">
+        <i class="bi bi-calendar3 me-1"></i>
+        {% set d = stop.datum %}
+        {% if d == today_str %}Heute{% elif d == tomorrow_str %}Morgen{% else %}{{ d[8:10] }}.{{ d[5:7] }}.{{ d[2:4] }}{% endif %}
+        <span class="text-muted fw-normal ms-1">({{ stop.datum | weekday_de }})</span>
+      </div>
+    {% endif %}
+    <div class="py-2 px-3 mb-2 rounded-3 {% if stop.erledigt %}opacity-50{% endif %}"
+         style="background:{% if stop.erledigt %}#f8f9fa{% else %}#f0f4f8{% endif %};border:1px solid {% if stop.erledigt %}#dee2e6{% else %}#d4dce8{% endif %}">
+      <div class="d-flex align-items-start gap-2">
+        <!-- Nummer -->
+        <span class="fw-bold flex-shrink-0" style="color:#1a3a5c;min-width:20px;font-size:.95rem;padding-top:2px">{{ loop.index }}.</span>
+        <!-- Station -->
+        <div style="flex:1;min-width:0">
+          <div class="fw-semibold {% if stop.erledigt %}text-decoration-line-through{% endif %}" style="color:#1a3a5c;line-height:1.3">
+            {{ stop.station }}
+          </div>
+          {% if stop.strasse or stop.ort %}
+          <div style="font-size:.75rem;color:#6c757d">{{ stop.strasse }}{% if stop.strasse and stop.ort %}, {% endif %}{{ stop.ort }}</div>
+          {% endif %}
+          {% if stop.notiz %}
+          <div style="font-size:.75rem;color:#2c7a7b;margin-top:2px"><i class="bi bi-chat-left-text me-1"></i>{{ stop.notiz }}</div>
+          {% endif %}
+          {% if not stop.erledigt %}
+          <a href="{{ url_for('neue_aktivitaet') }}?vs_id={{ stop.vs_id }}"
+             class="btn btn-sm mt-2 d-inline-flex d-sm-none align-items-center gap-1"
+             style="background:#1a3a5c;color:#fff;font-size:.78rem;padding:5px 12px">
+            <i class="bi bi-plus-circle"></i>Besuch erfassen
+          </a>
+          {% endif %}
+        </div>
+        <!-- Aktionen (rechts) -->
+        <div class="d-flex gap-1 flex-shrink-0 align-items-center">
+          {% if not stop.erledigt %}
+          <a href="{{ url_for('neue_aktivitaet') }}?vs_id={{ stop.vs_id }}"
+             class="btn btn-sm d-none d-sm-inline-flex align-items-center gap-1"
+             style="background:#1a3a5c;color:#fff;font-size:.78rem;padding:4px 10px">
+            <i class="bi bi-plus-circle"></i><span>Besuch</span>
+          </a>
+          {% endif %}
+          {% if stop.erledigt %}
+          <span class="d-inline-flex align-items-center justify-content-center"
+                style="width:32px;height:32px;background:#d4edda;border-radius:.375rem"
+                title="Erledigt">
+            <i class="bi bi-check-lg" style="color:#155724"></i>
+          </span>
+          {% endif %}
+          {% if stop.datum > today_str and not stop.erledigt %}
+          <form method="POST" action="{{ url_for('tourenplanung_loeschen', tp_id=stop.id) }}" class="d-inline">
+            <button type="submit" class="btn btn-sm btn-outline-danger"
+                    style="font-size:.78rem;padding:5px 9px" title="Stop entfernen">
+              <i class="bi bi-trash"></i>
+            </button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  {% endfor %}
+  </div>{# close last datum group #}
+{% else %}
+<div class="text-center py-5" style="color:#adb5bd">
+  <i class="bi bi-map" style="font-size:2.5rem"></i>
+  <p class="mt-3 mb-1 fw-semibold" style="color:#6c757d">Kein Tagesplan hinterlegt</p>
+  <p class="small" style="color:#adb5bd">Füge oben Stationen hinzu, um deinen Tag zu planen.</p>
+</div>
+{% endif %}
+
+</div>{# /tab-pane #tab-tagesplan #}
+</div>{# /tab-content #}
+{% endif %}{# /touren_modus rep tabs #}
+
 {% endblock %}
 
 {% block scripts %}
@@ -551,7 +795,18 @@ if (bierData.length > 0) {
 {% endif %}
 </script>
 
+{% if not is_manager and touren_modus != 'aus' %}
 <script>
-// Custom Jinja2 filter workaround for from_json
+// Tab aus URL-Hash aktivieren (z.B. nach Stop hinzufügen)
+(function () {
+  const hash = window.location.hash;
+  if (!hash) return;
+  const btn = document.querySelector(hash);
+  if (btn && btn.dataset.bsToggle === 'tab') {
+    new bootstrap.Tab(btn).show();
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+  }
+})();
 </script>
+{% endif %}
 {% endblock %}

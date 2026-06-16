@@ -273,6 +273,12 @@
             <i class="bi bi-graph-up-arrow"></i>Verkaufsleiter
           </a>
           <ul class="dropdown-menu">
+            {% if touren_modus != 'aus' %}
+            <li><a class="dropdown-item {% if request.endpoint == 'tourenplanung' %}active{% endif %}" href="{{ url_for('tourenplanung') }}">
+              <i class="bi bi-map me-2"></i>Besuchsplanung
+            </a></li>
+            <li><hr class="dropdown-divider"></li>
+            {% endif %}
             <li><a class="dropdown-item" href="{{ url_for('vergleich') }}">
               <i class="bi bi-people me-2"></i>Mitarbeiter-Vergleich
             </a></li>
@@ -558,6 +564,11 @@
       {% if session.rolle in ['admin','verkaufsleiter'] %}Urlaub eintragen{% else %}Urlaub anfragen{% endif %}
     </a>
     {% if session.rolle in ('admin', 'verkaufsleiter') %}
+    {% if touren_modus != 'aus' %}
+    <a href="{{ url_for('tourenplanung') }}" class="mobile-menu-item {% if request.endpoint == 'tourenplanung' %}active{% endif %}">
+      <i class="bi bi-map"></i>Besuchsplanung
+    </a>
+    {% endif %}
     <a href="{{ url_for('team_verwaltung') }}" class="mobile-menu-item">
       <i class="bi bi-people-fill"></i>Team-Verwaltung
     </a>
