@@ -1297,10 +1297,10 @@ def dashboard():
     # Subquery: Kisten pro Aktivität voraggregieren → verhindert Duplikation von anzahl_displays
     BP = "(SELECT aktivitaet_id, SUM(kisten_anzahl) AS kisten_total FROM bestellposition GROUP BY aktivitaet_id)"
 
-    # KONZEPT-V2: Mengen zählen nur bei Aufbau (Bestand/NULL → 'Aufbau'). Bestellung/Besuch nicht.
+    # Displays zählen nur bei Aufbau (inkl. Altdaten/NULL); Kisten nur bei Bestellung
     _AUF     = "COALESCE(a.aktionstyp,'Aufbau')='Aufbau'"
     DISP_IST = f"SUM(CASE WHEN {_AUF} THEN a.anzahl_displays ELSE 0 END)"
-    KIST_IST = f"COALESCE(SUM(CASE WHEN {_AUF} THEN b.kisten_total ELSE 0 END), 0)"
+    KIST_IST = "COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung' THEN b.kisten_total ELSE 0 END), 0)"
 
     # Team-Filter (VKL mit zugewiesenem Team sieht nur eigene Team-Mitglieder)
     t_ma_sql, t_ma_p = _team_ma_clause('a')
@@ -3744,7 +3744,7 @@ def team_vergleich():
 
     BP       = "(SELECT aktivitaet_id, SUM(kisten_anzahl) AS kisten_total FROM bestellposition GROUP BY aktivitaet_id)"
     DISP_IST = "SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.anzahl_displays ELSE 0 END)"
-    KIST_IST = "COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN b.kisten_total ELSE 0 END), 0)"
+    KIST_IST = "COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung' THEN b.kisten_total ELSE 0 END), 0)"
 
     teams = query("SELECT id, name FROM team ORDER BY name")
 
@@ -4023,7 +4023,7 @@ def _do_send_wochenbericht(force=False):
                                                    THEN a.id END) AS aufbauten,
                                COUNT(DISTINCT CASE WHEN a.aktionstyp=\'Bestellung\'
                                                    THEN a.id END) AS bestellungen,
-                               COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,\'Aufbau\')=\'Aufbau\'
+                               COALESCE(SUM(CASE WHEN a.aktionstyp=\'Bestellung\'
                                                  THEN bp.kisten_anzahl END), 0) AS kisten,
                                COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,\'Aufbau\')=\'Aufbau\'
                                                  THEN a.anzahl_displays END), 0) AS displays
@@ -4043,7 +4043,7 @@ def _do_send_wochenbericht(force=False):
                                                THEN a.id END) AS bestellungen,
                            COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,\'Aufbau\')=\'Aufbau\'
                                                THEN a.id END) AS aufbauten,
-                           COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,\'Aufbau\')=\'Aufbau\'
+                           COALESCE(SUM(CASE WHEN a.aktionstyp=\'Bestellung\'
                                              THEN bp.kisten_anzahl END), 0) AS kisten
                     FROM mitarbeiter m
                     LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
@@ -4055,7 +4055,7 @@ def _do_send_wochenbericht(force=False):
                 _rs_vw = query(f'''
                     SELECT m.id AS mitarbeiter_id,
                            COUNT(DISTINCT a.id) AS besuche,
-                           COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,\'Aufbau\')=\'Aufbau\'
+                           COALESCE(SUM(CASE WHEN a.aktionstyp=\'Bestellung\'
                                              THEN bp.kisten_anzahl END), 0) AS kisten
                     FROM aktivitaet a
                     JOIN mitarbeiter m ON m.id=a.mitarbeiter_id
@@ -4342,7 +4342,7 @@ def _do_send_monatsbericht(force=False):
                                                THEN a.id END) AS aufbauten,
                            COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung'
                                                THEN a.id END) AS bestellungen,
-                           COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                           COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
                                              THEN bp.kisten_anzahl END), 0) AS kisten,
                            COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
                                              THEN a.anzahl_displays END), 0) AS displays
@@ -4360,7 +4360,7 @@ def _do_send_monatsbericht(force=False):
                        COUNT(DISTINCT a.id) AS besuche,
                        COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung' THEN a.id END) AS bestellungen,
                        COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.id END) AS aufbauten,
-                       COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                       COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
                                          THEN bp.kisten_anzahl END), 0) AS kisten,
                        COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
                                          THEN a.anzahl_displays END), 0) AS displays
@@ -4374,7 +4374,7 @@ def _do_send_monatsbericht(force=False):
             _rs_vm = query(f'''
                 SELECT m.id AS mitarbeiter_id,
                        COUNT(DISTINCT a.id) AS besuche,
-                       COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                       COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
                                          THEN bp.kisten_anzahl END), 0) AS kisten,
                        COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
                                          THEN a.anzahl_displays END), 0) AS displays
@@ -4668,8 +4668,8 @@ def _do_demo_woche_nachfuellen(force=False):
                         (datum, offene['id'])
                     )
 
-            # Bestellpositionen: bei Aufbau und Bestellung, nicht bei Besuch
-            if typ in ('Aufbau', 'Bestellung'):
+            # Bestellpositionen: nur bei Bestellung (nicht bei Aufbau oder Besuch)
+            if typ == 'Bestellung':
                 for bier_id in rnd.sample(bier_ids, k=rnd.randint(2, min(4, len(bier_ids)))):
                     db.execute(
                         "INSERT INTO bestellposition (aktivitaet_id,biersorte_id,kisten_anzahl) VALUES (?,?,?)",
@@ -4771,7 +4771,7 @@ def wochenbericht_vorschau():
                                        THEN a.id END) AS aufbauten,
                    COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung'
                                        THEN a.id END) AS bestellungen,
-                   COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                   COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
                                      THEN bp.kisten_anzahl END), 0) AS kisten,
                    COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
                                      THEN a.anzahl_displays END), 0) AS displays
@@ -4788,7 +4788,7 @@ def wochenbericht_vorschau():
                COUNT(DISTINCT a.id) AS besuche,
                COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung' THEN a.id END) AS bestellungen,
                COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.id END) AS aufbauten,
-               COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+               COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
                                  THEN bp.kisten_anzahl END), 0) AS kisten
         FROM mitarbeiter m
         LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
@@ -4800,7 +4800,7 @@ def wochenbericht_vorschau():
     rep_letzte_w = query('''
         SELECT m.id AS mitarbeiter_id,
                COUNT(DISTINCT a.id) AS besuche,
-               COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+               COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
                                  THEN bp.kisten_anzahl END), 0) AS kisten
         FROM aktivitaet a
         JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
@@ -4988,7 +4988,7 @@ def monatsbericht_vorschau():
                                        THEN a.id END) AS aufbauten,
                    COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung'
                                        THEN a.id END) AS bestellungen,
-                   COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                   COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
                                      THEN bp.kisten_anzahl END), 0) AS kisten,
                    COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
                                      THEN a.anzahl_displays END), 0) AS displays
@@ -5005,7 +5005,7 @@ def monatsbericht_vorschau():
                COUNT(DISTINCT a.id) AS besuche,
                COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung' THEN a.id END) AS bestellungen,
                COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.id END) AS aufbauten,
-               COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+               COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
                                  THEN bp.kisten_anzahl END), 0) AS kisten,
                COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
                                  THEN a.anzahl_displays END), 0) AS displays
@@ -5019,7 +5019,7 @@ def monatsbericht_vorschau():
     rep_letzte_m = query('''
         SELECT m.id AS mitarbeiter_id,
                COUNT(DISTINCT a.id) AS besuche,
-               COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+               COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
                                  THEN bp.kisten_anzahl END), 0) AS kisten
         FROM aktivitaet a
         JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
@@ -5395,7 +5395,7 @@ def api_karte_heatmap():
             metric     = "COUNT(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN 1 END) AS anzahl"
             extra_join = ""
         elif ebene == 'volumen':
-            metric     = ("COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' "
+            metric     = ("COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung' "
                           "THEN bp.kisten_anzahl END), 0) AS anzahl")
             extra_join = "LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id"
         else:  # betreuung
