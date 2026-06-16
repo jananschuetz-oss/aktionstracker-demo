@@ -54,7 +54,7 @@ UNIT_LABEL       = os.environ.get('UNIT_LABEL',      'Einheiten')  # Mengenbezei
 MAX_MITARBEITER  = int(os.environ.get('MAX_MITARBEITER', 0))  # 0 = kein Limit (nicht konfiguriert)
 DEFAULT_PASSWORD = os.environ.get('DEFAULT_PASSWORD', 'start123')  # Standard-Passwort für neue Mitarbeiter
 
-UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'static', 'uploads')
+UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', os.path.join(os.path.dirname(__file__), 'static', 'uploads'))
 ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'}
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max upload
 
