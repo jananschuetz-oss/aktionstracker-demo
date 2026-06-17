@@ -1575,6 +1575,7 @@ def dashboard():
     # Tagesplan für Rep: heute + nächste 6 Tage (nur wenn TOUREN_MODUS aktiv)
     tagesplan_rep = []
     alle_verkaufsstellen_rep = []
+    datum_woche_rep = [(date.today() + timedelta(days=i)).isoformat() for i in range(7)]
     if TOUREN_MODUS != 'aus' and not is_manager:
         tagesplan_rep = query('''
             SELECT tp.id, tp.datum, tp.reihenfolge, tp.notiz, tp.erledigt,
@@ -1633,6 +1634,7 @@ def dashboard():
         monat_name=monat_name,
         tagesplan_rep=tagesplan_rep,
         alle_verkaufsstellen_rep=alle_verkaufsstellen_rep,
+        datum_woche_rep=datum_woche_rep,
         today_str=date.today().isoformat(),
         tomorrow_str=(date.today() + timedelta(days=1)).isoformat(),
     )

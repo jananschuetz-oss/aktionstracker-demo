@@ -501,11 +501,24 @@
     <form method="POST" action="{{ url_for('tourenplanung_neu') }}" id="stopForm">
       <input type="hidden" name="mitarbeiter_id" value="{{ session.user_id }}">
 
-      <!-- Zeile 1: Datum -->
+      <!-- Zeile 1: Datum als Kacheln -->
       <div class="mb-2">
         <label class="form-label mb-1" style="font-size:.8rem;color:#555;font-weight:600">Datum</label>
-        <input type="date" name="datum" class="form-control form-control-sm"
-               value="{{ today_str }}" required style="max-width:160px">
+        <input type="hidden" name="datum" id="repDatumHidden" value="{{ today_str }}">
+        <div class="d-flex flex-wrap gap-1">
+          {% for d in datum_woche_rep %}
+          <button type="button" class="btn btn-sm rep-datum-tile {{ 'btn-primary' if loop.first else 'btn-outline-secondary' }}"
+                  data-datum="{{ d }}"
+                  style="font-size:.8rem;padding:4px 10px;min-width:64px;text-align:center">
+            <span class="d-block fw-semibold">
+              {% if d == today_str %}Heute
+              {% elif d == tomorrow_str %}Morgen
+              {% else %}{{ d | weekday_de }}{% endif %}
+            </span>
+            <span style="font-size:.7rem;opacity:.75">{{ d[8:10] }}.{{ d[5:7] }}</span>
+          </button>
+          {% endfor %}
+        </div>
       </div>
 
       <!-- Zeile 2: Filter-Tabs -->
@@ -619,6 +632,43 @@
 })();
 </script>
 
+<div id="repKeinPlanTag" class="text-center py-4 d-none" style="color:#adb5bd">
+  <i class="bi bi-calendar-x" style="font-size:2rem"></i>
+  <p class="mt-2 mb-0" style="font-size:.9rem;color:#6c757d">Noch kein Plan für diesen Tag</p>
+</div>
+
+<script>
+(function(){
+  const tiles      = document.querySelectorAll('.rep-datum-tile');
+  const hiddenInp  = document.getElementById('repDatumHidden');
+  const leerMsg    = document.getElementById('repKeinPlanTag');
+  const gruppen    = document.querySelectorAll('.rep-tag-gruppe');
+
+  function zeigeTag(datum) {
+    let gefunden = false;
+    gruppen.forEach(g => {
+      const sichtbar = g.dataset.datum === datum;
+      g.style.display = sichtbar ? '' : 'none';
+      if (sichtbar) gefunden = true;
+    });
+    if (leerMsg) leerMsg.classList.toggle('d-none', gefunden || gruppen.length === 0);
+  }
+
+  tiles.forEach(btn => {
+    btn.addEventListener('click', function() {
+      tiles.forEach(b => { b.classList.remove('btn-primary'); b.classList.add('btn-outline-secondary'); });
+      this.classList.add('btn-primary');
+      this.classList.remove('btn-outline-secondary');
+      const d = this.dataset.datum;
+      if (hiddenInp) hiddenInp.value = d;
+      zeigeTag(d);
+    });
+  });
+
+  zeigeTag('{{ today_str }}');
+})();
+</script>
+
 {% if tagesplan_rep %}
   {# Stops gruppiert nach Datum #}
   {% set aktuelles_datum = namespace(d='') %}
@@ -626,7 +676,7 @@
     {% if stop.datum != aktuelles_datum.d %}
       {% if not loop.first %}</div>{% endif %}
       {% set aktuelles_datum.d = stop.datum %}
-      <div class="mb-3">
+      <div class="mb-3 rep-tag-gruppe" data-datum="{{ stop.datum }}">
       <div class="fw-semibold mb-2" style="color:#1a3a5c;font-size:.85rem">
         <i class="bi bi-calendar3 me-1"></i>
         {% set d = stop.datum %}
