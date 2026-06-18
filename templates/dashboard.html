@@ -289,6 +289,11 @@
                 data-vs-id="{{ b.vs_id }}" data-vs-name="{{ b.station|e }}">
           <i class="bi bi-calendar-plus me-1"></i>Besuch planen
         </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary btn-verlauf"
+                style="font-size:.75rem;padding:3px 9px"
+                data-vs-id="{{ b.vs_id }}" data-vs-name="{{ b.station|e }}">
+          <i class="bi bi-clock-history me-1"></i>Verlauf
+        </button>
       </div>
     </div>
     {% endfor %}
@@ -326,6 +331,11 @@
                   data-bs-toggle="modal" data-bs-target="#besuchPlanenModal"
                   data-vs-id="{{ b.vs_id }}" data-vs-name="{{ b.station|e }}">
             <i class="bi bi-calendar-plus me-1"></i>Besuch planen
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-secondary btn-verlauf"
+                  style="font-size:.75rem;padding:3px 9px"
+                  data-vs-id="{{ b.vs_id }}" data-vs-name="{{ b.station|e }}">
+            <i class="bi bi-clock-history me-1"></i>Verlauf
           </button>
         </div>
       </div>
