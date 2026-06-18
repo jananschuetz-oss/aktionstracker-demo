@@ -3519,9 +3519,11 @@ def vs_neu_rep():
     ort             = request.form.get('ort',             '').strip()
     typ             = request.form.get('typ',             '').strip()
     ansprechpartner = request.form.get('ansprechpartner', '').strip()
+    next_page       = request.form.get('next',            '').strip()
+    vom_dashboard   = next_page == 'tagesplan'
     if not name or not strasse or not ort:
         flash('Name, Straße und Ort sind Pflichtfelder.', 'danger')
-        return redirect(url_for('neue_aktivitaet'))
+        return redirect(url_for('dashboard') if vom_dashboard else url_for('neue_aktivitaet'))
     if name:
         # Duplikat-Check: gleicher Name + Ort (Groß-/Kleinschreibung egal)
         vorhanden = query(
@@ -3536,7 +3538,7 @@ def vs_neu_rep():
                     (session['user_id'], vorhanden['id'])
                 )
             flash(f'„{vorhanden["name"]}" in {vorhanden["ort"] or "unbekanntem Ort"} existiert bereits – direkt ausgewählt.', 'info')
-            return redirect(url_for('neue_aktivitaet', vs_id=vorhanden['id']))
+            return redirect(url_for('dashboard') if vom_dashboard else url_for('neue_aktivitaet', vs_id=vorhanden['id']))
 
         plz_rep = request.form.get('plz', '').strip()
         new_id = execute(
@@ -3550,9 +3552,9 @@ def vs_neu_rep():
                 (session['user_id'], new_id)
             )
         flash(f'Verkaufsstelle "{name}" wurde angelegt und ausgewählt.', 'success')
-        return redirect(url_for('neue_aktivitaet', vs_id=new_id))
+        return redirect(url_for('dashboard') if vom_dashboard else url_for('neue_aktivitaet', vs_id=new_id))
     flash('Name, Straße und Ort sind Pflichtfelder.', 'danger')
-    return redirect(url_for('neue_aktivitaet'))
+    return redirect(url_for('dashboard') if vom_dashboard else url_for('neue_aktivitaet'))
 
 
 @app.route('/admin/biersorte/<int:b_id>/loeschen', methods=['POST'])

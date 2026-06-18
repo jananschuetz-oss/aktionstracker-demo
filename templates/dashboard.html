@@ -654,6 +654,11 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
                   style="padding:6px 13px" title="Verlauf der gewählten Station anzeigen">
             <i class="bi bi-clock-history me-1"></i>Verlauf
           </button>
+          <button type="button" class="btn btn-sm btn-outline-secondary"
+                  data-bs-toggle="modal" data-bs-target="#tpVsNeuModal"
+                  style="padding:6px 13px" title="Neue Verkaufsstelle anlegen">
+            <i class="bi bi-shop me-1"></i>Neu anlegen
+          </button>
         </div>
       </div>
     </form>
@@ -944,6 +949,71 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
 </div>{# /tab-pane #tab-tagesplan #}
 </div>{# /tab-content #}
 {% endif %}{# /touren_modus rep tabs #}
+
+<!-- Modal: Neue Verkaufsstelle (Tagesplanung) -->
+<div class="modal fade" id="tpVsNeuModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('vs_neu_rep') }}">
+        <input type="hidden" name="next" value="tagesplan">
+        <div class="modal-header" style="background:#1a3a5c;color:white">
+          <h5 class="modal-title">
+            <i class="bi bi-shop me-2"></i>Neue Verkaufsstelle anlegen
+          </h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Name der Verkaufsstelle <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control form-control-lg"
+                   placeholder="z.B. REWE Markt" required autofocus>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Straße &amp; Hausnummer <span class="text-danger">*</span></label>
+            <input type="text" name="strasse" class="form-control" placeholder="z.B. Hauptstr. 12" required>
+          </div>
+          <div class="mb-3">
+            <div class="row g-2">
+              <div class="col-4">
+                <label class="form-label">PLZ <span class="text-muted fw-normal">(opt.)</span></label>
+                <input type="text" name="plz" class="form-control" placeholder="z.B. 84178" maxlength="10">
+              </div>
+              <div class="col-8">
+                <label class="form-label">Ort <span class="text-danger">*</span></label>
+                <input type="text" name="ort" class="form-control" placeholder="z.B. München" required>
+              </div>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Typ</label>
+            <select name="typ" class="form-select">
+              <option value="Einzelhandel" selected>Einzelhandel</option>
+              <option value="Gastronomie">Gastronomie</option>
+              <option value="Getränkehandel">Getränkehandel</option>
+              <option value="Hotel">Hotel</option>
+              <option value="Verein">Verein</option>
+              <option value="Sonstiges">Sonstiges</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Ansprechpartner <span class="text-muted fw-normal">(optional)</span></label>
+            <input type="text" name="ansprechpartner" class="form-control" placeholder="z.B. Maria Müller">
+          </div>
+          <div class="alert alert-info py-2 mb-0" style="font-size:.85rem">
+            <i class="bi bi-info-circle me-1"></i>
+            Die neue Verkaufsstelle wird nach dem Anlegen sofort in der Tagesplanung verfügbar.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-check-circle me-1"></i>Anlegen
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 
 <!-- Modal: Kundenhistorie -->
 <div class="modal fade" id="historieModal" tabindex="-1" aria-hidden="true">
