@@ -884,7 +884,7 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
           <div style="font-size:.75rem;color:#2c7a7b;margin-top:2px"><i class="bi bi-chat-left-text me-1"></i>{{ stop.notiz }}</div>
           {% endif %}
           {% if not stop.erledigt %}
-          <div class="d-flex gap-2 mt-2 d-sm-none flex-wrap">
+          <div class="d-flex gap-2 mt-2 d-sm-none">
             <a href="{{ url_for('neue_aktivitaet') }}?vs_id={{ stop.vs_id }}"
                class="btn btn-sm d-inline-flex align-items-center gap-1"
                style="background:#1a3a5c;color:#fff;font-size:.78rem;padding:5px 12px">
