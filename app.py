@@ -486,6 +486,11 @@ def init_db():
             "ALTER TABLE wochenbericht_config ADD COLUMN urlaubsmail_empfaenger TEXT DEFAULT ''",
             "ALTER TABLE tagesplan ADD COLUMN geloescht INTEGER DEFAULT 0",
             "ALTER TABLE tagesplan ADD COLUMN geloescht_am TEXT",
+            "ALTER TABLE aktivitaet    ADD COLUMN von_uhrzeit       TEXT",
+            "ALTER TABLE aktivitaet    ADD COLUMN bis_uhrzeit       TEXT",
+            "ALTER TABLE verkaufsstelle ADD COLUMN plz              TEXT",
+            "ALTER TABLE verkaufsstelle ADD COLUMN landkreis        TEXT",
+            "ALTER TABLE mitarbeiter   ADD COLUMN aktiv             INTEGER DEFAULT 1",
         ]:
             try:
                 db.execute(migration)
@@ -711,6 +716,33 @@ def init_db():
                     gesetzt += 1
             db.commit()
             app.logger.info(f"Demo-Koordinaten: {gesetzt}/{len(ohne_coords)} Stationen mit Stadtkoordinaten gesetzt.")
+
+        # Demo-Landkreis + PLZ: Stationen anhand Ort befüllen (idempotent)
+        _demo_lk = {
+            'München': ('München (Stadt)', '80331'),
+            'Nürnberg': ('Nürnberg (Stadt)', '90403'),
+            'Hamburg': ('Hamburg (Stadt)', '20095'),
+            'Frankfurt': ('Frankfurt am Main (Stadt)', '60311'),
+            'Köln': ('Köln (Stadt)', '50667'),
+            'Düsseldorf': ('Düsseldorf (Stadt)', '40213'),
+            'Stuttgart': ('Stuttgart (Stadt)', '70173'),
+            'Leipzig': ('Leipzig (Stadt)', '04109'),
+            'Hannover': ('Hannover (Region)', '30159'),
+            'Mannheim': ('Mannheim (Stadt)', '68161'),
+            'Dortmund': ('Dortmund (Stadt)', '44135'),
+            'Bremen': ('Bremen (Stadt)', '28195'),
+            'Wiesbaden': ('Wiesbaden (Stadt)', '65183'),
+            'Bonn': ('Rhein-Sieg-Kreis', '53111'),
+            'Freiburg': ('Freiburg im Breisgau (Stadt)', '79098'),
+            'Essen': ('Essen (Stadt)', '45127'),
+            'Augsburg': ('Augsburg (Stadt)', '86150'),
+            'Starnberg': ('Landkreis Starnberg', '82319'),
+            'Dachau': ('Landkreis Dachau', '85221'),
+        }
+        for _ort, (_lk, _plz) in _demo_lk.items():
+            db.execute("UPDATE verkaufsstelle SET landkreis=? WHERE ort=? AND landkreis IS NULL", (_lk, _ort))
+            db.execute("UPDATE verkaufsstelle SET plz=? WHERE ort=? AND plz IS NULL", (_plz, _ort))
+        db.commit()
 
         # Migration: Aktivitäten dem geografisch zugeordneten Mitarbeiter zuweisen (idempotent)
         _falsch_n = db.execute("""
@@ -1572,14 +1604,14 @@ def dashboard():
             AND a.mitarbeiter_id = ?
         ''', _uid, one=True)
 
-    # Tagesplan für Rep: heute + nächste 6 Tage (nur wenn TOUREN_MODUS aktiv)
+    # Tagesplan für Rep: heute + nächste 6 Tage
     tagesplan_rep = []
     alle_verkaufsstellen_rep = []
     datum_woche_rep = [(date.today() + timedelta(days=i)).isoformat() for i in range(7)]
-    if TOUREN_MODUS != 'aus' and not is_manager:
+    if not is_manager:
         tagesplan_rep = query('''
             SELECT tp.id, tp.datum, tp.reihenfolge, tp.notiz, tp.erledigt,
-                   v.name AS station, v.strasse, v.ort, v.id AS vs_id
+                   v.name AS station, v.strasse, v.plz, v.ort, v.id AS vs_id
             FROM tagesplan tp
             JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
             WHERE tp.mitarbeiter_id = ?
@@ -1597,12 +1629,12 @@ def dashboard():
             _vs_ids = [r['verkaufsstelle_id'] for r in assigned]
             _ph = ','.join('?' * len(_vs_ids))
             alle_verkaufsstellen_rep = query(
-                f"SELECT id, name, ort, strasse, typ FROM verkaufsstelle WHERE aktiv=1 AND id IN ({_ph}) ORDER BY name",
+                f"SELECT id, name, plz, ort, strasse, typ, landkreis FROM verkaufsstelle WHERE aktiv=1 AND id IN ({_ph}) ORDER BY name",
                 _vs_ids
             )
         else:
             alle_verkaufsstellen_rep = query(
-                "SELECT id, name, ort, strasse, typ FROM verkaufsstelle WHERE aktiv=1 ORDER BY name"
+                "SELECT id, name, plz, ort, strasse, typ, landkreis FROM verkaufsstelle WHERE aktiv=1 ORDER BY name"
             )
 
     return render_template('dashboard.html',
@@ -1645,15 +1677,13 @@ def dashboard():
 @app.route('/tourenplanung')
 @login_required
 def tourenplanung():
-    if TOUREN_MODUS == 'aus':
-        abort(404)
     if session.get('rolle') not in ('admin', 'verkaufsleiter'):
         return redirect(url_for('dashboard'))
     modus = request.args.get('modus', 'tag')
     today = date.today()
     _tm_sql, _tm_p = _team_m_clause('m')
     reps = query(
-        f"SELECT id, name, kuerzel FROM mitarbeiter m WHERE rolle='rep' {_tm_sql} ORDER BY name",
+        f"SELECT id, name, kuerzel FROM mitarbeiter m WHERE rolle='rep' AND aktiv=1 {_tm_sql} ORDER BY name",
         _tm_p
     )
 
@@ -1663,7 +1693,7 @@ def tourenplanung():
     plan_tag = query(f'''
         SELECT tp.id, tp.datum, tp.reihenfolge, tp.notiz, tp.erledigt,
                COALESCE(tp.geloescht, 0) AS geloescht, tp.geloescht_am,
-               v.name AS station, v.ort, v.id AS vs_id,
+               v.name AS station, v.plz, v.ort, v.id AS vs_id,
                m.name AS mitarbeiter, m.kuerzel, m.id AS ma_id
         FROM tagesplan tp
         JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
@@ -1687,7 +1717,7 @@ def tourenplanung():
     plan_woche = query(f'''
         SELECT tp.id, tp.datum, tp.reihenfolge, tp.notiz, tp.erledigt,
                COALESCE(tp.geloescht, 0) AS geloescht, tp.geloescht_am,
-               v.name AS station, v.ort, v.id AS vs_id,
+               v.name AS station, v.plz, v.ort, v.id AS vs_id,
                m.name AS mitarbeiter, m.kuerzel, m.id AS ma_id
         FROM tagesplan tp
         JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
@@ -1718,8 +1748,6 @@ def tourenplanung():
 @app.route('/tourenplanung/neu', methods=['POST'])
 @login_required
 def tourenplanung_neu():
-    if TOUREN_MODUS == 'aus':
-        abort(404)
     is_manager = session.get('rolle') in ('admin', 'verkaufsleiter')
     is_rep = session.get('rolle') == 'rep'
     if not is_manager and not is_rep:
@@ -1753,8 +1781,6 @@ def tourenplanung_neu():
 @app.route('/tourenplanung/<int:tp_id>/loeschen', methods=['POST'])
 @login_required
 def tourenplanung_loeschen(tp_id):
-    if TOUREN_MODUS == 'aus':
-        abort(404)
     row = query("SELECT datum, mitarbeiter_id, erledigt FROM tagesplan WHERE id=?", (tp_id,), one=True)
     if not row:
         abort(404)
@@ -1775,8 +1801,6 @@ def tourenplanung_loeschen(tp_id):
 @app.route('/tourenplanung/<int:tp_id>/erledigt', methods=['POST'])
 @login_required
 def tourenplanung_erledigt(tp_id):
-    if TOUREN_MODUS == 'aus':
-        abort(404)
     row = query("SELECT mitarbeiter_id, erledigt FROM tagesplan WHERE id=?", (tp_id,), one=True)
     if not row:
         abort(404)
@@ -1785,6 +1809,93 @@ def tourenplanung_erledigt(tp_id):
         abort(403)
     execute("UPDATE tagesplan SET erledigt=? WHERE id=?", (0 if row['erledigt'] else 1, tp_id))
     return redirect(request.referrer or url_for('dashboard'))
+
+
+@app.route('/tourenplanung/<int:tp_id>/reihenfolge', methods=['POST'])
+@login_required
+def tourenplanung_reihenfolge(tp_id):
+    data     = request.get_json(force=True, silent=True) or {}
+    richtung = data.get('richtung')
+    if richtung not in ('hoch', 'runter'):
+        return jsonify({'ok': False})
+
+    cur = query(
+        "SELECT id, mitarbeiter_id, datum, reihenfolge FROM tagesplan WHERE id=? AND COALESCE(geloescht,0)=0",
+        (tp_id,), one=True
+    )
+    if not cur:
+        return jsonify({'ok': False})
+
+    is_manager = session.get('rolle') in ('admin', 'verkaufsleiter')
+    if not is_manager and cur['mitarbeiter_id'] != session.get('user_id'):
+        return jsonify({'ok': False})
+
+    if richtung == 'hoch':
+        nb = query('''
+            SELECT id, reihenfolge FROM tagesplan
+            WHERE mitarbeiter_id=? AND datum=? AND reihenfolge < ? AND COALESCE(geloescht,0)=0
+            ORDER BY reihenfolge DESC LIMIT 1
+        ''', (cur['mitarbeiter_id'], cur['datum'], cur['reihenfolge']), one=True)
+    else:
+        nb = query('''
+            SELECT id, reihenfolge FROM tagesplan
+            WHERE mitarbeiter_id=? AND datum=? AND reihenfolge > ? AND COALESCE(geloescht,0)=0
+            ORDER BY reihenfolge ASC LIMIT 1
+        ''', (cur['mitarbeiter_id'], cur['datum'], cur['reihenfolge']), one=True)
+
+    if not nb:
+        return jsonify({'ok': False})
+
+    db = get_db()
+    db.execute("UPDATE tagesplan SET reihenfolge=? WHERE id=?", (nb['reihenfolge'], tp_id))
+    db.execute("UPDATE tagesplan SET reihenfolge=? WHERE id=?", (cur['reihenfolge'], nb['id']))
+    db.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/verkaufsstelle/<int:vs_id>/aktivitaeten')
+@login_required
+def api_vs_aktivitaeten(vs_id):
+    rolle  = session.get('rolle')
+    ma_id  = session.get('user_id')
+    if rolle == 'rep':
+        ok = query(
+            "SELECT 1 FROM mitarbeiter_verkaufsstelle WHERE mitarbeiter_id=? AND verkaufsstelle_id=?",
+            (ma_id, vs_id), one=True
+        )
+        if not ok:
+            return jsonify({'ok': False, 'error': 'Kein Zugriff'})
+    elif rolle not in ('admin', 'verkaufsleiter'):
+        return jsonify({'ok': False, 'error': 'Kein Zugriff'})
+
+    vs = query("SELECT name, ort FROM verkaufsstelle WHERE id=? AND aktiv=1", (vs_id,), one=True)
+    if not vs:
+        return jsonify({'ok': False, 'error': 'Nicht gefunden'})
+
+    rows = query('''
+        SELECT a.datum, m.name AS mitarbeiter, m.kuerzel,
+               COALESCE(a.aktionstyp, 'Besuch') AS aktionstyp,
+               a.anzahl_displays, a.notizen,
+               COALESCE(
+                   (SELECT GROUP_CONCAT(bs.name||' '||bp.kisten_anzahl, ', ')
+                    FROM bestellposition bp
+                    JOIN biersorte bs ON bs.id = bp.biersorte_id
+                    WHERE bp.aktivitaet_id = a.id),
+                   ''
+               ) AS bestellungen
+        FROM aktivitaet a
+        JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
+        WHERE a.verkaufsstelle_id = ?
+        ORDER BY a.datum DESC, a.erstellt_am DESC
+        LIMIT 30
+    ''', (vs_id,))
+
+    return jsonify({
+        'ok':   True,
+        'name': vs['name'],
+        'ort':  vs['ort'] or '',
+        'data': [dict(r) for r in rows]
+    })
 
 
 # ─── API: Letzter Besuch ─────────────────────────────────────────────────────
@@ -2044,9 +2155,11 @@ def api_aktivitaet_offline_sync():
     datum   = data.get('datum', '').strip()
     vs_id   = data.get('verkaufsstelle_id', '')
     notizen = data.get('notizen', '')
-    foto_b64 = data.get('foto', '')   # 'data:image/jpeg;base64,...'
-    displays = data.get('displays', {})  # {ds_id: menge}
-    bier_map = data.get('bier', {})      # {bier_id: kisten}
+    foto_b64    = data.get('foto', '')   # 'data:image/jpeg;base64,...'
+    displays    = data.get('displays', {})  # {ds_id: menge}
+    bier_map    = data.get('bier', {})      # {bier_id: kisten}
+    von_uhrzeit = data.get('von_uhrzeit', '') or None
+    bis_uhrzeit = data.get('bis_uhrzeit', '') or None
 
     if not datum or not vs_id:
         return jsonify({'ok': False, 'error': 'Datum und Verkaufsstelle fehlen'}), 400
@@ -2069,8 +2182,8 @@ def api_aktivitaet_offline_sync():
 
     akt_id = execute(
         "INSERT INTO aktivitaet (datum, mitarbeiter_id, verkaufsstelle_id, "
-        "anzahl_displays, notizen, foto_pfad) VALUES (?,?,?,?,?,?)",
-        (datum, session['user_id'], vs_id, anzahl_displays, notizen, foto_pfad)
+        "anzahl_displays, notizen, foto_pfad, von_uhrzeit, bis_uhrzeit) VALUES (?,?,?,?,?,?,?,?)",
+        (datum, session['user_id'], vs_id, anzahl_displays, notizen, foto_pfad, von_uhrzeit, bis_uhrzeit)
     )
 
     for ds_id, menge in displays.items():
@@ -2162,6 +2275,8 @@ def neue_aktivitaet():
         if aktionstyp not in ('Aufbau', 'Bestellung', 'Besuch'):
             aktionstyp = 'Aufbau'
 
+        von_uhrzeit = request.form.get('von_uhrzeit', '').strip()
+        bis_uhrzeit = request.form.get('bis_uhrzeit', '').strip()
         foto_file = request.files.get('foto')
         # KONZEPT-V2: Foto ist nur beim Aufbau Pflicht
         if aktionstyp == 'Aufbau' and (not foto_file or not foto_file.filename):
@@ -2215,8 +2330,8 @@ def neue_aktivitaet():
 
         bestell_status = 'offen' if aktionstyp == 'Bestellung' else None
         akt_id = execute(
-            "INSERT INTO aktivitaet (datum, mitarbeiter_id, verkaufsstelle_id, anzahl_displays, notizen, foto_pfad, aktionstyp, bestell_status) VALUES (?,?,?,?,?,?,?,?)",
-            (datum, session['user_id'], vs_id, anzahl_displays, notizen, foto_pfad, aktionstyp, bestell_status)
+            "INSERT INTO aktivitaet (datum, mitarbeiter_id, verkaufsstelle_id, anzahl_displays, notizen, foto_pfad, aktionstyp, bestell_status, von_uhrzeit, bis_uhrzeit) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (datum, session['user_id'], vs_id, anzahl_displays, notizen, foto_pfad, aktionstyp, bestell_status, von_uhrzeit or None, bis_uhrzeit or None)
         )
 
         # Displaypositionen speichern
@@ -2248,22 +2363,71 @@ def neue_aktivitaet():
         if foto_pfad:
             cleanup_alte_fotos()
 
-        # Passenden Tagesplan-Stop automatisch als erledigt markieren (nur wenn TOUREN_MODUS aktiv)
-        if TOUREN_MODUS != 'aus':
-            execute(
-                "UPDATE tagesplan SET erledigt=1 WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? AND erledigt=0 AND COALESCE(geloescht,0)=0",
-                (session['user_id'], vs_id, datum)
+        # Passenden Tagesplan-Stop automatisch als erledigt markieren
+        execute(
+            "UPDATE tagesplan SET erledigt=1 WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? AND erledigt=0 AND COALESCE(geloescht,0)=0",
+            (session['user_id'], vs_id, datum)
+        )
+
+        # Ungeplante Verkaufsstelle für heute automatisch in den Tagesplan aufnehmen
+        if datum == date.today().isoformat():
+            existing = query(
+                "SELECT id FROM tagesplan WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? AND COALESCE(geloescht,0)=0",
+                (session['user_id'], vs_id, datum), one=True
             )
+            if not existing:
+                execute(
+                    "INSERT INTO tagesplan (mitarbeiter_id, verkaufsstelle_id, datum, erledigt, erstellt_von) VALUES (?,?,?,1,?)",
+                    (session['user_id'], vs_id, datum, session['user_id'])
+                )
 
         flash('Aktivität erfolgreich gespeichert!', 'success')
         return redirect(url_for('neue_aktivitaet'))
 
-    preselect_vs = request.args.get('vs_id', '', type=str)
+    preselect_vs  = request.args.get('vs_id', '', type=str)
+    preselect_typ = request.args.get('typ', '', type=str)
+    bestellung_id = request.args.get('bestellung_id', '', type=str)
+
+    bestellung_info = None
+    if bestellung_id.isdigit():
+        _b = query(
+            '''SELECT a.id, a.datum, a.notizen, a.verkaufsstelle_id,
+                      v.name AS station, v.plz, v.ort
+               FROM aktivitaet a JOIN verkaufsstelle v ON v.id=a.verkaufsstelle_id
+               WHERE a.id=? AND a.aktionstyp='Bestellung'
+                 AND COALESCE(a.bestell_status,'offen')='offen' ''',
+            (int(bestellung_id),), one=True
+        )
+        if _b:
+            _pos = query(
+                '''SELECT bs.name, bp.kisten_anzahl FROM bestellposition bp
+                   JOIN biersorte bs ON bs.id=bp.biersorte_id
+                   WHERE bp.aktivitaet_id=? ORDER BY bp.kisten_anzahl DESC''',
+                (int(bestellung_id),)
+            )
+            bestellung_info = dict(_b)
+            bestellung_info['positionen'] = _pos
+            if not preselect_vs:
+                preselect_vs = str(_b['verkaufsstelle_id'])
+
+    tagesplan_heute = []
+    if is_rep:
+        tagesplan_heute = query('''
+            SELECT tp.verkaufsstelle_id AS vs_id, v.name AS station, v.plz, v.ort
+            FROM tagesplan tp
+            JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
+            WHERE tp.mitarbeiter_id = ? AND tp.datum = date('now','localtime') AND tp.erledigt = 0 AND COALESCE(tp.geloescht, 0) = 0
+            ORDER BY tp.reihenfolge, tp.id
+        ''', (session['user_id'],))
+
     return render_template('neue_aktivitaet.html',
+        min_datum=min_datum,
         verkaufsstellen=verkaufsstellen, biersorten=biersorten,
         displaysorte=displaysorte, vertretungs_gruppen=vertretungs_gruppen,
         heute=date.today().isoformat(), preselect_vs=preselect_vs,
-        min_datum=min_datum)
+        preselect_typ=preselect_typ,
+        bestellung_id=bestellung_id, bestellung_info=bestellung_info,
+        tagesplan_heute=tagesplan_heute)
 
 
 @app.route('/aktivitaeten')
@@ -3261,13 +3425,15 @@ def profil_vertretung_loeschen(vtr_id):
 def admin_vs_neu():
     name             = request.form.get('name',             '').strip()
     strasse          = request.form.get('strasse',          '').strip()
+    plz              = request.form.get('plz',              '').strip()
     ort              = request.form.get('ort',              '').strip()
+    landkreis        = request.form.get('landkreis',        '').strip()
     typ              = request.form.get('typ',              '').strip()
     ansprechpartner  = request.form.get('ansprechpartner',  '').strip()
     if name:
         new_id = execute(
-            "INSERT INTO verkaufsstelle (name, strasse, ort, typ, ansprechpartner) VALUES (?,?,?,?,?)",
-            (name, strasse, ort, typ, ansprechpartner)
+            "INSERT INTO verkaufsstelle (name, strasse, plz, ort, landkreis, typ, ansprechpartner) VALUES (?,?,?,?,?,?,?)",
+            (name, strasse, plz or None, ort, landkreis or None, typ, ansprechpartner)
         )
         if KARTE_MODUS != 'aus' and (strasse or ort):
             lat, lng = _geocode_adresse(strasse, ort)
@@ -3291,7 +3457,9 @@ def admin_vs_bearbeiten(vs_id):
         return redirect(url_for('admin'))
     name            = request.form.get('name',            '').strip()
     strasse         = request.form.get('strasse',         '').strip()
+    plz             = request.form.get('plz',             '').strip()
     ort             = request.form.get('ort',             '').strip()
+    landkreis       = request.form.get('landkreis',       '').strip()
     typ             = request.form.get('typ',             '').strip()
     ansprechpartner = request.form.get('ansprechpartner', '').strip()
     if not name:
@@ -3299,8 +3467,8 @@ def admin_vs_bearbeiten(vs_id):
         return redirect(url_for('admin'))
     adresse_geaendert = strasse != (vs['strasse'] or '') or ort != (vs['ort'] or '')
     execute(
-        "UPDATE verkaufsstelle SET name=?, strasse=?, ort=?, typ=?, ansprechpartner=? WHERE id=?",
-        (name, strasse, ort, typ, ansprechpartner, vs_id)
+        "UPDATE verkaufsstelle SET name=?, strasse=?, plz=?, ort=?, landkreis=?, typ=?, ansprechpartner=? WHERE id=?",
+        (name, strasse, plz or None, ort, landkreis or None, typ, ansprechpartner, vs_id)
     )
     if adresse_geaendert and KARTE_MODUS != 'aus' and (strasse or ort):
         lat, lng = _geocode_adresse(strasse, ort)
@@ -3369,9 +3537,10 @@ def vs_neu_rep():
             flash(f'„{vorhanden["name"]}" in {vorhanden["ort"] or "unbekanntem Ort"} existiert bereits – direkt ausgewählt.', 'info')
             return redirect(url_for('neue_aktivitaet', vs_id=vorhanden['id']))
 
+        plz_rep = request.form.get('plz', '').strip()
         new_id = execute(
-            "INSERT INTO verkaufsstelle (name, strasse, ort, typ, ansprechpartner) VALUES (?,?,?,?,?)",
-            (name, strasse, ort, typ, ansprechpartner)
+            "INSERT INTO verkaufsstelle (name, strasse, plz, ort, typ, ansprechpartner) VALUES (?,?,?,?,?,?)",
+            (name, strasse, plz_rep or None, ort, typ, ansprechpartner)
         )
         # Reps/VKL: neue Verkaufsstelle direkt dem Ersteller zuordnen
         if session.get('rolle') in ('rep', 'verkaufsleiter'):

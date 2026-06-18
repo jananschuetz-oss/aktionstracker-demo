@@ -161,7 +161,7 @@
                 </td>
                 <td>
                   <small class="text-muted">
-                    {% if vs.strasse %}{{ vs.strasse }}, {% endif %}{{ vs.ort or '–' }}
+                    {% if vs.strasse %}{{ vs.strasse }}, {% endif %}{% if vs.plz %}{{ vs.plz }} {% endif %}{{ vs.ort or '–' }}
                     {% if vs.ansprechpartner %}
                     <br><i class="bi bi-person me-1"></i>{{ vs.ansprechpartner }}
                     {% endif %}
@@ -188,6 +188,8 @@
                           data-strasse="{{ vs.strasse or '' }}"
                           data-ort="{{ vs.ort or '' }}"
                           data-typ="{{ vs.typ or '' }}"
+                          data-plz="{{ vs.plz or '' }}"
+                          data-landkreis="{{ vs.landkreis or '' }}"
                           data-ansprechpartner="{{ vs.ansprechpartner or '' }}">
                     <i class="bi bi-pencil"></i>
                   </button>
@@ -914,8 +916,20 @@ document.getElementById('modalRolle').addEventListener('show.bs.modal', function
             <input type="text" name="strasse" class="form-control" placeholder="z.B. Hauptstr. 12">
           </div>
           <div class="mb-3">
-            <label class="form-label">Ort</label>
-            <input type="text" name="ort" class="form-control" placeholder="z.B. München">
+            <div class="row g-2">
+              <div class="col-4">
+                <label class="form-label">PLZ <span class="text-muted fw-normal">(opt.)</span></label>
+                <input type="text" name="plz" class="form-control" placeholder="z.B. 84178" maxlength="10">
+              </div>
+              <div class="col-8">
+                <label class="form-label">Ort</label>
+                <input type="text" name="ort" class="form-control" placeholder="z.B. München">
+              </div>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Landkreis <span class="text-muted fw-normal">(optional)</span></label>
+            <input type="text" name="landkreis" class="form-control" placeholder="z.B. Landkreis Dachau">
           </div>
           <div class="mb-3">
             <label class="form-label">Typ</label>
@@ -961,8 +975,20 @@ document.getElementById('modalRolle').addEventListener('show.bs.modal', function
             <input type="text" name="strasse" id="editVsStrasse" class="form-control" placeholder="z.B. Hauptstr. 12">
           </div>
           <div class="mb-3">
-            <label class="form-label">Ort</label>
-            <input type="text" name="ort" id="editVsOrt" class="form-control" placeholder="z.B. München">
+            <div class="row g-2">
+              <div class="col-4">
+                <label class="form-label">PLZ <span class="text-muted fw-normal">(opt.)</span></label>
+                <input type="text" name="plz" id="editVsPlz" class="form-control" placeholder="z.B. 84178" maxlength="10">
+              </div>
+              <div class="col-8">
+                <label class="form-label">Ort</label>
+                <input type="text" name="ort" id="editVsOrt" class="form-control" placeholder="z.B. München">
+              </div>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Landkreis <span class="text-muted fw-normal">(optional)</span></label>
+            <input type="text" name="landkreis" id="editVsLandkreis" class="form-control" placeholder="z.B. Landkreis Dachau">
           </div>
           <div class="mb-3">
             <label class="form-label">Typ</label>
@@ -994,7 +1020,9 @@ document.getElementById('modalVSEdit').addEventListener('show.bs.modal', functio
   document.getElementById('formVSEdit').action = '/admin/verkaufsstelle/' + btn.dataset.id + '/bearbeiten';
   document.getElementById('editVsName').value = btn.dataset.name;
   document.getElementById('editVsStrasse').value = btn.dataset.strasse;
+  document.getElementById('editVsPlz').value = btn.dataset.plz;
   document.getElementById('editVsOrt').value = btn.dataset.ort;
+  document.getElementById('editVsLandkreis').value = btn.dataset.landkreis;
   document.getElementById('editVsTyp').value = btn.dataset.typ;
   document.getElementById('editVsAnsprechpartner').value = btn.dataset.ansprechpartner;
 });

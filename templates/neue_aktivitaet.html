@@ -9,9 +9,45 @@
 
 <form method="POST" id="aktivForm" enctype="multipart/form-data">
 
+  {% if tagesplan_heute %}
+  <div class="card mb-4" style="border-color:#2c7a7b">
+    <div class="card-header py-2" style="background:#f0fafa;color:#1a3a5c;border-bottom-color:#2c7a7b">
+      <i class="bi bi-map me-2" style="color:#2c7a7b"></i>Heute geplant
+      <span class="text-muted fw-normal" style="font-size:.85rem"> – Station auswählen:</span>
+    </div>
+    <div class="card-body py-2 px-3">
+      <div class="d-flex flex-wrap gap-2" id="tagesplanBtns">
+        {% for stop in tagesplan_heute %}
+        <button type="button"
+                onclick='tagesplanWaehlen(this, {{ stop.vs_id }}, {{ (stop.station ~ ((" – " ~ ((stop.plz ~ " ") if stop.plz else "") ~ stop.ort) if (stop.plz or stop.ort) else "")) | tojson }})'
+                class="btn btn-sm tagesplan-stop-btn"
+                style="border:1px solid #2c7a7b;color:#1a3a5c;background:#fff;font-size:.85rem">
+          <i class="bi bi-geo-alt-fill me-1" style="color:#2c7a7b"></i>{{ stop.station }}{% if stop.plz or stop.ort %} <span class="text-muted">– {% if stop.plz %}{{ stop.plz }} {% endif %}{{ stop.ort or '' }}</span>{% endif %}
+        </button>
+        {% endfor %}
+      </div>
+      <script>
+      function tagesplanWaehlen(btn, id, label) {
+        document.querySelectorAll('.tagesplan-stop-btn').forEach(b => {
+          b.style.background = '#fff';
+          b.style.borderColor = '#2c7a7b';
+          b.style.fontWeight = '';
+        });
+        btn.style.background = '#e6f4f4';
+        btn.style.borderColor = '#1a3a5c';
+        btn.style.fontWeight = '600';
+        vsSelect(id, label);
+        document.getElementById('vsSearch').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        document.getElementById('vsSearch').focus();
+      }
+      </script>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- KONZEPT-V2: Aktivitätstyp -->
   <input type="hidden" name="aktionstyp" id="aktionstyp" value="Aufbau">
-  <input type="hidden" name="erledigt_bestellung_ids" id="erledigtIds" value="">
+  <input type="hidden" name="erledigt_bestellung_ids" id="erledigtIds" value="{{ bestellung_id if bestellung_id else '' }}">
   <div class="card mb-4">
     <div class="card-header"><i class="bi bi-tag me-2"></i>Was war hier?</div>
     <div class="card-body">
@@ -32,17 +68,48 @@
     </div>
   </div>
 
+  {% if bestellung_info %}
+  <div class="card mb-4" style="border-color:#2e6da4;background:#f0f6ff">
+    <div class="card-body py-3 px-3">
+      <div class="d-flex align-items-start gap-2">
+        <i class="bi bi-cart-check-fill mt-1" style="color:#2e6da4;font-size:1.1rem;flex-shrink:0"></i>
+        <div>
+          <div class="fw-semibold" style="color:#1a3a5c;font-size:.92rem">
+            Offene Bestellung wird mit diesem Aufbau abgeschlossen
+          </div>
+          <div class="text-muted" style="font-size:.8rem">{{ bestellung_info.station }}{% if bestellung_info.plz or bestellung_info.ort %} · {% if bestellung_info.plz %}{{ bestellung_info.plz }} {% endif %}{{ bestellung_info.ort or '' }}{% endif %} · {{ bestellung_info.datum }}</div>
+          <div class="mt-1 d-flex flex-wrap gap-1">
+            {% for pos in bestellung_info.positionen %}
+            <span class="badge" style="background:#dbeafe;color:#1e40af;font-weight:500;font-size:.78rem">
+              {{ pos.kisten_anzahl }}× {{ pos.name }}
+            </span>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Obere Zeile: Datum + Verkaufsstelle -->
   <div class="card mb-4">
     <div class="card-header"><i class="bi bi-info-circle me-2"></i>Grunddaten</div>
     <div class="card-body">
       <div class="row g-3 align-items-end">
-        <div class="col-md-3">
+        <div class="col-6 col-md-2">
           <label class="form-label">Datum <span class="text-danger">*</span></label>
           <input type="date" name="datum" class="form-control" value="{{ heute }}"
                  {% if min_datum %}min="{{ min_datum }}"{% endif %} required>
         </div>
-        <div class="col-md-7">
+        <div class="col-3 col-md-2">
+          <label class="form-label">Von <span class="text-danger">*</span></label>
+          <input type="time" name="von_uhrzeit" class="form-control" required>
+        </div>
+        <div class="col-3 col-md-2">
+          <label class="form-label">Bis <span class="text-danger">*</span></label>
+          <input type="time" name="bis_uhrzeit" class="form-control" required>
+        </div>
+        <div class="col-12 col-md-4">
           <label class="form-label">Verkaufsstelle <span class="text-danger">*</span></label>
           <div class="position-relative">
             <div class="input-group">
@@ -315,8 +382,16 @@
             <input type="text" name="strasse" class="form-control" placeholder="z.B. Hauptstr. 12" required>
           </div>
           <div class="mb-3">
-            <label class="form-label">Ort <span class="text-danger">*</span></label>
-            <input type="text" name="ort" class="form-control" placeholder="z.B. München" required>
+            <div class="row g-2">
+              <div class="col-4">
+                <label class="form-label">PLZ <span class="text-muted fw-normal">(opt.)</span></label>
+                <input type="text" name="plz" class="form-control" placeholder="z.B. 84178" maxlength="10">
+              </div>
+              <div class="col-8">
+                <label class="form-label">Ort <span class="text-danger">*</span></label>
+                <input type="text" name="ort" class="form-control" placeholder="z.B. München" required>
+              </div>
+            </div>
           </div>
           <div class="mb-3">
             <label class="form-label">Typ</label>
@@ -890,7 +965,9 @@ document.getElementById('aktivForm').addEventListener('submit', async function(e
   const fotoB64 = fotoFile ? await window.OQ.compressImage(fotoFile) : null;
 
   // Formular-Daten sammeln
-  const datum   = document.querySelector('[name="datum"]').value;
+  const datum       = document.querySelector('[name="datum"]').value;
+  const von_uhrzeit = document.querySelector('[name="von_uhrzeit"]').value;
+  const bis_uhrzeit = document.querySelector('[name="bis_uhrzeit"]').value;
   const notizen = document.querySelector('[name="notizen"]').value;
   const displays = {};
   document.querySelectorAll('.disp-input').forEach(el => {
@@ -907,7 +984,7 @@ document.getElementById('aktivForm').addEventListener('submit', async function(e
 
   // In IndexedDB speichern
   await window.OQ.save({
-    data: { datum, verkaufsstelle_id: vsId, notizen, foto: fotoB64, displays, bier, aktionstyp: aktTyp },
+    data: { datum, von_uhrzeit, bis_uhrzeit, verkaufsstelle_id: vsId, notizen, foto: fotoB64, displays, bier, aktionstyp: aktTyp },
     vs_label: vsLabel,
     saved_at: new Date().toISOString(),
   });
@@ -937,5 +1014,9 @@ document.getElementById('aktivForm').addEventListener('submit', async function(e
   // Erfolgsmeldung nach 6s ausblenden
   setTimeout(() => { if (successDiv.parentNode) successDiv.remove(); }, 6000);
 });
+
+{% if preselect_typ in ('Aufbau', 'Bestellung', 'Besuch') %}
+setTyp('{{ preselect_typ }}');
+{% endif %}
 </script>
 {% endblock %}

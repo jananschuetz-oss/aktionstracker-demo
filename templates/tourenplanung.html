@@ -88,7 +88,7 @@
         <div style="flex:1;min-width:0">
           <div class="fw-semibold {{ 'text-decoration-line-through text-muted' if stop.erledigt else '' }}"
                style="font-size:.9rem;color:#1a3a5c">{{ stop.station }}</div>
-          {% if stop.ort %}<div style="font-size:.76rem;color:#6c757d">{{ stop.ort }}</div>{% endif %}
+          {% if stop.plz or stop.ort %}<div style="font-size:.76rem;color:#6c757d">{% if stop.plz %}{{ stop.plz }} {% endif %}{{ stop.ort or '' }}</div>{% endif %}
           {% if stop.notiz %}<div style="font-size:.76rem;color:#2c7a7b"><i class="bi bi-chat-left-text me-1"></i>{{ stop.notiz }}</div>{% endif %}
         </div>
         {% if stop.erledigt %}
@@ -116,7 +116,7 @@
             <i class="bi bi-trash flex-shrink-0" style="color:#dc3545;font-size:.95rem"></i>
             <div style="flex:1;min-width:0">
               <div class="text-decoration-line-through" style="font-size:.88rem;color:#721c24">{{ stop.station }}</div>
-              {% if stop.ort %}<div style="font-size:.75rem;color:#adb5bd">{{ stop.ort }}</div>{% endif %}
+              {% if stop.plz or stop.ort %}<div style="font-size:.75rem;color:#adb5bd">{% if stop.plz %}{{ stop.plz }} {% endif %}{{ stop.ort or '' }}</div>{% endif %}
               {% if stop.geloescht_am %}<div style="font-size:.72rem;color:#adb5bd">Gelöscht: {{ stop.geloescht_am[:16] }}</div>{% endif %}
             </div>
             <span class="badge flex-shrink-0" style="background:#f8d7da;color:#721c24;font-size:.72rem">Gelöscht</span>
@@ -222,7 +222,7 @@
               <div style="flex:1;min-width:0">
                 <span class="fw-semibold {{ 'text-decoration-line-through text-muted' if stop.erledigt else '' }}"
                       style="font-size:.88rem;color:#1a3a5c">{{ stop.station }}</span>
-                {% if stop.ort %}<span class="ms-2" style="font-size:.76rem;color:#6c757d">{{ stop.ort }}</span>{% endif %}
+                {% if stop.plz or stop.ort %}<span class="ms-2" style="font-size:.76rem;color:#6c757d">{% if stop.plz %}{{ stop.plz }} {% endif %}{{ stop.ort or '' }}</span>{% endif %}
                 {% if stop.notiz %}<div style="font-size:.76rem;color:#2c7a7b"><i class="bi bi-chat-left-text me-1"></i>{{ stop.notiz }}</div>{% endif %}
               </div>
               {% if stop.erledigt %}
@@ -238,7 +238,7 @@
               <i class="bi bi-trash flex-shrink-0" style="color:#dc3545;font-size:.9rem"></i>
               <div style="flex:1;min-width:0">
                 <span class="text-decoration-line-through" style="font-size:.88rem;color:#721c24">{{ stop.station }}</span>
-                {% if stop.ort %}<span class="ms-2" style="font-size:.75rem;color:#adb5bd">{{ stop.ort }}</span>{% endif %}
+                {% if stop.plz or stop.ort %}<span class="ms-2" style="font-size:.75rem;color:#adb5bd">{% if stop.plz %}{{ stop.plz }} {% endif %}{{ stop.ort or '' }}</span>{% endif %}
                 {% if stop.geloescht_am %}<div style="font-size:.72rem;color:#adb5bd">Gelöscht: {{ stop.geloescht_am[:16] }}</div>{% endif %}
               </div>
               <span class="badge flex-shrink-0" style="background:#f8d7da;color:#721c24;font-size:.72rem">Gelöscht</span>

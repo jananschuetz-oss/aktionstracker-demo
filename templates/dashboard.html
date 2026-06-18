@@ -259,26 +259,37 @@
 <div class="card mb-4" style="border:1px solid #f0c674">
   <div class="card-body py-3">
     <div class="fw-semibold mb-2" style="color:#1a3a5c;font-size:.9rem">
-      <i class="bi bi-clock-history me-1" style="color:#c8860a"></i>Offene Aufbauten
+      <i class="bi bi-clock-history me-1" style="color:#c8860a"></i>Offene Bestellungen
       <span class="badge ms-1" style="background:#fdecc8;color:#8a5a00;font-weight:600">{{ vorgemerkt }}</span>
     </div>
     {% for b in offene_rep_liste[:3] %}
     {% set tage = b.alter_tage %}
-    <div class="d-flex align-items-center gap-2 py-2{% if not loop.last or offene_rep_liste|length > 3 %} border-bottom{% endif %}" style="font-size:.87rem">
-      <span style="width:10px;height:10px;border-radius:50%;flex-shrink:0;display:inline-block;background:{% if tage >= 5 %}#e24b4a{% elif tage >= 2 %}#ef9f27{% else %}#639922{% endif %}"></span>
-      <div style="flex-shrink:0">
-        <div class="fw-semibold" style="color:#1a3a5c">{{ b.station }}</div>
-        {% if b.strasse or b.ort %}<div style="font-size:.76rem;color:#6c757d;margin-top:1px">{{ b.strasse }}{% if b.strasse and b.ort %}, {% endif %}{{ b.ort }}</div>{% endif %}
+    <div class="py-2{% if not loop.last or offene_rep_liste|length > 3 %} border-bottom{% endif %}">
+      <div class="d-flex align-items-start gap-2">
+        <span style="width:10px;height:10px;border-radius:50%;flex-shrink:0;margin-top:3px;display:inline-block;background:{% if tage >= 5 %}#e24b4a{% elif tage >= 2 %}#ef9f27{% else %}#639922{% endif %}"></span>
+        <div style="flex:1;min-width:0">
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="fw-semibold" style="color:#1a3a5c;font-size:.87rem">{{ b.station }}</span>
+            <span style="font-size:.78rem;white-space:nowrap;font-weight:{% if tage >= 5 %}600{% else %}400{% endif %};color:{% if tage >= 5 %}#a32d2d{% elif tage >= 2 %}#854f0b{% else %}#0f6e56{% endif %}">{% if tage == 0 %}heute{% elif tage == 1 %}gestern{% else %}{{ tage }} Tage{% endif %}</span>
+          </div>
+          {% if b.strasse or b.ort %}<div style="font-size:.76rem;color:#6c757d;margin-top:1px">{{ b.strasse }}{% if b.strasse and b.ort %}, {% endif %}{{ b.ort }}</div>{% endif %}
+          {% if b.notizen %}<div style="font-size:.76rem;color:#5f6b7a;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><i class="bi bi-chat-left-text me-1" style="font-size:.7rem"></i>{{ b.notizen }}</div>{% endif %}
+        </div>
+        {% if b.kisten %}<span style="white-space:nowrap;font-size:.82rem;flex-shrink:0;color:#6c757d">{{ b.kisten }} {{ unit_label }}</span>{% endif %}
       </div>
-      <div style="flex:1;min-width:0;padding:0 4px">
-        {% if b.notizen %}<span style="font-size:.76rem;color:#5f6b7a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block"><i class="bi bi-chat-left-text me-1" style="font-size:.7rem"></i>{{ b.notizen }}</span>{% endif %}
+      <div class="d-flex gap-2 mt-2" style="padding-left:18px">
+        <a href="{{ url_for('neue_aktivitaet') }}?vs_id={{ b.vs_id }}&bestellung_id={{ b.id }}&typ=Aufbau"
+           class="btn btn-sm"
+           style="background:#1a3a5c;color:#fff;font-size:.75rem;padding:3px 9px">
+          <i class="bi bi-hammer me-1"></i>Aufbau
+        </a>
+        <button type="button" class="btn btn-sm"
+                style="background:#2c7a7b;color:#fff;font-size:.75rem;padding:3px 9px"
+                data-bs-toggle="modal" data-bs-target="#besuchPlanenModal"
+                data-vs-id="{{ b.vs_id }}" data-vs-name="{{ b.station|e }}">
+          <i class="bi bi-calendar-plus me-1"></i>Besuch planen
+        </button>
       </div>
-      <span style="white-space:nowrap;font-size:.82rem;flex-shrink:0;color:#6c757d">
-        {% if b.kisten %}{{ b.kisten }} {{ unit_label }}{% endif %}{% if b.kisten and b.displays %} · {% endif %}{% if b.displays %}{{ b.displays }} Disp.{% endif %}
-      </span>
-      <span style="font-size:.78rem;white-space:nowrap;flex-shrink:0;font-weight:{% if tage >= 5 %}600{% else %}400{% endif %};color:{% if tage >= 5 %}#a32d2d{% elif tage >= 2 %}#854f0b{% else %}#0f6e56{% endif %}">
-        {% if tage == 0 %}heute{% elif tage == 1 %}gestern{% else %}{{ tage }} Tage{% endif %}
-      </span>
     </div>
     {% endfor %}
     {% if offene_rep_liste|length > 3 %}
@@ -291,27 +302,78 @@
     <div class="collapse" id="repBestellungenExtra">
       {% for b in offene_rep_liste[3:] %}
       {% set tage = b.alter_tage %}
-      <div class="d-flex align-items-center gap-2 py-2 border-top" style="font-size:.87rem">
-        <span style="width:10px;height:10px;border-radius:50%;flex-shrink:0;display:inline-block;background:{% if tage >= 5 %}#e24b4a{% elif tage >= 2 %}#ef9f27{% else %}#639922{% endif %}"></span>
-        <div style="flex-shrink:0">
-          <div class="fw-semibold" style="color:#1a3a5c">{{ b.station }}</div>
-          {% if b.strasse or b.ort %}<div style="font-size:.76rem;color:#6c757d;margin-top:1px">{{ b.strasse }}{% if b.strasse and b.ort %}, {% endif %}{{ b.ort }}</div>{% endif %}
+      <div class="py-2 border-top">
+        <div class="d-flex align-items-start gap-2">
+          <span style="width:10px;height:10px;border-radius:50%;flex-shrink:0;margin-top:3px;display:inline-block;background:{% if tage >= 5 %}#e24b4a{% elif tage >= 2 %}#ef9f27{% else %}#639922{% endif %}"></span>
+          <div style="flex:1;min-width:0">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <span class="fw-semibold" style="color:#1a3a5c;font-size:.87rem">{{ b.station }}</span>
+              <span style="font-size:.78rem;white-space:nowrap;font-weight:{% if tage >= 5 %}600{% else %}400{% endif %};color:{% if tage >= 5 %}#a32d2d{% elif tage >= 2 %}#854f0b{% else %}#0f6e56{% endif %}">{% if tage == 0 %}heute{% elif tage == 1 %}gestern{% else %}{{ tage }} Tage{% endif %}</span>
+            </div>
+            {% if b.strasse or b.ort %}<div style="font-size:.76rem;color:#6c757d;margin-top:1px">{{ b.strasse }}{% if b.strasse and b.ort %}, {% endif %}{{ b.ort }}</div>{% endif %}
+            {% if b.notizen %}<div style="font-size:.76rem;color:#5f6b7a;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><i class="bi bi-chat-left-text me-1" style="font-size:.7rem"></i>{{ b.notizen }}</div>{% endif %}
+          </div>
+          {% if b.kisten %}<span style="white-space:nowrap;font-size:.82rem;flex-shrink:0;color:#6c757d">{{ b.kisten }} {{ unit_label }}</span>{% endif %}
         </div>
-        <div style="flex:1;min-width:0;padding:0 4px">
-          {% if b.notizen %}<span style="font-size:.76rem;color:#5f6b7a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block"><i class="bi bi-chat-left-text me-1" style="font-size:.7rem"></i>{{ b.notizen }}</span>{% endif %}
+        <div class="d-flex gap-2 mt-2" style="padding-left:18px">
+          <a href="{{ url_for('neue_aktivitaet') }}?vs_id={{ b.vs_id }}&bestellung_id={{ b.id }}&typ=Aufbau"
+             class="btn btn-sm"
+             style="background:#1a3a5c;color:#fff;font-size:.75rem;padding:3px 9px">
+            <i class="bi bi-hammer me-1"></i>Aufbau
+          </a>
+          <button type="button" class="btn btn-sm"
+                  style="background:#2c7a7b;color:#fff;font-size:.75rem;padding:3px 9px"
+                  data-bs-toggle="modal" data-bs-target="#besuchPlanenModal"
+                  data-vs-id="{{ b.vs_id }}" data-vs-name="{{ b.station|e }}">
+            <i class="bi bi-calendar-plus me-1"></i>Besuch planen
+          </button>
         </div>
-        <span style="white-space:nowrap;font-size:.82rem;flex-shrink:0;color:#6c757d">
-          {% if b.kisten %}{{ b.kisten }} {{ unit_label }}{% endif %}{% if b.kisten and b.displays %} · {% endif %}{% if b.displays %}{{ b.displays }} Disp.{% endif %}
-        </span>
-        <span style="font-size:.78rem;white-space:nowrap;flex-shrink:0;font-weight:{% if tage >= 5 %}600{% else %}400{% endif %};color:{% if tage >= 5 %}#a32d2d{% elif tage >= 2 %}#854f0b{% else %}#0f6e56{% endif %}">
-          {% if tage == 0 %}heute{% elif tage == 1 %}gestern{% else %}{{ tage }} Tage{% endif %}
-        </span>
       </div>
       {% endfor %}
     </div>
     {% endif %}
   </div>
 </div>
+
+<!-- Modal: Besuch planen -->
+<div class="modal fade" id="besuchPlanenModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-sm">
+    <div class="modal-content" style="border-radius:12px">
+      <div class="modal-header py-2 px-3" style="border-bottom:1px solid #e9ecef">
+        <h6 class="modal-title mb-0" style="color:#1a3a5c;font-size:.9rem">
+          <i class="bi bi-calendar-plus me-2" style="color:#2c7a7b"></i>Besuch planen
+        </h6>
+        <button type="button" class="btn-close" style="font-size:.75rem" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" action="{{ url_for('tourenplanung_neu') }}">
+        <div class="modal-body py-3 px-3">
+          <div class="fw-semibold mb-3" id="besuchPlanenName" style="color:#1a3a5c;font-size:.88rem"></div>
+          <label class="form-label" style="font-size:.82rem;color:#6c757d">Tag auswählen</label>
+          <input type="date" name="datum" id="besuchPlanenDatum" class="form-control form-control-sm" required>
+          <input type="hidden" name="mitarbeiter_id" value="{{ session.user_id }}">
+          <input type="hidden" name="verkaufsstelle_id" id="besuchPlanenVsId">
+        </div>
+        <div class="modal-footer py-2 px-3" style="border-top:1px solid #e9ecef">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-sm" style="background:#2c7a7b;color:#fff">
+            <i class="bi bi-calendar-check me-1"></i>In Plan eintragen
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', function(e) {
+  const btn = e.relatedTarget;
+  document.getElementById('besuchPlanenVsId').value = btn.dataset.vsId;
+  document.getElementById('besuchPlanenName').textContent = btn.dataset.vsName;
+  const today = new Date().toISOString().split('T')[0];
+  const inp = document.getElementById('besuchPlanenDatum');
+  inp.value = today;
+  inp.min  = today;
+});
+</script>
 {% endif %}
 {% endif %}
 
@@ -521,23 +583,39 @@
         </div>
       </div>
 
-      <!-- Zeile 2: Filter-Tabs -->
+      <!-- Zeile 2: Chip-Filter -->
       <div class="mb-2">
         <label class="form-label mb-1" style="font-size:.8rem;color:#555;font-weight:600">Filter</label>
-        <div class="d-flex flex-wrap gap-2 mb-2">
-          <button type="button" class="btn btn-sm btn-outline-secondary vs-filter-btn active"
-                  data-filter="alle" style="font-size:.78rem">Alle</button>
-          <button type="button" class="btn btn-sm btn-outline-secondary vs-filter-btn"
-                  data-filter="typ" style="font-size:.78rem"><i class="bi bi-tag me-1"></i>Art</button>
-          <button type="button" class="btn btn-sm btn-outline-secondary vs-filter-btn"
-                  data-filter="ort" style="font-size:.78rem"><i class="bi bi-geo-alt me-1"></i>Stadt</button>
-          <button type="button" class="btn btn-sm btn-outline-secondary vs-filter-btn"
-                  data-filter="landkreis" style="font-size:.78rem"><i class="bi bi-map me-1"></i>Landkreis</button>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+          {% for fkey, ficon, flabel in [('typ','bi-tag','Art'),('ort','bi-geo-alt','Stadt'),('landkreis','bi-map','Landkreis'),('plz','bi-mailbox','PLZ')] %}
+          <div class="position-relative vs-chip-wrap">
+            <button type="button" class="btn btn-sm btn-outline-secondary vs-chip-btn" id="vsChip-{{ fkey }}"
+                    data-fkey="{{ fkey }}" style="font-size:.78rem">
+              <i class="bi {{ ficon }} me-1"></i>{{ flabel }}
+              <span class="vs-chip-count badge ms-1 d-none" style="background:#1a3a5c;font-size:.67rem"></span>
+              <i class="bi bi-chevron-down ms-1" style="font-size:.6rem;opacity:.55"></i>
+            </button>
+            <div class="vs-dropdown" id="vsDrop-{{ fkey }}"
+                 style="display:none;position:absolute;top:calc(100% + 5px);left:0;z-index:300;min-width:230px;background:#fff;border:1px solid #d0d7e2;border-radius:10px;box-shadow:0 6px 22px rgba(0,0,0,.14);overflow:hidden">
+              <div style="padding:8px 8px 6px">
+                <input type="text" class="form-control form-control-sm vs-chip-search"
+                       placeholder="Suchen…" autocomplete="off" style="font-size:.82rem">
+              </div>
+              <div class="vs-chip-list" style="max-height:190px;overflow-y:auto;padding:0 5px 5px"></div>
+              <div style="padding:6px 10px;border-top:1px solid #e9ecef;display:flex;gap:6px;align-items:center">
+                <button type="button" class="vs-chip-reset btn btn-link p-0 text-muted"
+                        style="font-size:.75rem;text-decoration:none">Zurücksetzen</button>
+                <button type="button" class="vs-chip-close btn btn-link p-0 ms-auto"
+                        style="font-size:.75rem;color:#1a3a5c;text-decoration:none;font-weight:600">Fertig ✓</button>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+          <button type="button" class="btn btn-sm btn-link p-0 text-muted d-none" id="vsFilterReset"
+                  style="font-size:.78rem;text-decoration:none">
+            <i class="bi bi-x-circle me-1"></i>Alles zurücksetzen
+          </button>
         </div>
-        <!-- Filterwert-Auswahl -->
-        <select id="vsFilterWert" class="form-select form-select-sm d-none" style="max-width:min(280px,100%)">
-          <option value="">– Bitte wählen –</option>
-        </select>
       </div>
 
       <!-- Zeile 3: Stationsauswahl + Button -->
@@ -550,15 +628,21 @@
             <option value="{{ vs.id }}"
                     data-typ="{{ vs.typ or '' }}"
                     data-ort="{{ vs.ort or '' }}"
-                    data-landkreis="{{ vs.landkreis or '' }}">
-              {{ vs.name }}{% if vs.ort %} – {{ vs.ort }}{% endif %}{% if vs.strasse %} ({{ vs.strasse }}){% endif %}
+                    data-landkreis="{{ vs.landkreis or '' }}"
+                    data-plz="{{ vs.plz or '' }}">
+              {{ vs.name }}{% if vs.plz or vs.ort %} – {% if vs.plz %}{{ vs.plz }} {% endif %}{{ vs.ort or '' }}{% endif %}{% if vs.strasse %} ({{ vs.strasse }}){% endif %}
             </option>
             {% endfor %}
           </select>
         </div>
-        <div>
+        <div class="d-flex gap-2">
           <button type="submit" class="btn btn-sm" style="background:#1a3a5c;color:#fff;padding:6px 16px">
             <i class="bi bi-plus-lg me-1"></i>Stop
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-secondary btn-verlauf" id="btnVerlaufAdd"
+                  disabled data-vs-id="" data-vs-name=""
+                  style="padding:6px 13px" title="Verlauf der gewählten Station anzeigen">
+            <i class="bi bi-clock-history me-1"></i>Verlauf
           </button>
         </div>
       </div>
@@ -568,67 +652,150 @@
 
 <script>
 (function () {
-  const filterBtns   = document.querySelectorAll('.vs-filter-btn');
-  const filterWert   = document.getElementById('vsFilterWert');
-  const hauptSelect  = document.getElementById('vsHauptSelect');
-  if (!filterBtns.length || !filterWert || !hauptSelect) return;
+  const vsSelect     = document.getElementById('vsHauptSelect');
+  const btnVerlauf   = document.getElementById('btnVerlaufAdd');
+  const resetAll     = document.getElementById('vsFilterReset');
+  if (!vsSelect) return;
 
-  const alleOptionen = Array.from(hauptSelect.options).slice(1);
+  const alleOpts = Array.from(vsSelect.options).slice(1);
+  const DIMS     = ['typ', 'ort', 'landkreis', 'plz'];
+  const aktiv    = {typ: [], ort: [], landkreis: [], plz: []};
+  const KASKADE  = { ort: 'landkreis', plz: 'landkreis' };
 
-  function uniqueSorted(arr) {
-    return [...new Set(arr.filter(Boolean))].sort((a, b) => a.localeCompare(b, 'de'));
+  function erlaubteOpts(key) {
+    const parent = KASKADE[key];
+    if (!parent || aktiv[parent].length === 0) return alleOpts;
+    return alleOpts.filter(o => aktiv[parent].includes((o.dataset[parent] || '').trim()));
   }
 
-  let aktivFilter = 'alle';
-  let aktivWert   = '';
+  function uniqueFor(key) {
+    return [...new Set(erlaubteOpts(key).map(o => (o.dataset[key] || '').trim()).filter(Boolean))]
+             .sort((a, b) => a.localeCompare(b, 'de'));
+  }
+
+  function bereinigeDeps() {
+    Object.entries(KASKADE).forEach(([child, parent]) => {
+      if (!aktiv[parent].length) return;
+      const erlaubt = uniqueFor(child);
+      const vor = aktiv[child].length;
+      aktiv[child] = aktiv[child].filter(v => erlaubt.includes(v));
+      if (aktiv[child].length !== vor) updateChip(child);
+    });
+  }
+
+  function updateChip(key) {
+    const n     = aktiv[key].length;
+    const badge = document.querySelector(`#vsChip-${key} .vs-chip-count`);
+    const btn   = document.getElementById(`vsChip-${key}`);
+    if (badge) { badge.textContent = n; badge.classList.toggle('d-none', n === 0); }
+    if (btn) {
+      btn.classList.toggle('btn-outline-secondary', n === 0);
+      btn.classList.toggle('btn-primary',           n > 0);
+    }
+    if (resetAll) resetAll.classList.toggle('d-none', DIMS.every(d => aktiv[d].length === 0));
+  }
+
+  function buildList(key) {
+    const drop   = document.getElementById(`vsDrop-${key}`);
+    const list   = drop.querySelector('.vs-chip-list');
+    const search = drop.querySelector('.vs-chip-search');
+    search.value = '';
+
+    list.innerHTML = uniqueFor(key).map(w =>
+      `<label style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer;font-size:.82rem">
+         <input type="checkbox" class="form-check-input m-0 flex-shrink-0" value="${w}" ${aktiv[key].includes(w) ? 'checked' : ''}>
+         <span>${w}</span>
+       </label>`
+    ).join('') || '<div class="text-muted ps-2 py-1" style="font-size:.8rem">Keine Werte</div>';
+
+    search.addEventListener('input', function () {
+      const q = this.value.toLowerCase();
+      list.querySelectorAll('label').forEach(lbl =>
+        lbl.style.display = lbl.textContent.toLowerCase().includes(q) ? '' : 'none'
+      );
+    }, {once: false});
+
+    list.querySelectorAll('input[type=checkbox]').forEach(cb => {
+      cb.addEventListener('change', function () {
+        if (this.checked) { if (!aktiv[key].includes(this.value)) aktiv[key].push(this.value); }
+        else              { aktiv[key] = aktiv[key].filter(v => v !== this.value); }
+        updateChip(key);
+        if (key === 'landkreis') bereinigeDeps();
+        filterAnwenden();
+      });
+    });
+  }
 
   function filterAnwenden() {
-    hauptSelect.innerHTML = '<option value="">– Bitte wählen –</option>';
-    alleOptionen.forEach(opt => {
-      if (aktivFilter === 'alle') {
-        hauptSelect.appendChild(opt.cloneNode(true));
-      } else {
-        const val = opt.dataset[aktivFilter] || '';
-        if (!aktivWert || val === aktivWert) {
-          hauptSelect.appendChild(opt.cloneNode(true));
-        }
-      }
+    const noFilter = DIMS.every(d => aktiv[d].length === 0);
+    vsSelect.innerHTML = '<option value="">– Bitte wählen –</option>';
+    alleOpts.forEach(opt => {
+      const match = noFilter || DIMS.every(d =>
+        aktiv[d].length === 0 || aktiv[d].includes((opt.dataset[d] || '').trim())
+      );
+      if (match) vsSelect.appendChild(opt.cloneNode(true));
     });
+    vsSelect.value = '';
+    if (btnVerlauf) { btnVerlauf.disabled = true; btnVerlauf.dataset.vsId = ''; }
+    saveFilter();
   }
 
-  function filterWertBefuellen(filterKey) {
-    const werte = uniqueSorted(alleOptionen.map(o => o.dataset[filterKey] || ''));
-    filterWert.innerHTML = '<option value="">Alle</option>';
-    werte.forEach(w => {
-      const o = document.createElement('option');
-      o.value = w; o.textContent = w;
-      filterWert.appendChild(o);
-    });
-    filterWert.classList.remove('d-none');
-    aktivWert = '';
-    filterAnwenden();
+  function saveFilter() {
+    try { sessionStorage.setItem('vsFilter_tp', JSON.stringify(aktiv)); } catch(e) {}
   }
 
-  filterBtns.forEach(btn => {
-    btn.addEventListener('click', function () {
-      filterBtns.forEach(b => b.classList.remove('active'));
-      this.classList.add('active');
-      aktivFilter = this.dataset.filter;
-      if (aktivFilter === 'alle') {
-        filterWert.classList.add('d-none');
-        filterWert.innerHTML = '';
-        aktivWert = '';
-        filterAnwenden();
-      } else {
-        filterWertBefuellen(aktivFilter);
-      }
+  function loadFilter() {
+    try {
+      const s = sessionStorage.getItem('vsFilter_tp');
+      if (s) { const o = JSON.parse(s); DIMS.forEach(d => { if (Array.isArray(o[d])) aktiv[d] = o[d]; }); }
+    } catch(e) {}
+  }
+
+  document.querySelectorAll('.vs-chip-btn').forEach(btn => {
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      const key  = this.dataset.fkey;
+      const drop = document.getElementById(`vsDrop-${key}`);
+      const open = drop.style.display !== 'none';
+      document.querySelectorAll('.vs-dropdown').forEach(d => d.style.display = 'none');
+      if (!open) { buildList(key); drop.style.display = ''; drop.querySelector('.vs-chip-search').focus(); }
     });
   });
 
-  filterWert.addEventListener('change', function () {
-    aktivWert = this.value;
-    filterAnwenden();
+  document.querySelectorAll('.vs-dropdown').forEach(drop => {
+    drop.addEventListener('click', e => e.stopPropagation());
+    drop.querySelector('.vs-chip-reset')?.addEventListener('click', function () {
+      const key = drop.id.replace('vsDrop-', '');
+      aktiv[key] = [];
+      if (key === 'landkreis') bereinigeDeps();
+      buildList(key); updateChip(key); filterAnwenden();
+    });
+    drop.querySelector('.vs-chip-close')?.addEventListener('click', () => { drop.style.display = 'none'; });
   });
+
+  document.addEventListener('click', () =>
+    document.querySelectorAll('.vs-dropdown').forEach(d => d.style.display = 'none')
+  );
+
+  resetAll?.addEventListener('click', function () {
+    DIMS.forEach(d => aktiv[d] = []);
+    DIMS.forEach(d => updateChip(d));
+    filterAnwenden();
+    try { sessionStorage.removeItem('vsFilter_tp'); } catch(e) {}
+  });
+
+  vsSelect.addEventListener('change', function () {
+    if (!btnVerlauf) return;
+    btnVerlauf.disabled      = !this.value;
+    btnVerlauf.dataset.vsId  = this.value;
+    btnVerlauf.dataset.vsName = this.options[this.selectedIndex]?.text.split('–')[0].trim() || '';
+  });
+
+  document.getElementById('stopForm')?.addEventListener('submit', saveFilter);
+
+  loadFilter();
+  DIMS.forEach(d => updateChip(d));
+  filterAnwenden();
 })();
 </script>
 
@@ -684,33 +851,52 @@
         <span class="text-muted fw-normal ms-1">({{ stop.datum | weekday_de }})</span>
       </div>
     {% endif %}
-    <div class="py-2 px-3 mb-2 rounded-3 {% if stop.erledigt %}opacity-50{% endif %}"
+    <div class="py-2 px-3 mb-2 rounded-3 tp-stop-item {% if stop.erledigt %}opacity-50{% endif %}"
+         data-tp-id="{{ stop.id }}"
          style="background:{% if stop.erledigt %}#f8f9fa{% else %}#f0f4f8{% endif %};border:1px solid {% if stop.erledigt %}#dee2e6{% else %}#d4dce8{% endif %}">
       <div class="d-flex align-items-start gap-2">
         <!-- Nummer -->
-        <span class="fw-bold flex-shrink-0" style="color:#1a3a5c;min-width:20px;font-size:.95rem;padding-top:2px">{{ loop.index }}.</span>
+        <span class="fw-bold flex-shrink-0 tp-stop-nr" style="color:#1a3a5c;min-width:20px;font-size:.95rem;padding-top:2px">{{ loop.index }}.</span>
         <!-- Station -->
         <div style="flex:1;min-width:0">
           <div class="fw-semibold {% if stop.erledigt %}text-decoration-line-through{% endif %}" style="color:#1a3a5c;line-height:1.3">
             {{ stop.station }}
           </div>
-          {% if stop.strasse or stop.ort %}
-          <div style="font-size:.75rem;color:#6c757d">{{ stop.strasse }}{% if stop.strasse and stop.ort %}, {% endif %}{{ stop.ort }}</div>
+          {% if stop.strasse or stop.plz or stop.ort %}
+          <div style="font-size:.75rem;color:#6c757d">{{ stop.strasse }}{% if stop.strasse and (stop.plz or stop.ort) %}, {% endif %}{% if stop.plz %}{{ stop.plz }} {% endif %}{{ stop.ort or '' }}</div>
           {% endif %}
           {% if stop.notiz %}
           <div style="font-size:.75rem;color:#2c7a7b;margin-top:2px"><i class="bi bi-chat-left-text me-1"></i>{{ stop.notiz }}</div>
           {% endif %}
           {% if not stop.erledigt %}
-          <a href="{{ url_for('neue_aktivitaet') }}?vs_id={{ stop.vs_id }}"
-             class="btn btn-sm mt-2 d-inline-flex d-sm-none align-items-center gap-1"
-             style="background:#1a3a5c;color:#fff;font-size:.78rem;padding:5px 12px">
-            <i class="bi bi-plus-circle"></i>Besuch erfassen
-          </a>
+          <div class="d-flex gap-2 mt-2 d-sm-none flex-wrap">
+            <a href="{{ url_for('neue_aktivitaet') }}?vs_id={{ stop.vs_id }}"
+               class="btn btn-sm d-inline-flex align-items-center gap-1"
+               style="background:#1a3a5c;color:#fff;font-size:.78rem;padding:5px 12px">
+              <i class="bi bi-plus-circle"></i>Besuch erfassen
+            </a>
+            <button type="button" class="btn btn-sm btn-outline-secondary btn-verlauf"
+                    data-vs-id="{{ stop.vs_id }}" data-vs-name="{{ stop.station }}"
+                    style="font-size:.78rem;padding:5px 10px" title="Verlauf anzeigen">
+              <i class="bi bi-clock-history me-1"></i>Verlauf
+            </button>
+          </div>
           {% endif %}
         </div>
         <!-- Aktionen (rechts) -->
         <div class="d-flex gap-1 flex-shrink-0 align-items-center">
+          <button type="button" class="btn btn-sm btn-outline-secondary btn-verlauf d-none d-sm-inline-flex align-items-center gap-1"
+                  data-vs-id="{{ stop.vs_id }}" data-vs-name="{{ stop.station }}"
+                  style="font-size:.78rem;padding:4px 9px" title="Verlauf anzeigen">
+            <i class="bi bi-clock-history"></i>
+          </button>
           {% if not stop.erledigt %}
+          <button type="button" class="btn btn-sm btn-outline-secondary tp-reihf-btn tp-reihf-hoch"
+                  data-tp-id="{{ stop.id }}" data-richtung="hoch"
+                  style="font-size:.78rem;padding:4px 8px;line-height:1" title="Nach oben">↑</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary tp-reihf-btn tp-reihf-runter"
+                  data-tp-id="{{ stop.id }}" data-richtung="runter"
+                  style="font-size:.78rem;padding:4px 8px;line-height:1" title="Nach unten">↓</button>
           <a href="{{ url_for('neue_aktivitaet') }}?vs_id={{ stop.vs_id }}"
              class="btn btn-sm d-none d-sm-inline-flex align-items-center gap-1"
              style="background:#1a3a5c;color:#fff;font-size:.78rem;padding:4px 10px">
@@ -748,6 +934,141 @@
 </div>{# /tab-pane #tab-tagesplan #}
 </div>{# /tab-content #}
 {% endif %}{# /touren_modus rep tabs #}
+
+<!-- Modal: Kundenhistorie -->
+<div class="modal fade" id="historieModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header py-2 px-3" style="border-bottom:2px solid #e9ecef">
+        <div>
+          <h6 class="modal-title mb-0 fw-bold" style="color:#1a3a5c">
+            <i class="bi bi-clock-history me-2"></i><span id="historieModalName">Verlauf</span>
+          </h6>
+          <div class="text-muted" id="historieModalOrt" style="font-size:.8rem"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0" id="historieModalBody" style="min-height:120px">
+        <div class="text-center py-5">
+          <div class="spinner-border text-primary" style="width:1.5rem;height:1.5rem"></div>
+          <p class="mt-2 small text-muted mb-0">Lade Verlauf…</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Kundenhistorie-Modal ──────────────────────────────────────────────────────
+function openHistorie(vsId, vsName) {
+  if (!vsId) return;
+  const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('historieModal'));
+  document.getElementById('historieModalName').textContent = vsName || 'Verlauf';
+  document.getElementById('historieModalOrt').textContent  = '';
+  document.getElementById('historieModalBody').innerHTML   =
+    '<div class="text-center py-5"><div class="spinner-border text-primary" style="width:1.5rem;height:1.5rem"></div>' +
+    '<p class="mt-2 small text-muted mb-0">Lade Verlauf…</p></div>';
+  modal.show();
+
+  fetch(`/api/verkaufsstelle/${vsId}/aktivitaeten`)
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('historieModalOrt').textContent = data.ort || '';
+      if (!data.ok || !data.data || !data.data.length) {
+        document.getElementById('historieModalBody').innerHTML =
+          '<div class="text-center py-5 text-muted">' +
+          '<i class="bi bi-calendar-x" style="font-size:2rem"></i>' +
+          '<p class="mt-2 mb-0 small">Noch keine Aktivitäten erfasst.</p></div>';
+        return;
+      }
+      const rows = data.data.map(a => {
+        const disp  = a.anzahl_displays ? `<span style="font-size:.78rem;color:#6c757d"><i class="bi bi-display me-1"></i>${a.anzahl_displays} Display${a.anzahl_displays != 1 ? 's' : ''}</span>` : '';
+        const best  = a.bestellungen   ? `<span style="font-size:.78rem;color:#2c7a7b"><i class="bi bi-box-seam me-1"></i>${a.bestellungen}</span>` : '';
+        const note  = a.notizen        ? `<div style="font-size:.78rem;color:#6c757d;font-style:italic;margin-top:3px"><i class="bi bi-chat-left-text me-1"></i>${a.notizen}</div>` : '';
+        return `<div style="padding:11px 16px;border-bottom:1px solid #f0f4f8">
+          <div class="d-flex align-items-start gap-2">
+            <span class="badge flex-shrink-0" style="background:#e8edf3;color:#4a5568;font-size:.74rem;margin-top:2px;white-space:nowrap">${a.datum}</span>
+            <div style="flex:1;min-width:0">
+              <div class="fw-semibold" style="font-size:.88rem;color:#1a3a5c">
+                ${a.aktionstyp} <span style="color:#888;font-weight:400">· ${a.mitarbeiter}</span>
+              </div>
+              <div class="d-flex gap-3 flex-wrap mt-1">${disp}${best}</div>
+              ${note}
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+      document.getElementById('historieModalBody').innerHTML =
+        `<div style="max-height:420px;overflow-y:auto">${rows}</div>`;
+    })
+    .catch(() => {
+      document.getElementById('historieModalBody').innerHTML =
+        '<div class="text-center py-4 text-danger small">Fehler beim Laden.</div>';
+    });
+}
+
+// Event-Delegation für alle .btn-verlauf Buttons
+document.addEventListener('click', function (e) {
+  const btn = e.target.closest('.btn-verlauf');
+  if (!btn) return;
+  openHistorie(btn.dataset.vsId, btn.dataset.vsName);
+});
+
+// ── Reihenfolge Up/Down ───────────────────────────────────────────────────────
+(function () {
+  function updateBtnsInGruppe(gruppe) {
+    const items = Array.from(gruppe.querySelectorAll('.tp-stop-item'));
+    const aktiveItems = items.filter(i => i.querySelector('.tp-reihf-hoch'));
+    aktiveItems.forEach((item, idx) => {
+      const h = item.querySelector('.tp-reihf-hoch');
+      const r = item.querySelector('.tp-reihf-runter');
+      if (h) h.disabled = (idx === 0);
+      if (r) r.disabled = (idx === aktiveItems.length - 1);
+    });
+    items.forEach((item, idx) => {
+      const nr = item.querySelector('.tp-stop-nr');
+      if (nr) nr.textContent = (idx + 1) + '.';
+    });
+  }
+
+  document.querySelectorAll('.rep-tag-gruppe').forEach(g => updateBtnsInGruppe(g));
+
+  document.addEventListener('click', function (e) {
+    const btn = e.target.closest('.tp-reihf-btn');
+    if (!btn || btn.disabled) return;
+
+    const tpId     = btn.dataset.tpId;
+    const richtung = btn.dataset.richtung;
+    btn.disabled   = true;
+
+    fetch(`/tourenplanung/${tpId}/reihenfolge`, {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({richtung})
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (!data.ok) { btn.disabled = false; return; }
+      const stopDiv = document.querySelector(`.tp-stop-item[data-tp-id="${tpId}"]`);
+      if (!stopDiv) { location.reload(); return; }
+
+      if (richtung === 'hoch') {
+        let prev = stopDiv.previousElementSibling;
+        while (prev && !prev.classList.contains('tp-stop-item')) prev = prev.previousElementSibling;
+        if (prev) prev.parentNode.insertBefore(stopDiv, prev);
+      } else {
+        let next = stopDiv.nextElementSibling;
+        while (next && !next.classList.contains('tp-stop-item')) next = next.nextElementSibling;
+        if (next) next.parentNode.insertBefore(next, stopDiv);
+      }
+
+      const gruppe = stopDiv.closest('.rep-tag-gruppe');
+      if (gruppe) updateBtnsInGruppe(gruppe);
+    })
+    .catch(() => { btn.disabled = false; });
+  });
+})();
+</script>
 
 {% endblock %}
 
