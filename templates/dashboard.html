@@ -925,7 +925,7 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
             <i class="bi bi-check-lg" style="color:#155724"></i>
           </span>
           {% endif %}
-          {% if stop.datum > today_str and not stop.erledigt %}
+          {% if not stop.erledigt and stop.datum >= today_str %}
           <form method="POST" action="{{ url_for('tourenplanung_loeschen', tp_id=stop.id) }}" class="d-inline">
             <button type="submit" class="btn btn-sm btn-outline-danger"
                     style="font-size:.78rem;padding:5px 9px" title="Stop entfernen">
@@ -975,8 +975,8 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
           <div class="mb-3">
             <div class="row g-2">
               <div class="col-4">
-                <label class="form-label">PLZ <span class="text-muted fw-normal">(opt.)</span></label>
-                <input type="text" name="plz" class="form-control" placeholder="z.B. 84178" maxlength="10">
+                <label class="form-label">PLZ <span class="text-danger">*</span></label>
+                <input type="text" name="plz" class="form-control" placeholder="z.B. 84178" maxlength="10" required>
               </div>
               <div class="col-8">
                 <label class="form-label">Ort <span class="text-danger">*</span></label>

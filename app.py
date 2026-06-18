@@ -1788,14 +1788,14 @@ def tourenplanung_loeschen(tp_id):
     is_manager = session.get('rolle') in ('admin', 'verkaufsleiter')
     if not is_manager and row['mitarbeiter_id'] != session['user_id']:
         abort(403)
-    if not is_manager and (row['erledigt'] or row['datum'] <= date.today().isoformat()):
+    if not is_manager and (row['erledigt'] or row['datum'] < date.today().isoformat()):
         abort(403)
     execute(
         "UPDATE tagesplan SET geloescht=1, geloescht_am=datetime('now','localtime') WHERE id=?",
         (tp_id,)
     )
     if is_manager:
-        return redirect(url_for('tourenplanung', datum=row['datum'], ma=row['mitarbeiter_id']))
+        return redirect(url_for('tourenplanung', datum=row['datum']))
     return redirect(url_for('dashboard') + '#tab-tagesplan-btn')
 
 
@@ -3517,12 +3517,13 @@ def vs_neu_rep():
     name            = request.form.get('name',            '').strip()
     strasse         = request.form.get('strasse',         '').strip()
     ort             = request.form.get('ort',             '').strip()
+    plz_rep         = request.form.get('plz',             '').strip()
     typ             = request.form.get('typ',             '').strip()
     ansprechpartner = request.form.get('ansprechpartner', '').strip()
     next_page       = request.form.get('next',            '').strip()
     vom_dashboard   = next_page == 'tagesplan'
-    if not name or not strasse or not ort:
-        flash('Name, Straße und Ort sind Pflichtfelder.', 'danger')
+    if not name or not strasse or not plz_rep or not ort:
+        flash('Name, Straße, PLZ und Ort sind Pflichtfelder.', 'danger')
         return redirect(url_for('dashboard') if vom_dashboard else url_for('neue_aktivitaet'))
     if name:
         # Duplikat-Check: gleicher Name + Ort (Groß-/Kleinschreibung egal)
@@ -3540,10 +3541,9 @@ def vs_neu_rep():
             flash(f'„{vorhanden["name"]}" in {vorhanden["ort"] or "unbekanntem Ort"} existiert bereits – direkt ausgewählt.', 'info')
             return redirect(url_for('dashboard') if vom_dashboard else url_for('neue_aktivitaet', vs_id=vorhanden['id']))
 
-        plz_rep = request.form.get('plz', '').strip()
         new_id = execute(
             "INSERT INTO verkaufsstelle (name, strasse, plz, ort, typ, ansprechpartner) VALUES (?,?,?,?,?,?)",
-            (name, strasse, plz_rep or None, ort, typ, ansprechpartner)
+            (name, strasse, plz_rep, ort, typ, ansprechpartner)
         )
         # Reps/VKL: neue Verkaufsstelle direkt dem Ersteller zuordnen
         if session.get('rolle') in ('rep', 'verkaufsleiter'):

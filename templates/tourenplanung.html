@@ -95,6 +95,12 @@
         <span class="badge flex-shrink-0" style="background:#d4edda;color:#155724;font-size:.72rem">Erledigt</span>
         {% else %}
         <span class="badge flex-shrink-0" style="background:#fff3cd;color:#856404;font-size:.72rem">Offen</span>
+        <form method="POST" action="{{ url_for('tourenplanung_loeschen', tp_id=stop.id) }}" class="d-inline ms-1">
+          <button type="submit" class="btn btn-sm btn-outline-danger"
+                  style="font-size:.75rem;padding:3px 8px" title="Stop entfernen">
+            <i class="bi bi-trash"></i>
+          </button>
+        </form>
         {% endif %}
       </div>
       {% endfor %}
@@ -229,6 +235,12 @@
               <span class="badge flex-shrink-0" style="background:#d4edda;color:#155724;font-size:.72rem">Erledigt</span>
               {% else %}
               <span class="badge flex-shrink-0" style="background:#fff3cd;color:#856404;font-size:.72rem">Offen</span>
+              <form method="POST" action="{{ url_for('tourenplanung_loeschen', tp_id=stop.id) }}" class="d-inline ms-1">
+                <button type="submit" class="btn btn-sm btn-outline-danger"
+                        style="font-size:.75rem;padding:3px 8px" title="Stop entfernen">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </form>
               {% endif %}
             </div>
             {% endfor %}
