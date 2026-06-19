@@ -38,7 +38,7 @@
     .nav-link i { margin-right: .3rem; }
 
     .sidebar {
-      position: sticky; top: 70px; height: calc(100vh - 70px);
+      position: sticky; top: 58px; height: calc(100vh - 58px);
       overflow-y: auto; background: #fff;
       border-right: 1px solid #dee2e6;
       box-shadow: 2px 0 8px rgba(0,0,0,.05);
@@ -240,7 +240,7 @@
   </span>
 </nav>
 
-<nav class="navbar navbar-expand-lg sticky-top">
+<nav class="navbar navbar-expand-lg fixed-top">
   <div class="container-fluid px-3">
     <a class="navbar-brand" href="{{ url_for('dashboard') }}">
       <img src="{{ logo_url }}" alt="{{ company_short }}"
@@ -364,7 +364,7 @@
 </nav>
 {% endif %}
 
-<div class="container-fluid px-4 py-3">
+<div class="container-fluid px-4 py-3" style="padding-top: calc(.75rem + 58px) !important">
   <!-- PWA Install Banner (nur Mobile) -->
   {% if session.user_id %}
   <div id="installBanner"
