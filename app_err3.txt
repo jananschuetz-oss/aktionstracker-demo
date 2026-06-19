@@ -1,0 +1,93 @@
+ * Tip: There are .env files present. Install python-dotenv to use them.
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.68.105:5000
+Press CTRL+C to quit
+ * Restarting with stat
+ * Tip: There are .env files present. Install python-dotenv to use them.
+ * Debugger is active!
+ * Debugger PIN: 136-801-639
+127.0.0.1 - - [16/Jun/2026 09:44:15] "POST / HTTP/1.1" 302 -
+127.0.0.1 - - [16/Jun/2026 09:44:15] "POST / HTTP/1.1" 302 -
+127.0.0.1 - - [16/Jun/2026 09:44:16] "GET /dashboard HTTP/1.1" 200 -
+127.0.0.1 - - [16/Jun/2026 09:44:16] "GET /tourenplanung HTTP/1.1" 200 -
+127.0.0.1 - - [16/Jun/2026 09:44:16] "POST /tourenplanung/neu HTTP/1.1" 500 -
+Traceback (most recent call last):
+  File "C:\Users\User\Claude\AktionsTracker\_Demo\.venv\Lib\site-packages\flask\app.py", line 1536, in __call__
+    return self.wsgi_app(environ, start_response)
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\Claude\AktionsTracker\_Demo\.venv\Lib\site-packages\flask\app.py", line 1514, in wsgi_app
+    response = self.handle_exception(e)
+  File "C:\Users\User\Claude\AktionsTracker\_Demo\.venv\Lib\site-packages\flask\app.py", line 1511, in wsgi_app
+    response = self.full_dispatch_request()
+  File "C:\Users\User\Claude\AktionsTracker\_Demo\.venv\Lib\site-packages\flask\app.py", line 919, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "C:\Users\User\Claude\AktionsTracker\_Demo\.venv\Lib\site-packages\flask\app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "C:\Users\User\Claude\AktionsTracker\_Demo\.venv\Lib\site-packages\flask\app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\User\Claude\AktionsTracker\_Demo\app.py", line 1023, in decorated
+    return f(*args, **kwargs)
+  File "C:\Users\User\Claude\AktionsTracker\_Demo\app.py", line 1731, in tourenplanung_neu
+    abort(403)
+    ^^^^^
+NameError: name 'abort' is not defined. Did you mean: 'port'?
+127.0.0.1 - - [16/Jun/2026 09:44:27] "POST / HTTP/1.1" 302 -
+127.0.0.1 - - [16/Jun/2026 09:44:27] "POST /tourenplanung/neu HTTP/1.1" 302 -
+127.0.0.1 - - [16/Jun/2026 09:44:34] "POST / HTTP/1.1" 302 -
+127.0.0.1 - - [16/Jun/2026 09:44:34] "POST /tourenplanung/neu HTTP/1.1" 302 -
+127.0.0.1 - - [16/Jun/2026 09:44:48] "POST / HTTP/1.1" 302 -
+127.0.0.1 - - [16/Jun/2026 09:44:48] "GET /api/verkaufsstellen HTTP/1.1" 200 -
+127.0.0.1 - - [16/Jun/2026 09:44:48] "POST /tourenplanung/neu HTTP/1.1" 500 -
+Traceback (most recent call last):
+  File "C:\Users\User\Claude\AktionsTracker\_Demo\.venv\Lib\site-packages\flask\app.py", line 1536, in __call__
+    return self.wsgi_app(environ, start_response)
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\Claude\AktionsTracker\_Demo\.venv\Lib\site-packages\flask\app.py", line 1514, in wsgi_app
+    response = self.handle_exception(e)
+  File "C:\Users\User\Claude\AktionsTracker\_Demo\.venv\Lib\site-packages\flask\app.py", line 1511, in wsgi_app
+    response = self.full_dispatch_request()
+  File "C:\Users\User\Claude\AktionsTracker\_Demo\.venv\Lib\site-packages\flask\app.py", line 919, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "C:\Users\User\Claude\AktionsTracker\_Demo\.venv\Lib\site-packages\flask\app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "C:\Users\User\Claude\AktionsTracker\_Demo\.venv\Lib\site-packages\flask\app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\User\Claude\AktionsTracker\_Demo\app.py", line 1023, in decorated
+    return f(*args, **kwargs)
+  File "C:\Users\User\Claude\AktionsTracker\_Demo\app.py", line 1731, in tourenplanung_neu
+    abort(403)
+    ^^^^^
+NameError: name 'abort' is not defined. Did you mean: 'port'?
+127.0.0.1 - - [16/Jun/2026 09:45:14] "POST / HTTP/1.1" 302 -
+127.0.0.1 - - [16/Jun/2026 09:45:14] "GET / HTTP/1.1" 302 -
+127.0.0.1 - - [16/Jun/2026 09:45:14] "POST /tourenplanung/neu HTTP/1.1" 500 -
+Traceback (most recent call last):
+  File "C:\Users\User\Claude\AktionsTracker\_Demo\.venv\Lib\site-packages\flask\app.py", line 1536, in __call__
+    return self.wsgi_app(environ, start_response)
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\Claude\AktionsTracker\_Demo\.venv\Lib\site-packages\flask\app.py", line 1514, in wsgi_app
+    response = self.handle_exception(e)
+  File "C:\Users\User\Claude\AktionsTracker\_Demo\.venv\Lib\site-packages\flask\app.py", line 1511, in wsgi_app
+    response = self.full_dispatch_request()
+  File "C:\Users\User\Claude\AktionsTracker\_Demo\.venv\Lib\site-packages\flask\app.py", line 919, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "C:\Users\User\Claude\AktionsTracker\_Demo\.venv\Lib\site-packages\flask\app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "C:\Users\User\Claude\AktionsTracker\_Demo\.venv\Lib\site-packages\flask\app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\User\Claude\AktionsTracker\_Demo\app.py", line 1023, in decorated
+    return f(*args, **kwargs)
+  File "C:\Users\User\Claude\AktionsTracker\_Demo\app.py", line 1731, in tourenplanung_neu
+    abort(403)
+    ^^^^^
+NameError: name 'abort' is not defined. Did you mean: 'port'?
+ * Detected change in 'C:\\Users\\User\\Claude\\AktionsTracker\\_Demo\\app.py', reloading
+ * Restarting with stat
+ * Tip: There are .env files present. Install python-dotenv to use them.
+ * Debugger is active!
+ * Debugger PIN: 136-801-639

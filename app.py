@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, send_file, g, flash, jsonify, abort
+﻿from flask import Flask, render_template, request, redirect, url_for, session, send_file, g, flash, jsonify, abort
 import sqlite3
 import os
 try:
@@ -4604,7 +4604,7 @@ def auto_export_job():
               </p>
               <hr style="border:none;border-top:1px solid #eee;margin:1.5rem 0">
               <p style="font-size:.85em;color:#888">
-                Aktions Tracker · Jan Anschütz · anschuetz.info@gmail.com<br>
+                Aktions Tracker · Jan Anschütz · info@aktionstracker.de<br>
                 Automatisch generiert – bitte nicht auf diese E-Mail antworten.
               </p>
             </div>
@@ -5976,7 +5976,7 @@ def _geocode_adresse(strasse, ort, timeout=8):
                + '&format=json&limit=1&countrycodes=de')
         try:
             req = urllib.request.Request(
-                url, headers={'User-Agent': 'AktionsTracker/1.0 (anschuetz.info@gmail.com)'}
+                url, headers={'User-Agent': 'AktionsTracker/1.0 (info@aktionstracker.de)'}
             )
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 hits = json.loads(resp.read().decode())
