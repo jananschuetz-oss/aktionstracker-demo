@@ -1182,52 +1182,6 @@ document.addEventListener('DOMContentLoaded', function(){
 </div>
 {% endif %}
 
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-  document.addEventListener('click', function(e) {
-    const btn = e.target.closest('.tp-detail-btn');
-    if (!btn) return;
-    const tpId   = btn.dataset.tpId;
-    const pane   = document.querySelector(`.tp-detail-pane[data-tp-id="${tpId}"]`);
-    const chev   = btn.querySelector('.tp-detail-chevron');
-    if (!pane) return;
-    const open = !pane.classList.contains('d-none');
-    if (open) {
-      pane.classList.add('d-none');
-      chev?.classList.replace('bi-chevron-up', 'bi-chevron-down');
-      return;
-    }
-    pane.classList.remove('d-none');
-    chev?.classList.replace('bi-chevron-down', 'bi-chevron-up');
-    if (pane.dataset.loaded) return;
-    fetch(`/api/tagesplan/stopp/${tpId}/details`)
-      .then(r => r.json())
-      .then(data => {
-        pane.dataset.loaded = '1';
-        if (!data.ok || !data.gefunden) {
-          pane.innerHTML = '<span class="text-muted">Kein Aktivitätseintrag gefunden</span>';
-          return;
-        }
-        let html = '';
-        if (data.aktionstyp && data.aktionstyp !== 'Besuch') {
-          html += `<span class="badge me-2" style="background:#e8f4fd;color:#0c5460;font-size:.75rem">${data.aktionstyp}</span>`;
-        }
-        if (data.bestellungen && data.bestellungen.length) {
-          html += `<div class="mt-1"><span style="color:#6c757d">Bestellung:</span> ${data.bestellungen.map(b => `${b.name}&nbsp;${b.kisten}&nbsp;Kisten`).join(', ')}</div>`;
-        }
-        if (data.displays && data.displays.length) {
-          html += `<div class="mt-1"><span style="color:#6c757d">Displays:</span> ${data.displays.map(d => `${d.name}&nbsp;×${d.anzahl}`).join(', ')}</div>`;
-        }
-        if (data.notizen) {
-          html += `<div class="mt-1"><i class="bi bi-chat-left-text me-1" style="color:#6c757d"></i>${data.notizen}</div>`;
-        }
-        if (!html) html = '<span class="text-muted" style="font-size:.8rem">Besuch erfasst – keine Bestellung/Notiz</span>';
-        pane.innerHTML = html;
-      })
-      .catch(() => { pane.innerHTML = '<span class="text-danger">Fehler beim Laden</span>'; });
-  });
-});
-</script>
 
 </div>{# /tab-pane #tab-tagesplan #}
 
@@ -1269,29 +1223,43 @@ document.addEventListener('DOMContentLoaded', function() {
     {% if tag_stops %}
     <div class="list-group list-group-flush">
       {% for stop in tag_stops %}
-      <div class="list-group-item py-2 px-3 d-flex align-items-center gap-2 {% if stop.erledigt %}bg-light{% endif %}">
-        {% if stop.erledigt %}
-        <i class="bi bi-check-circle-fill flex-shrink-0" style="color:#27ae60"></i>
-        {% else %}
-        <i class="bi bi-circle flex-shrink-0" style="color:#cbd5e0"></i>
-        {% endif %}
-        <div style="flex:1;min-width:0">
-          <div class="fw-semibold {% if stop.erledigt %}text-decoration-line-through text-muted{% endif %}"
-               style="font-size:.85rem;color:#1a3a5c">{{ stop.station }}</div>
-          {% if stop.plz or stop.ort %}<div style="font-size:.74rem;color:#6c757d">{% if stop.plz %}{{ stop.plz }} {% endif %}{{ stop.ort or '' }}</div>{% endif %}
+      <div class="list-group-item py-2 px-3 {% if stop.erledigt %}bg-light{% endif %}">
+        <div class="d-flex align-items-center gap-2">
+          {% if stop.erledigt %}
+          <i class="bi bi-check-circle-fill flex-shrink-0" style="color:#27ae60"></i>
+          {% else %}
+          <i class="bi bi-circle flex-shrink-0" style="color:#cbd5e0"></i>
+          {% endif %}
+          <div style="flex:1;min-width:0">
+            <div class="fw-semibold {% if stop.erledigt %}text-decoration-line-through text-muted{% endif %}"
+                 style="font-size:.85rem;color:#1a3a5c">{{ stop.station }}</div>
+            {% if stop.plz or stop.ort %}<div style="font-size:.74rem;color:#6c757d">{% if stop.plz %}{{ stop.plz }} {% endif %}{{ stop.ort or '' }}</div>{% endif %}
+          </div>
+          {% if stop.erledigt %}
+          <button type="button" class="tp-detail-btn btn btn-sm d-inline-flex align-items-center gap-1 flex-shrink-0"
+                  data-tp-id="{{ stop.id }}"
+                  style="background:#d4edda;border:none;color:#155724;padding:3px 7px;border-radius:.375rem"
+                  title="Details anzeigen">
+            <i class="bi bi-check-lg" style="font-size:.8rem"></i>
+            <i class="bi bi-chevron-down tp-detail-chevron" style="font-size:.62rem"></i>
+          </button>
+          {% else %}
+          <span class="badge flex-shrink-0" style="background:#fff3cd;color:#856404;font-size:.7rem">Offen</span>
+          {% if d >= today_str %}
+          <form method="POST" action="{{ url_for('tourenplanung_loeschen', tp_id=stop.id) }}" class="d-inline">
+            <button type="submit" class="btn btn-sm btn-outline-danger"
+                    style="font-size:.72rem;padding:2px 7px" title="Stop entfernen">
+              <i class="bi bi-trash"></i>
+            </button>
+          </form>
+          {% endif %}
+          {% endif %}
         </div>
         {% if stop.erledigt %}
-        <span class="badge flex-shrink-0" style="background:#d4edda;color:#155724;font-size:.7rem">Erledigt</span>
-        {% else %}
-        <span class="badge flex-shrink-0" style="background:#fff3cd;color:#856404;font-size:.7rem">Offen</span>
-        {% if d >= today_str %}
-        <form method="POST" action="{{ url_for('tourenplanung_loeschen', tp_id=stop.id) }}" class="d-inline">
-          <button type="submit" class="btn btn-sm btn-outline-danger"
-                  style="font-size:.72rem;padding:2px 7px" title="Stop entfernen">
-            <i class="bi bi-trash"></i>
-          </button>
-        </form>
-        {% endif %}
+        <div class="tp-detail-pane d-none mt-2" data-tp-id="{{ stop.id }}"
+             style="padding:7px 10px;background:#f0f4f0;border-radius:6px;font-size:.82rem;color:#333">
+          <span class="text-muted" style="font-size:.8rem">Lade…</span>
+        </div>
         {% endif %}
       </div>
       {% endfor %}
@@ -1615,4 +1583,52 @@ if (bierData.length > 0) {
 })();
 </script>
 {% endif %}
+
+<script>
+(function() {
+  function tpDetailHandler(e) {
+    var btn = e.target.closest('.tp-detail-btn');
+    if (!btn) return;
+    var tpId = btn.dataset.tpId;
+    var pane = document.querySelector('.tp-detail-pane[data-tp-id="' + tpId + '"]');
+    var chev = btn.querySelector('.tp-detail-chevron');
+    if (!pane) return;
+    var open = !pane.classList.contains('d-none');
+    if (open) {
+      pane.classList.add('d-none');
+      if (chev) { chev.classList.remove('bi-chevron-up'); chev.classList.add('bi-chevron-down'); }
+      return;
+    }
+    pane.classList.remove('d-none');
+    if (chev) { chev.classList.remove('bi-chevron-down'); chev.classList.add('bi-chevron-up'); }
+    if (pane.dataset.loaded) return;
+    fetch('/api/tagesplan/stopp/' + tpId + '/details')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        pane.dataset.loaded = '1';
+        if (!data.ok || !data.gefunden) {
+          pane.innerHTML = '<span class="text-muted">Kein Aktivitätseintrag gefunden</span>';
+          return;
+        }
+        var html = '';
+        if (data.aktionstyp && data.aktionstyp !== 'Besuch') {
+          html += '<span class="badge me-2" style="background:#e8f4fd;color:#0c5460;font-size:.75rem">' + data.aktionstyp + '</span>';
+        }
+        if (data.bestellungen && data.bestellungen.length) {
+          html += '<div class="mt-1"><span style="color:#6c757d">Bestellung:</span> ' + data.bestellungen.map(function(b) { return b.name + ' ' + b.kisten + ' Kisten'; }).join(', ') + '</div>';
+        }
+        if (data.displays && data.displays.length) {
+          html += '<div class="mt-1"><span style="color:#6c757d">Displays:</span> ' + data.displays.map(function(d) { return d.name + ' \xD7' + d.anzahl; }).join(', ') + '</div>';
+        }
+        if (data.notizen) {
+          html += '<div class="mt-1"><i class="bi bi-chat-left-text me-1" style="color:#6c757d"></i>' + data.notizen + '</div>';
+        }
+        if (!html) html = '<span class="text-muted" style="font-size:.8rem">Besuch erfasst – keine Bestellung/Notiz</span>';
+        pane.innerHTML = html;
+      })
+      .catch(function() { pane.innerHTML = '<span class="text-danger">Fehler beim Laden</span>'; });
+  }
+  document.addEventListener('click', tpDetailHandler);
+})();
+</script>
 {% endblock %}
