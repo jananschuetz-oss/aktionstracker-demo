@@ -1147,11 +1147,13 @@ document.addEventListener('DOMContentLoaded', function(){
           </a>
           {% endif %}
           {% if stop.erledigt %}
-          <span class="d-inline-flex align-items-center justify-content-center"
-                style="width:32px;height:32px;background:#d4edda;border-radius:.375rem"
-                title="Erledigt">
-            <i class="bi bi-check-lg" style="color:#155724"></i>
-          </span>
+          <button type="button" class="tp-detail-btn btn btn-sm d-inline-flex align-items-center gap-1"
+                  data-tp-id="{{ stop.id }}"
+                  style="background:#d4edda;border:none;color:#155724;padding:4px 9px;border-radius:.375rem"
+                  title="Details anzeigen">
+            <i class="bi bi-check-lg" style="font-size:.85rem"></i>
+            <i class="bi bi-chevron-down tp-detail-chevron" style="font-size:.65rem"></i>
+          </button>
           {% endif %}
           {% if not stop.erledigt and stop.datum >= today_str %}
           <form method="POST" action="{{ url_for('tourenplanung_loeschen', tp_id=stop.id) }}" class="d-inline">
@@ -1163,6 +1165,12 @@ document.addEventListener('DOMContentLoaded', function(){
           {% endif %}
         </div>
       </div>
+      {% if stop.erledigt %}
+      <div class="tp-detail-pane d-none mt-2" data-tp-id="{{ stop.id }}"
+           style="padding:8px 10px;background:#f8f9fa;border-radius:6px;font-size:.82rem;color:#333">
+        <span class="text-muted" style="font-size:.8rem">Lade…</span>
+      </div>
+      {% endif %}
     </div>
   {% endfor %}
   </div>{# close last datum group #}
@@ -1173,6 +1181,53 @@ document.addEventListener('DOMContentLoaded', function(){
   <p class="small" style="color:#adb5bd">Füge oben Stationen hinzu, um deinen Tag zu planen.</p>
 </div>
 {% endif %}
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  document.addEventListener('click', function(e) {
+    const btn = e.target.closest('.tp-detail-btn');
+    if (!btn) return;
+    const tpId   = btn.dataset.tpId;
+    const pane   = document.querySelector(`.tp-detail-pane[data-tp-id="${tpId}"]`);
+    const chev   = btn.querySelector('.tp-detail-chevron');
+    if (!pane) return;
+    const open = !pane.classList.contains('d-none');
+    if (open) {
+      pane.classList.add('d-none');
+      chev?.classList.replace('bi-chevron-up', 'bi-chevron-down');
+      return;
+    }
+    pane.classList.remove('d-none');
+    chev?.classList.replace('bi-chevron-down', 'bi-chevron-up');
+    if (pane.dataset.loaded) return;
+    fetch(`/api/tagesplan/stopp/${tpId}/details`)
+      .then(r => r.json())
+      .then(data => {
+        pane.dataset.loaded = '1';
+        if (!data.ok || !data.gefunden) {
+          pane.innerHTML = '<span class="text-muted">Kein Aktivitätseintrag gefunden</span>';
+          return;
+        }
+        let html = '';
+        if (data.aktionstyp && data.aktionstyp !== 'Besuch') {
+          html += `<span class="badge me-2" style="background:#e8f4fd;color:#0c5460;font-size:.75rem">${data.aktionstyp}</span>`;
+        }
+        if (data.bestellungen && data.bestellungen.length) {
+          html += `<div class="mt-1"><span style="color:#6c757d">Bestellung:</span> ${data.bestellungen.map(b => `${b.name}&nbsp;${b.kisten}&nbsp;Kisten`).join(', ')}</div>`;
+        }
+        if (data.displays && data.displays.length) {
+          html += `<div class="mt-1"><span style="color:#6c757d">Displays:</span> ${data.displays.map(d => `${d.name}&nbsp;×${d.anzahl}`).join(', ')}</div>`;
+        }
+        if (data.notizen) {
+          html += `<div class="mt-1"><i class="bi bi-chat-left-text me-1" style="color:#6c757d"></i>${data.notizen}</div>`;
+        }
+        if (!html) html = '<span class="text-muted" style="font-size:.8rem">Besuch erfasst – keine Bestellung/Notiz</span>';
+        pane.innerHTML = html;
+      })
+      .catch(() => { pane.innerHTML = '<span class="text-danger">Fehler beim Laden</span>'; });
+  });
+});
+</script>
 
 </div>{# /tab-pane #tab-tagesplan #}
 

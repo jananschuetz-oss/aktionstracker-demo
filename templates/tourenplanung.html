@@ -92,29 +92,43 @@
     </div>
     <div class="list-group list-group-flush">
       {% for stop in rep_stops %}
-      <div class="list-group-item d-flex align-items-center gap-3 py-2 px-3 {{ 'bg-light' if stop.erledigt else '' }}">
-        {% if stop.erledigt %}
-        <i class="bi bi-check-circle-fill flex-shrink-0" style="color:#27ae60;font-size:1.1rem"></i>
-        {% else %}
-        <i class="bi bi-circle flex-shrink-0" style="color:#cbd5e0;font-size:1.1rem"></i>
-        {% endif %}
-        <span class="fw-bold flex-shrink-0" style="color:#adb5bd;min-width:22px;font-size:.85rem">{{ loop.index }}.</span>
-        <div style="flex:1;min-width:0">
-          <div class="fw-semibold {{ 'text-decoration-line-through text-muted' if stop.erledigt else '' }}"
-               style="font-size:.9rem;color:#1a3a5c">{{ stop.station }}</div>
-          {% if stop.plz or stop.ort %}<div style="font-size:.76rem;color:#6c757d">{% if stop.plz %}{{ stop.plz }} {% endif %}{{ stop.ort or '' }}</div>{% endif %}
-          {% if stop.notiz %}<div style="font-size:.76rem;color:#2c7a7b"><i class="bi bi-chat-left-text me-1"></i>{{ stop.notiz }}</div>{% endif %}
+      <div class="list-group-item py-2 px-3 {{ 'bg-light' if stop.erledigt else '' }}">
+        <div class="d-flex align-items-center gap-3">
+          {% if stop.erledigt %}
+          <i class="bi bi-check-circle-fill flex-shrink-0" style="color:#27ae60;font-size:1.1rem"></i>
+          {% else %}
+          <i class="bi bi-circle flex-shrink-0" style="color:#cbd5e0;font-size:1.1rem"></i>
+          {% endif %}
+          <span class="fw-bold flex-shrink-0" style="color:#adb5bd;min-width:22px;font-size:.85rem">{{ loop.index }}.</span>
+          <div style="flex:1;min-width:0">
+            <div class="fw-semibold {{ 'text-decoration-line-through text-muted' if stop.erledigt else '' }}"
+                 style="font-size:.9rem;color:#1a3a5c">{{ stop.station }}</div>
+            {% if stop.plz or stop.ort %}<div style="font-size:.76rem;color:#6c757d">{% if stop.plz %}{{ stop.plz }} {% endif %}{{ stop.ort or '' }}</div>{% endif %}
+            {% if stop.notiz %}<div style="font-size:.76rem;color:#2c7a7b"><i class="bi bi-chat-left-text me-1"></i>{{ stop.notiz }}</div>{% endif %}
+          </div>
+          {% if stop.erledigt %}
+          <button type="button" class="tp-detail-btn btn btn-sm d-inline-flex align-items-center gap-1 flex-shrink-0"
+                  data-tp-id="{{ stop.id }}"
+                  style="background:#d4edda;border:none;color:#155724;padding:3px 8px;border-radius:.375rem"
+                  title="Details anzeigen">
+            <i class="bi bi-check-lg" style="font-size:.82rem"></i>
+            <i class="bi bi-chevron-down tp-detail-chevron" style="font-size:.62rem"></i>
+          </button>
+          {% else %}
+          <span class="badge flex-shrink-0" style="background:#fff3cd;color:#856404;font-size:.72rem">Offen</span>
+          <form method="POST" action="{{ url_for('tourenplanung_loeschen', tp_id=stop.id) }}" class="d-inline ms-1">
+            <button type="submit" class="btn btn-sm btn-outline-danger"
+                    style="font-size:.75rem;padding:3px 8px" title="Stop entfernen">
+              <i class="bi bi-trash"></i>
+            </button>
+          </form>
+          {% endif %}
         </div>
         {% if stop.erledigt %}
-        <span class="badge flex-shrink-0" style="background:#d4edda;color:#155724;font-size:.72rem">Erledigt</span>
-        {% else %}
-        <span class="badge flex-shrink-0" style="background:#fff3cd;color:#856404;font-size:.72rem">Offen</span>
-        <form method="POST" action="{{ url_for('tourenplanung_loeschen', tp_id=stop.id) }}" class="d-inline ms-1">
-          <button type="submit" class="btn btn-sm btn-outline-danger"
-                  style="font-size:.75rem;padding:3px 8px" title="Stop entfernen">
-            <i class="bi bi-trash"></i>
-          </button>
-        </form>
+        <div class="tp-detail-pane d-none mt-2" data-tp-id="{{ stop.id }}"
+             style="padding:7px 10px;background:#f0f4f0;border-radius:6px;font-size:.82rem;color:#333">
+          <span class="text-muted" style="font-size:.8rem">Lade…</span>
+        </div>
         {% endif %}
       </div>
       {% endfor %}
@@ -231,30 +245,44 @@
               {% endif %}
             </div>
             {% for stop in tag_stops %}
-            <div class="d-flex align-items-center gap-3 px-3 py-2 {{ 'bg-light' if stop.erledigt else '' }}"
+            <div class="px-3 py-2 {{ 'bg-light' if stop.erledigt else '' }}"
                  style="{% if not loop.last or tag_del %}border-bottom:1px solid #f0f0f0{% endif %}">
-              {% if stop.erledigt %}
-              <i class="bi bi-check-circle-fill flex-shrink-0" style="color:#27ae60;font-size:1rem"></i>
-              {% else %}
-              <i class="bi bi-circle flex-shrink-0" style="color:#cbd5e0;font-size:1rem"></i>
-              {% endif %}
-              <span class="fw-bold flex-shrink-0" style="color:#adb5bd;min-width:20px;font-size:.8rem">{{ loop.index }}.</span>
-              <div style="flex:1;min-width:0">
-                <span class="fw-semibold {{ 'text-decoration-line-through text-muted' if stop.erledigt else '' }}"
-                      style="font-size:.88rem;color:#1a3a5c">{{ stop.station }}</span>
-                {% if stop.plz or stop.ort %}<span class="ms-2" style="font-size:.76rem;color:#6c757d">{% if stop.plz %}{{ stop.plz }} {% endif %}{{ stop.ort or '' }}</span>{% endif %}
-                {% if stop.notiz %}<div style="font-size:.76rem;color:#2c7a7b"><i class="bi bi-chat-left-text me-1"></i>{{ stop.notiz }}</div>{% endif %}
+              <div class="d-flex align-items-center gap-3">
+                {% if stop.erledigt %}
+                <i class="bi bi-check-circle-fill flex-shrink-0" style="color:#27ae60;font-size:1rem"></i>
+                {% else %}
+                <i class="bi bi-circle flex-shrink-0" style="color:#cbd5e0;font-size:1rem"></i>
+                {% endif %}
+                <span class="fw-bold flex-shrink-0" style="color:#adb5bd;min-width:20px;font-size:.8rem">{{ loop.index }}.</span>
+                <div style="flex:1;min-width:0">
+                  <span class="fw-semibold {{ 'text-decoration-line-through text-muted' if stop.erledigt else '' }}"
+                        style="font-size:.88rem;color:#1a3a5c">{{ stop.station }}</span>
+                  {% if stop.plz or stop.ort %}<span class="ms-2" style="font-size:.76rem;color:#6c757d">{% if stop.plz %}{{ stop.plz }} {% endif %}{{ stop.ort or '' }}</span>{% endif %}
+                  {% if stop.notiz %}<div style="font-size:.76rem;color:#2c7a7b"><i class="bi bi-chat-left-text me-1"></i>{{ stop.notiz }}</div>{% endif %}
+                </div>
+                {% if stop.erledigt %}
+                <button type="button" class="tp-detail-btn btn btn-sm d-inline-flex align-items-center gap-1 flex-shrink-0"
+                        data-tp-id="{{ stop.id }}"
+                        style="background:#d4edda;border:none;color:#155724;padding:3px 7px;border-radius:.375rem"
+                        title="Details anzeigen">
+                  <i class="bi bi-check-lg" style="font-size:.8rem"></i>
+                  <i class="bi bi-chevron-down tp-detail-chevron" style="font-size:.6rem"></i>
+                </button>
+                {% else %}
+                <span class="badge flex-shrink-0" style="background:#fff3cd;color:#856404;font-size:.72rem">Offen</span>
+                <form method="POST" action="{{ url_for('tourenplanung_loeschen', tp_id=stop.id) }}" class="d-inline ms-1">
+                  <button type="submit" class="btn btn-sm btn-outline-danger"
+                          style="font-size:.75rem;padding:3px 8px" title="Stop entfernen">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+                {% endif %}
               </div>
               {% if stop.erledigt %}
-              <span class="badge flex-shrink-0" style="background:#d4edda;color:#155724;font-size:.72rem">Erledigt</span>
-              {% else %}
-              <span class="badge flex-shrink-0" style="background:#fff3cd;color:#856404;font-size:.72rem">Offen</span>
-              <form method="POST" action="{{ url_for('tourenplanung_loeschen', tp_id=stop.id) }}" class="d-inline ms-1">
-                <button type="submit" class="btn btn-sm btn-outline-danger"
-                        style="font-size:.75rem;padding:3px 8px" title="Stop entfernen">
-                  <i class="bi bi-trash"></i>
-                </button>
-              </form>
+              <div class="tp-detail-pane d-none mt-2" data-tp-id="{{ stop.id }}"
+                   style="padding:7px 10px;background:#f0f4f0;border-radius:6px;font-size:.82rem;color:#333">
+                <span class="text-muted" style="font-size:.8rem">Lade…</span>
+              </div>
               {% endif %}
             </div>
             {% endfor %}
@@ -307,4 +335,52 @@
 {% endfor %}
 
 {% endif %}
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  document.addEventListener('click', function(e) {
+    const btn = e.target.closest('.tp-detail-btn');
+    if (!btn) return;
+    const tpId = btn.dataset.tpId;
+    const pane = document.querySelector(`.tp-detail-pane[data-tp-id="${tpId}"]`);
+    const chev = btn.querySelector('.tp-detail-chevron');
+    if (!pane) return;
+    const open = !pane.classList.contains('d-none');
+    if (open) {
+      pane.classList.add('d-none');
+      chev?.classList.replace('bi-chevron-up', 'bi-chevron-down');
+      return;
+    }
+    pane.classList.remove('d-none');
+    chev?.classList.replace('bi-chevron-down', 'bi-chevron-up');
+    if (pane.dataset.loaded) return;
+    fetch(`/api/tagesplan/stopp/${tpId}/details`)
+      .then(r => r.json())
+      .then(data => {
+        pane.dataset.loaded = '1';
+        if (!data.ok || !data.gefunden) {
+          pane.innerHTML = '<span class="text-muted">Kein Aktivitätseintrag gefunden</span>';
+          return;
+        }
+        let html = '';
+        if (data.aktionstyp && data.aktionstyp !== 'Besuch') {
+          html += `<span class="badge me-2" style="background:#e8f4fd;color:#0c5460;font-size:.75rem">${data.aktionstyp}</span>`;
+        }
+        if (data.bestellungen && data.bestellungen.length) {
+          html += `<div class="mt-1"><span style="color:#6c757d">Bestellung:</span> ${data.bestellungen.map(b => `${b.name}&nbsp;${b.kisten}&nbsp;Kisten`).join(', ')}</div>`;
+        }
+        if (data.displays && data.displays.length) {
+          html += `<div class="mt-1"><span style="color:#6c757d">Displays:</span> ${data.displays.map(d => `${d.name}&nbsp;×${d.anzahl}`).join(', ')}</div>`;
+        }
+        if (data.notizen) {
+          html += `<div class="mt-1"><i class="bi bi-chat-left-text me-1" style="color:#6c757d"></i>${data.notizen}</div>`;
+        }
+        if (!html) html = '<span class="text-muted" style="font-size:.8rem">Besuch erfasst – keine Bestellung/Notiz</span>';
+        pane.innerHTML = html;
+      })
+      .catch(() => { pane.innerHTML = '<span class="text-danger">Fehler beim Laden</span>'; });
+  });
+});
+</script>
+
 {% endblock %}

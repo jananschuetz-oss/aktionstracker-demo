@@ -1837,6 +1837,45 @@ def api_tagesplan_stopp_neu():
     return jsonify({'ok': True})
 
 
+@app.route('/api/tagesplan/stopp/<int:tp_id>/details', methods=['GET'])
+@login_required
+def api_tagesplan_stopp_details(tp_id):
+    row = query(
+        "SELECT mitarbeiter_id, verkaufsstelle_id, datum FROM tagesplan WHERE id=?",
+        (tp_id,), one=True
+    )
+    if not row:
+        return jsonify({'ok': False, 'error': 'Nicht gefunden'}), 404
+    is_manager = session.get('rolle') in ('admin', 'verkaufsleiter')
+    if not is_manager and row['mitarbeiter_id'] != session['user_id']:
+        return jsonify({'ok': False, 'error': 'Kein Zugriff'}), 403
+    akt = query(
+        "SELECT id, COALESCE(aktionstyp,'Aufbau') AS aktionstyp, notizen, anzahl_displays FROM aktivitaet "
+        "WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? ORDER BY erstellt_am DESC LIMIT 1",
+        (row['mitarbeiter_id'], row['verkaufsstelle_id'], row['datum']), one=True
+    )
+    if not akt:
+        return jsonify({'ok': True, 'gefunden': False})
+    bestellungen = query(
+        "SELECT b.name, bp.kisten_anzahl FROM bestellposition bp "
+        "JOIN biersorte b ON b.id=bp.biersorte_id WHERE bp.aktivitaet_id=? ORDER BY b.name",
+        (akt['id'],)
+    )
+    displays = query(
+        "SELECT d.name, dp.anzahl FROM displayposition dp "
+        "JOIN displaysorte d ON d.id=dp.displaysorte_id WHERE dp.aktivitaet_id=? AND dp.anzahl>0 ORDER BY d.name",
+        (akt['id'],)
+    )
+    return jsonify({
+        'ok': True, 'gefunden': True,
+        'aktionstyp': akt['aktionstyp'],
+        'notizen': akt['notizen'] or '',
+        'anzahl_displays': akt['anzahl_displays'] or 0,
+        'bestellungen': [{'name': b['name'], 'kisten': b['kisten_anzahl']} for b in bestellungen],
+        'displays':     [{'name': d['name'], 'anzahl': d['anzahl']}        for d in displays],
+    })
+
+
 @app.route('/tourenplanung/<int:tp_id>/loeschen', methods=['POST'])
 @login_required
 def tourenplanung_loeschen(tp_id):
