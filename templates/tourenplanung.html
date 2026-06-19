@@ -337,50 +337,51 @@
 {% endif %}
 
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-  document.addEventListener('click', function(e) {
-    const btn = e.target.closest('.tp-detail-btn');
+(function() {
+  function tpDetailHandler(e) {
+    var btn = e.target.closest('.tp-detail-btn');
     if (!btn) return;
-    const tpId = btn.dataset.tpId;
-    const pane = document.querySelector(`.tp-detail-pane[data-tp-id="${tpId}"]`);
-    const chev = btn.querySelector('.tp-detail-chevron');
+    var tpId = btn.dataset.tpId;
+    var pane = document.querySelector('.tp-detail-pane[data-tp-id="' + tpId + '"]');
+    var chev = btn.querySelector('.tp-detail-chevron');
     if (!pane) return;
-    const open = !pane.classList.contains('d-none');
+    var open = !pane.classList.contains('d-none');
     if (open) {
       pane.classList.add('d-none');
-      chev?.classList.replace('bi-chevron-up', 'bi-chevron-down');
+      if (chev) { chev.classList.remove('bi-chevron-up'); chev.classList.add('bi-chevron-down'); }
       return;
     }
     pane.classList.remove('d-none');
-    chev?.classList.replace('bi-chevron-down', 'bi-chevron-up');
+    if (chev) { chev.classList.remove('bi-chevron-down'); chev.classList.add('bi-chevron-up'); }
     if (pane.dataset.loaded) return;
-    fetch(`/api/tagesplan/stopp/${tpId}/details`)
-      .then(r => r.json())
-      .then(data => {
+    fetch('/api/tagesplan/stopp/' + tpId + '/details')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
         pane.dataset.loaded = '1';
         if (!data.ok || !data.gefunden) {
           pane.innerHTML = '<span class="text-muted">Kein Aktivitätseintrag gefunden</span>';
           return;
         }
-        let html = '';
+        var html = '';
         if (data.aktionstyp && data.aktionstyp !== 'Besuch') {
-          html += `<span class="badge me-2" style="background:#e8f4fd;color:#0c5460;font-size:.75rem">${data.aktionstyp}</span>`;
+          html += '<span class="badge me-2" style="background:#e8f4fd;color:#0c5460;font-size:.75rem">' + data.aktionstyp + '</span>';
         }
         if (data.bestellungen && data.bestellungen.length) {
-          html += `<div class="mt-1"><span style="color:#6c757d">Bestellung:</span> ${data.bestellungen.map(b => `${b.name}&nbsp;${b.kisten}&nbsp;Kisten`).join(', ')}</div>`;
+          html += '<div class="mt-1"><span style="color:#6c757d">Bestellung:</span> ' + data.bestellungen.map(function(b) { return b.name + ' ' + b.kisten + ' Kisten'; }).join(', ') + '</div>';
         }
         if (data.displays && data.displays.length) {
-          html += `<div class="mt-1"><span style="color:#6c757d">Displays:</span> ${data.displays.map(d => `${d.name}&nbsp;×${d.anzahl}`).join(', ')}</div>`;
+          html += '<div class="mt-1"><span style="color:#6c757d">Displays:</span> ' + data.displays.map(function(d) { return d.name + ' \xD7' + d.anzahl; }).join(', ') + '</div>';
         }
         if (data.notizen) {
-          html += `<div class="mt-1"><i class="bi bi-chat-left-text me-1" style="color:#6c757d"></i>${data.notizen}</div>`;
+          html += '<div class="mt-1"><i class="bi bi-chat-left-text me-1" style="color:#6c757d"></i>' + data.notizen + '</div>';
         }
         if (!html) html = '<span class="text-muted" style="font-size:.8rem">Besuch erfasst – keine Bestellung/Notiz</span>';
         pane.innerHTML = html;
       })
-      .catch(() => { pane.innerHTML = '<span class="text-danger">Fehler beim Laden</span>'; });
-  });
-});
+      .catch(function() { pane.innerHTML = '<span class="text-danger">Fehler beim Laden</span>'; });
+  }
+  document.addEventListener('click', tpDetailHandler);
+})();
 </script>
 
 {% endblock %}
