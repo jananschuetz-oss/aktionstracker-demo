@@ -674,9 +674,10 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
 
       <!-- Zeile 3: Stationsauswahl + Button -->
       <div class="d-flex gap-2 align-items-end flex-wrap">
-        <div style="flex:1;min-width:200px">
+        <div id="vsCustomDropdown" class="position-relative" style="flex:1;min-width:200px">
           <label class="form-label mb-1" style="font-size:.8rem;color:#555;font-weight:600">Verkaufsstelle</label>
-          <select name="verkaufsstelle_id" id="vsHauptSelect" class="form-select form-select-sm" required>
+          <!-- Nativer Select (versteckt) – für Filter-Chips + Form-Submit -->
+          <select name="verkaufsstelle_id" id="vsHauptSelect" style="display:none">
             <option value="">– Bitte wählen –</option>
             {% for vs in alle_verkaufsstellen_rep %}
             <option value="{{ vs.id }}"
@@ -688,9 +689,26 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
             </option>
             {% endfor %}
           </select>
+          <!-- Custom Dropdown Trigger -->
+          <div id="vsDropdownTrigger" tabindex="0"
+               class="form-select form-select-sm d-flex align-items-center"
+               style="cursor:pointer;user-select:none;height:34px">
+            <span id="vsDropdownLabel" class="text-muted" style="font-size:.875rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">– Bitte wählen –</span>
+          </div>
+          <!-- Dropdown Menü -->
+          <div id="vsDropdownMenu" class="d-none"
+               style="position:absolute;top:calc(100% + 3px);left:0;right:0;z-index:500;
+                      background:#fff;border:1px solid #d0d7e2;border-radius:8px;
+                      box-shadow:0 6px 22px rgba(0,0,0,.14);overflow:hidden">
+            <div style="padding:8px 8px 6px;border-bottom:1px solid #e9ecef">
+              <input type="text" id="vsDropdownSuche" class="form-control form-control-sm"
+                     placeholder="Station suchen…" autocomplete="off" style="font-size:.82rem">
+            </div>
+            <div id="vsDropdownListe" style="max-height:230px;overflow-y:auto"></div>
+          </div>
         </div>
-        <div class="d-flex gap-2">
-          <button type="submit" class="btn btn-sm" style="background:#1a3a5c;color:#fff;padding:6px 16px">
+        <div class="d-flex gap-2 flex-shrink-0">
+          <button type="submit" id="vsStopBtn" class="btn btn-sm" style="background:#1a3a5c;color:#fff;padding:6px 16px">
             <i class="bi bi-plus-lg me-1"></i>Stop
           </button>
           <button type="button" class="btn btn-sm btn-outline-secondary btn-verlauf" id="btnVerlaufAdd"
@@ -708,6 +726,144 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
     </form>
   </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  const trigger    = document.getElementById('vsDropdownTrigger');
+  const menu       = document.getElementById('vsDropdownMenu');
+  const suche      = document.getElementById('vsDropdownSuche');
+  const liste      = document.getElementById('vsDropdownListe');
+  const label      = document.getElementById('vsDropdownLabel');
+  const nativeSel  = document.getElementById('vsHauptSelect');
+  const verlaufBtn = document.getElementById('btnVerlaufAdd');
+  const stopBtn    = document.getElementById('vsStopBtn');
+  const container  = document.getElementById('vsCustomDropdown');
+  if (!trigger || !nativeSel) return;
+
+  let isOpen = false;
+
+  function getVisibleOpts(q) {
+    return Array.from(nativeSel.options).filter(o =>
+      o.value &&
+      o.style.display !== 'none' &&
+      (!q || o.text.toLowerCase().includes(q.toLowerCase()))
+    );
+  }
+
+  function buildListe(q) {
+    const opts = getVisibleOpts(q || '');
+    if (!opts.length) {
+      liste.innerHTML = '<div class="py-3 text-center text-muted" style="font-size:.82rem">Keine Stationen gefunden</div>';
+      return;
+    }
+    liste.innerHTML = opts.map(o => `
+      <div class="d-flex align-items-center px-3 py-2 border-bottom vs-drop-item"
+           style="gap:8px" data-value="${o.value}" data-label="${o.text.replace(/"/g,'&quot;')}">
+        <span class="vs-drop-name"
+              style="flex:1;font-size:.84rem;color:#1a3a5c;cursor:pointer;min-width:0;
+                     overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+              title="${o.text.replace(/"/g,'&quot;')}">${o.text}</span>
+        <button type="button" class="btn btn-sm btn-outline-primary vs-plus flex-shrink-0"
+                data-vs-id="${o.value}" data-vs-name="${o.text.replace(/"/g,'&quot;')}"
+                style="font-size:.72rem;padding:2px 9px" title="Direkt zum Plan hinzufügen">
+          <i class="bi bi-plus-lg"></i>
+        </button>
+      </div>`).join('');
+
+    liste.querySelectorAll('.vs-drop-name').forEach(el => {
+      el.addEventListener('click', function() {
+        const item = this.closest('.vs-drop-item');
+        selectVs(item.dataset.value, item.dataset.label);
+        closeMenu();
+      });
+    });
+
+    liste.querySelectorAll('.vs-plus').forEach(btn => {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        const vsId   = this.dataset.vsId;
+        const vsName = this.dataset.vsName;
+        const datum  = document.getElementById('repDatumHidden')?.value || '{{ today_str }}';
+        const orig   = this.innerHTML;
+        this.disabled = true;
+        this.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+        fetch('{{ url_for("api_tagesplan_stopp_neu") }}', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({vs_id: vsId, datum: datum})
+        })
+        .then(r => r.json())
+        .then(data => {
+          if (data.ok) {
+            this.innerHTML = '<i class="bi bi-check-lg"></i>';
+            this.classList.replace('btn-outline-primary', 'btn-outline-success');
+            setTimeout(() => {
+              this.innerHTML = orig;
+              this.disabled = false;
+              this.classList.replace('btn-outline-success', 'btn-outline-primary');
+            }, 1800);
+          } else {
+            alert(data.error || 'Fehler beim Hinzufügen');
+            this.innerHTML = orig;
+            this.disabled = false;
+          }
+        })
+        .catch(() => { this.innerHTML = orig; this.disabled = false; });
+      });
+    });
+  }
+
+  function selectVs(value, text) {
+    nativeSel.value = value;
+    label.textContent = text || '– Bitte wählen –';
+    label.classList.toggle('text-muted', !value);
+    if (verlaufBtn) {
+      verlaufBtn.disabled = !value;
+      verlaufBtn.dataset.vsId   = value || '';
+      verlaufBtn.dataset.vsName = text  || '';
+    }
+    nativeSel.dispatchEvent(new Event('change'));
+  }
+
+  function openMenu() {
+    menu.classList.remove('d-none');
+    isOpen = true;
+    buildListe('');
+    if (suche) { suche.value = ''; suche.focus(); }
+  }
+
+  function closeMenu() {
+    menu.classList.add('d-none');
+    isOpen = false;
+  }
+
+  // Form-Submit: Pflichtfeld-Check (hidden select hat kein required mehr)
+  document.getElementById('stopForm')?.addEventListener('submit', function(e) {
+    if (!nativeSel.value) {
+      e.preventDefault();
+      trigger.style.outline = '2px solid #dc3545';
+      trigger.style.borderColor = '#dc3545';
+      setTimeout(() => { trigger.style.outline = ''; trigger.style.borderColor = ''; }, 2000);
+    }
+  });
+
+  trigger.addEventListener('click', function() { isOpen ? closeMenu() : openMenu(); });
+  trigger.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); isOpen ? closeMenu() : openMenu(); }
+    if (e.key === 'Escape') closeMenu();
+  });
+  suche?.addEventListener('input', function() { buildListe(this.value); });
+  suche?.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeMenu(); });
+
+  document.addEventListener('click', function(e) {
+    if (isOpen && !container.contains(e.target)) closeMenu();
+  });
+
+  // Wenn Filter-Chips die Options verstecken/zeigen → Liste neu aufbauen
+  const obs = new MutationObserver(() => { if (isOpen) buildListe(suche?.value || ''); });
+  obs.observe(nativeSel, { attributes: true, subtree: true, attributeFilter: ['style'] });
+});
+</script>
 
 <script>
 (function () {
@@ -921,120 +1077,6 @@ document.addEventListener('DOMContentLoaded', function(){
   zeigeTag('{{ today_str }}');
   updateSubmitState('{{ today_str }}');
 });
-</script>
-
-<!-- Schnellplan: Stationen direkt per Klick zum Plan hinzufügen -->
-<div class="card mb-3" id="schnellplanPanel">
-  <div class="card-header py-2 px-3 d-flex justify-content-between align-items-center"
-       style="background:#f0f4f8;cursor:pointer" id="schnellplanToggle">
-    <span class="fw-semibold" style="color:#1a3a5c;font-size:.85rem">
-      <i class="bi bi-lightning-charge me-1"></i>Schnell hinzufügen
-    </span>
-    <i class="bi bi-chevron-down" id="schnellplanChevron" style="color:#6c757d;font-size:.8rem"></i>
-  </div>
-  <div class="card-body p-0 d-none" id="schnellplanBody">
-    <div class="p-2 border-bottom">
-      <input type="text" id="schnellSuche" class="form-control form-control-sm"
-             placeholder="Station suchen…" autocomplete="off" style="font-size:.82rem">
-    </div>
-    <div id="schnellListe" style="max-height:260px;overflow-y:auto"></div>
-    <div id="schnellFeedback" class="py-2 px-3 d-none"
-         style="font-size:.82rem;color:#155724;background:#d4edda;border-top:1px solid #c3e6cb">
-      <i class="bi bi-check-circle me-1"></i><span id="schnellFeedbackText"></span>
-    </div>
-  </div>
-</div>
-
-<script>
-(function(){
-  const toggle   = document.getElementById('schnellplanToggle');
-  const body     = document.getElementById('schnellplanBody');
-  const chevron  = document.getElementById('schnellplanChevron');
-  const suche    = document.getElementById('schnellSuche');
-  const liste    = document.getElementById('schnellListe');
-  if (!toggle) return;
-
-  const vsSelect = document.getElementById('vsHauptSelect');
-
-  function getOpts(q) {
-    if (!vsSelect) return [];
-    return Array.from(vsSelect.options).filter(o =>
-      o.value && o.style.display !== 'none' &&
-      (!q || o.text.toLowerCase().includes(q.toLowerCase()))
-    );
-  }
-
-  function buildListe(q) {
-    const opts = getOpts(q);
-    if (!opts.length) {
-      liste.innerHTML = '<div class="py-3 text-center text-muted" style="font-size:.82rem">Keine Stationen gefunden</div>';
-      return;
-    }
-    liste.innerHTML = opts.map(o => `
-      <div class="d-flex align-items-center px-3 py-2 border-bottom"
-           style="gap:10px">
-        <span style="flex:1;font-size:.84rem;color:#1a3a5c;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
-              title="${o.text}">${o.text}</span>
-        <button type="button" class="btn btn-sm btn-outline-primary schnell-plus flex-shrink-0"
-                data-vs-id="${o.value}" data-vs-name="${o.text}"
-                style="font-size:.75rem;padding:2px 10px;white-space:nowrap">
-          <i class="bi bi-plus-lg"></i>
-        </button>
-      </div>`
-    ).join('');
-
-    liste.querySelectorAll('.schnell-plus').forEach(btn => {
-      btn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        const vsId   = this.dataset.vsId;
-        const vsName = this.dataset.vsName;
-        const datum  = document.getElementById('repDatumHidden')?.value || '{{ today_str }}';
-        const origHtml = this.innerHTML;
-        this.disabled = true;
-        this.innerHTML = '<i class="bi bi-hourglass-split"></i>';
-        fetch('{{ url_for("api_tagesplan_stopp_neu") }}', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({vs_id: vsId, datum: datum})
-        })
-        .then(r => r.json())
-        .then(data => {
-          if (data.ok) {
-            this.innerHTML = '<i class="bi bi-check-lg"></i>';
-            this.classList.replace('btn-outline-primary', 'btn-outline-success');
-            const fb   = document.getElementById('schnellFeedback');
-            const fbtx = document.getElementById('schnellFeedbackText');
-            if (fb && fbtx) {
-              fbtx.textContent = `„${vsName}" für ${datum.slice(8,10)}.${datum.slice(5,7)}. hinzugefügt`;
-              fb.classList.remove('d-none');
-              setTimeout(() => fb.classList.add('d-none'), 3000);
-            }
-            setTimeout(() => {
-              this.innerHTML = origHtml;
-              this.disabled = false;
-              this.classList.replace('btn-outline-success', 'btn-outline-primary');
-            }, 2000);
-          } else {
-            alert(data.error || 'Fehler beim Hinzufügen');
-            this.innerHTML = origHtml;
-            this.disabled = false;
-          }
-        })
-        .catch(() => { this.innerHTML = origHtml; this.disabled = false; });
-      });
-    });
-  }
-
-  toggle.addEventListener('click', function() {
-    const open = !body.classList.contains('d-none');
-    body.classList.toggle('d-none', open);
-    chevron.classList.toggle('bi-chevron-down', open);
-    chevron.classList.toggle('bi-chevron-up', !open);
-    if (!open) { buildListe(''); if (suche) suche.focus(); }
-  });
-
-  if (suche) suche.addEventListener('input', function() { buildListe(this.value); });
-})();
 </script>
 
 {% if tagesplan_rep %}
