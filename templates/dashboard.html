@@ -2,6 +2,28 @@
 {% block title %}Dashboard – Aktions Tracker {{ company_short }}{% endblock %}
 
 {% block content %}
+{% if demo_modus %}
+<div class="alert d-flex align-items-start gap-2 mb-3 py-2 px-3"
+     style="background:#e8f4fd;border:1px solid #b8d4f0;border-radius:.75rem;font-size:.85rem;margin-top:-.25rem">
+  <i class="bi bi-info-circle-fill mt-1" style="color:#2e6da4;flex-shrink:0"></i>
+  <div class="d-flex flex-wrap align-items-center gap-2">
+    <span><strong style="color:#1a3a5c">Demo-Modus</strong>
+      <span class="text-muted ms-1">– Daten werden täglich um 03:00 Uhr zurückgesetzt. Einfach ausprobieren!</span>
+    </span>
+    <a href="{{ url_for('neue_aktivitaet') }}" class="text-decoration-none"
+       style="color:#2c7a7b;font-weight:600;white-space:nowrap">
+      <i class="bi bi-plus-circle me-1"></i>Aktivität erfassen
+    </a>
+    {% if session.get('rolle') == 'rep' %}
+    <span class="text-muted">·</span>
+    <a href="{{ url_for('login') }}" class="text-decoration-none"
+       style="color:#2c7a7b;font-weight:600;white-space:nowrap">
+      <i class="bi bi-person-workspace me-1"></i>Verkaufsleiter-Ansicht testen
+    </a>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
 <div class="page-header">
   <h1><i class="bi bi-speedometer2 me-2"></i>Dashboard</h1>
   <p class="mb-2">

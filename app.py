@@ -52,7 +52,8 @@ KARTE_MODUS    = os.environ.get('KARTE_MODUS',   'basis')   # 'aus' | 'basis' | 
 TOUREN_MODUS   = os.getenv('TOUREN_MODUS', 'aus')             # 'aus' | 'an'
 UNIT_LABEL       = os.environ.get('UNIT_LABEL',      'Einheiten')  # Mengenbezeichnung z.B. 'Kisten', 'Kartons', 'Paletten'
 MAX_MITARBEITER  = int(os.environ.get('MAX_MITARBEITER', 0))  # 0 = kein Limit (nicht konfiguriert)
-DEFAULT_PASSWORD = os.environ.get('DEFAULT_PASSWORD', 'start123')  # Standard-Passwort für neue Mitarbeiter
+DEFAULT_PASSWORD = os.environ.get('DEFAULT_PASSWORD', 'demo123')  # Standard-Passwort für neue Mitarbeiter
+DEMO_MODUS = os.environ.get('INIT_DEMO_USERS', 'true').lower() == 'true'
 
 UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', os.path.join(os.path.dirname(__file__), 'static', 'uploads'))
 ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'}
@@ -127,6 +128,7 @@ def inject_now():
         'unit_label':       UNIT_LABEL,
         'max_mitarbeiter':  MAX_MITARBEITER,
         'default_password': DEFAULT_PASSWORD,
+        'demo_modus':       DEMO_MODUS,
         'meine_vertretungen': [],
         'alle_kollegen':      [],
         'offene_urlaubsantraege': 0,
@@ -542,18 +544,19 @@ def init_db():
         db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Verkaufsleiter', 'VKL', 'verkaufsleiter', ?)", (DEFAULT_PASSWORD,))
         db.execute("UPDATE mitarbeiter SET passwort=? WHERE kuerzel='VKL'", (DEFAULT_PASSWORD,))
 
-        # Beispiel-Mitarbeiter (nur bei INIT_DEMO_USERS=true)
+        # Beispiel-Mitarbeiter (nur bei INIT_DEMO_USERS=true) – 4 Reps + 1 VKL
         if os.environ.get('INIT_DEMO_USERS', 'true').lower() == 'true':
             reps = [
-                ('Max Müller',     'MM', DEFAULT_PASSWORD),
-                ('Anna Schmidt',   'AS', DEFAULT_PASSWORD),
-                ('Thomas Weber',   'TW', DEFAULT_PASSWORD),
-                ('Lisa Fischer',   'LF', DEFAULT_PASSWORD),
-                ('Klaus Hoffmann', 'KH', DEFAULT_PASSWORD),
+                ('Max Müller',    'MM', DEFAULT_PASSWORD),
+                ('Anna Schmidt',  'AS', DEFAULT_PASSWORD),
+                ('Thomas Weber',  'TW', DEFAULT_PASSWORD),
+                ('Lisa Fischer',  'LF', DEFAULT_PASSWORD),
             ]
             for name, kuerzel, pw in reps:
                 db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, passwort) VALUES (?, ?, ?)", (name, kuerzel, pw))
                 db.execute("UPDATE mitarbeiter SET passwort=? WHERE kuerzel=?", (pw, kuerzel))
+            # KH deaktivieren falls aus Altbestand vorhanden
+            db.execute("UPDATE mitarbeiter SET aktiv=0 WHERE kuerzel='KH'")
 
         # Displaysorten – nur einfügen wenn Tabelle leer
         if not db.execute("SELECT 1 FROM displaysorte LIMIT 1").fetchone():
@@ -593,7 +596,8 @@ def init_db():
 
         # Beispieldaten einfügen wenn DB noch leer
         if not db.execute("SELECT 1 FROM aktivitaet LIMIT 1").fetchone():
-            seed_demo_data(db)
+            seed_demo_data_relativ(db)
+            seed_demo_besuchsplan(db)
 
         # Beispielfotos einmalig zuweisen – NACH seed_demo_data (Aktivitäten müssen existieren)
         fotos_in_db = db.execute(
@@ -1040,6 +1044,175 @@ def seed_demo_data(db):
             )
 
     db.commit()
+
+
+def seed_demo_data_relativ(db):
+    """Seeded mit Daten der letzten 6 Wochen (relativ zu heute). Ersetzt seed_demo_data beim Daily-Reset."""
+    import random as rnd
+    from datetime import date, timedelta
+
+    today = date.today()
+    montag_aktuell = today - timedelta(days=today.weekday())
+    montag_start   = montag_aktuell - timedelta(weeks=5)  # 6 Wochen inkl. laufender Woche
+
+    rnd.seed(42)
+
+    reps    = db.execute("SELECT id, kuerzel FROM mitarbeiter WHERE rolle='rep' AND aktiv=1").fetchall()
+    stellen = db.execute("SELECT id, typ FROM verkaufsstelle WHERE aktiv=1").fetchall()
+    biere   = db.execute("SELECT id FROM biersorte WHERE aktiv=1").fetchall()
+    bier_ids = [b['id'] for b in biere]
+
+    # Unterschiedliche Performance-Profile für Ranking-Demo
+    PROFIL = {'MM': 12, 'AS': 10, 'TW': 9, 'LF': 7}
+
+    NOTIZEN = [
+        '', '', '', '', 'Sonderaktion vereinbart', 'Kunde sehr zufrieden',
+        'Neues Kühlregal besprochen', 'Probierpaket mitgenommen',
+        'Konkurrenzprodukte gesichtet', 'Rückgabe 3 leere Displays',
+        'Termin für Herbstaktion vereinbart', 'Stammkunde, läuft sehr gut',
+        'Bestellung für nächste Lieferung', 'Neues Sortiment vorgestellt',
+        'Kein Bedarf aktuell, Wiedervorlage in 2 Wochen', 'Feedback eingeholt – positiv',
+    ]
+
+    for kw_offset in range(6):
+        montag  = montag_start + timedelta(weeks=kw_offset)
+        freitag = montag + timedelta(days=4)
+        ende    = min(freitag, today - timedelta(days=1))
+        if ende < montag:
+            continue  # Aktuelle Woche noch nicht gestartet
+
+        verf_tage = (ende - montag).days + 1
+
+        for rep in reps:
+            n_week = PROFIL.get(rep['kuerzel'], 9)
+            if kw_offset == 5:  # Laufende Woche anteilig kürzen
+                n_week = max(1, round(n_week * verf_tage / 5))
+
+            # Mix: 45% Aufbau, 35% Bestellung, 20% Besuch
+            n_aufbau = max(1, round(n_week * 0.45))
+            n_best   = max(1, round(n_week * 0.35))
+            n_besuch = max(0, n_week - n_aufbau - n_best)
+            typen = ['Aufbau'] * n_aufbau + ['Bestellung'] * n_best + ['Besuch'] * n_besuch
+            rnd.shuffle(typen)
+
+            zugewiesen = db.execute("""
+                SELECT v.id, v.typ FROM verkaufsstelle v
+                JOIN mitarbeiter_verkaufsstelle mv ON mv.verkaufsstelle_id = v.id
+                WHERE mv.mitarbeiter_id = ? AND v.aktiv = 1
+            """, (rep['id'],)).fetchall()
+            rep_stellen = list(zugewiesen) if len(zugewiesen) >= 2 else list(stellen)
+
+            tage = sorted(rnd.choices(range(min(5, verf_tage)), k=len(typen)))
+
+            for i, (tag, typ) in enumerate(zip(tage, typen)):
+                if montag + timedelta(days=tag) > ende:
+                    continue
+                datum    = (montag + timedelta(days=tag)).isoformat()
+                vs       = rnd.choice(rep_stellen)
+                displays = rnd.choices([0,1,2,3,4], weights=[25,25,25,15,10])[0] if typ == 'Aufbau' else 0
+                bestell_status = 'offen' if typ == 'Bestellung' else None
+                cur = db.execute(
+                    "INSERT INTO aktivitaet "
+                    "(datum,mitarbeiter_id,verkaufsstelle_id,anzahl_displays,notizen,aktionstyp,bestell_status) "
+                    "VALUES (?,?,?,?,?,?,?)",
+                    (datum, rep['id'], vs['id'], displays, rnd.choice(NOTIZEN), typ, bestell_status)
+                )
+                if typ == 'Bestellung':
+                    for bid in rnd.sample(bier_ids, k=min(rnd.randint(2, 4), len(bier_ids))):
+                        db.execute(
+                            "INSERT INTO bestellposition (aktivitaet_id,biersorte_id,kisten_anzahl) VALUES (?,?,?)",
+                            (cur.lastrowid, bid, rnd.randint(5, 45))
+                        )
+
+    # Zielzahlen
+    ZIELE = {'MM': (200, 12000), 'AS': (185, 11500), 'TW': (175, 11000), 'LF': (165, 10000)}
+    for rep in reps:
+        if rep['kuerzel'] in ZIELE:
+            d, k = ZIELE[rep['kuerzel']]
+            db.execute('''INSERT INTO zielzahlen (mitarbeiter_id,jahr,displays_ziel,kisten_ziel)
+                VALUES (?,?,?,?) ON CONFLICT(mitarbeiter_id,jahr) DO UPDATE SET
+                displays_ziel=excluded.displays_ziel, kisten_ziel=excluded.kisten_ziel''',
+                (rep['id'], today.year, d, k))
+    db.execute('''INSERT INTO zielzahlen (mitarbeiter_id,jahr,displays_ziel,kisten_ziel)
+        VALUES (NULL,?,750,44500) ON CONFLICT(mitarbeiter_id,jahr) DO UPDATE SET
+        displays_ziel=excluded.displays_ziel, kisten_ziel=excluded.kisten_ziel''',
+        (today.year,))
+
+    # Verkaufsstellen auf Reps verteilen – nur beim ersten Mal
+    if not db.execute("SELECT 1 FROM mitarbeiter_verkaufsstelle LIMIT 1").fetchone():
+        alle_stellen = [s['id'] for s in db.execute("SELECT id FROM verkaufsstelle WHERE aktiv=1 ORDER BY id").fetchall()]
+        rnd.shuffle(alle_stellen)
+        for idx, sid in enumerate(alle_stellen):
+            rep = reps[idx % len(reps)]
+            db.execute(
+                "INSERT OR IGNORE INTO mitarbeiter_verkaufsstelle (mitarbeiter_id, verkaufsstelle_id) VALUES (?,?)",
+                (rep['id'], sid)
+            )
+
+    db.commit()
+
+
+def seed_demo_besuchsplan(db):
+    """Füllt Besuchsplan (tagesplan) für heute + die nächsten 3 Werktage je Rep."""
+    import random as rnd
+    from datetime import date, timedelta
+
+    today = date.today()
+    rnd.seed(today.toordinal())
+
+    reps = db.execute("SELECT id FROM mitarbeiter WHERE rolle='rep' AND aktiv=1").fetchall()
+
+    # Nächste 4 Werktage (inkl. heute)
+    tage, d = [], today
+    while len(tage) < 4:
+        if d.weekday() < 5:
+            tage.append(d)
+        d += timedelta(days=1)
+
+    for rep in reps:
+        stellen = db.execute("""
+            SELECT v.id FROM verkaufsstelle v
+            JOIN mitarbeiter_verkaufsstelle mv ON mv.verkaufsstelle_id = v.id
+            WHERE mv.mitarbeiter_id = ? AND v.aktiv = 1
+        """, (rep['id'],)).fetchall()
+        if not stellen:
+            stellen = db.execute("SELECT id FROM verkaufsstelle WHERE aktiv=1 LIMIT 12").fetchall()
+        ids = [s['id'] for s in stellen]
+
+        for tag in tage:
+            n_stops = rnd.randint(2, 3)
+            gewaehlte = rnd.sample(ids, k=min(n_stops, len(ids)))
+            for reihenfolge, vs_id in enumerate(gewaehlte, start=1):
+                db.execute(
+                    "INSERT INTO tagesplan (mitarbeiter_id, verkaufsstelle_id, datum, reihenfolge) VALUES (?,?,?,?)",
+                    (rep['id'], vs_id, tag.isoformat(), reihenfolge)
+                )
+
+    db.commit()
+
+
+def _do_demo_daily_reset():
+    """Täglicher Reset um 03:00: alle Aktivitäts- und Plandaten löschen und neu seeden."""
+    if not DEMO_MODUS:
+        return
+    db = get_db()
+    try:
+        db.execute("DELETE FROM bestellposition")
+        db.execute("DELETE FROM aktivitaet")
+        db.execute("DELETE FROM tagesplan")
+        db.execute("DELETE FROM zielzahlen")
+        db.commit()
+        seed_demo_data_relativ(db)
+        seed_demo_besuchsplan(db)
+        app.logger.info("Demo-Daily-Reset abgeschlossen.")
+    except Exception as e:
+        app.logger.error(f"Demo-Reset Fehler: {e}", exc_info=True)
+
+
+def demo_daily_reset():
+    """Wrapper für APScheduler."""
+    with app.app_context():
+        _do_demo_daily_reset()
 
 
 # ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -5996,10 +6169,10 @@ try:
                        id='auto_export',       replace_existing=True, timezone='Europe/Berlin')
     _scheduler.add_job(cleanup_alte_fotos,     'cron', day=1, hour=9, minute=0,
                        id='cleanup_fotos',     replace_existing=True, timezone='Europe/Berlin')
-    _scheduler.add_job(demo_woche_nachfuellen, 'cron', day_of_week='sun', hour=23, minute=30,
-                       id='demo_seed',         replace_existing=True)
+    _scheduler.add_job(demo_daily_reset,       'cron', hour=3, minute=0,
+                       id='demo_reset',         replace_existing=True, timezone='Europe/Berlin')
     _scheduler.start()
-    app.logger.info("Scheduler gestartet (Backup täglich, Wochenbericht Mo 07:00, Monatsbericht 1. 07:00, Export 1. 08:00, Foto-Cleanup 1. 09:00)")
+    app.logger.info("Scheduler gestartet (Backup täglich, Wochenbericht Mo 07:00, Monatsbericht 1. 07:00, Export 1. 08:00, Foto-Cleanup 1. 09:00, Demo-Reset täglich 03:00)")
 except ImportError:
     app.logger.warning("APScheduler nicht installiert – automatische Jobs deaktiviert.")
 
