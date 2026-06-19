@@ -1091,7 +1091,7 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
                   style="font-size:.78rem;padding:4px 9px" title="Verlauf anzeigen">
             <i class="bi bi-clock-history"></i>
           </button>
-          {% if not stop.erledigt %}
+          {% if not stop.erledigt and stop.datum >= today_str %}
           <button type="button" class="btn btn-sm btn-outline-secondary tp-reihf-btn tp-reihf-hoch"
                   data-tp-id="{{ stop.id }}" data-richtung="hoch"
                   style="font-size:.78rem;padding:4px 8px;line-height:1" title="Nach oben">↑</button>
