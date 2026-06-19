@@ -1605,10 +1605,26 @@ def dashboard():
             AND a.mitarbeiter_id = ?
         ''', _uid, one=True)
 
-    # Tagesplan für Rep: heute + nächste 6 Tage
+    # Tagesplan für Rep: Montag–Sonntag der gewählten (oder aktuellen) Woche
     tagesplan_rep = []
     alle_verkaufsstellen_rep = []
-    datum_woche_rep = [(date.today() + timedelta(days=i)).isoformat() for i in range(7)]
+    _today = date.today()
+    _tp_woche_str = request.args.get('tp_woche', None)
+    if _tp_woche_str:
+        try:
+            _tp_w = date.fromisoformat(_tp_woche_str)
+        except ValueError:
+            _tp_w = _today
+        tp_woche_montag = _tp_w - timedelta(days=_tp_w.weekday())
+    else:
+        tp_woche_montag = _today - timedelta(days=_today.weekday())
+    tp_woche_sonntag = tp_woche_montag + timedelta(days=6)
+    tp_kw            = tp_woche_montag.isocalendar()[1]
+    tp_prev_kw       = tp_kw - 1 if tp_kw > 1 else 52
+    tp_next_kw       = tp_kw + 1 if tp_kw < 52 else 1
+    tp_prev_woche    = (tp_woche_montag - timedelta(days=7)).isoformat()
+    tp_next_woche    = (tp_woche_montag + timedelta(days=7)).isoformat()
+    datum_woche_rep  = [(tp_woche_montag + timedelta(days=i)).isoformat() for i in range(7)]
     if not is_manager:
         tagesplan_rep = query('''
             SELECT tp.id, tp.datum, tp.reihenfolge, tp.notiz, tp.erledigt,
@@ -1616,11 +1632,11 @@ def dashboard():
             FROM tagesplan tp
             JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
             WHERE tp.mitarbeiter_id = ?
-              AND tp.datum >= date('now','localtime')
-              AND tp.datum <= date('now','localtime','+6 days')
+              AND tp.datum >= ?
+              AND tp.datum <= ?
               AND COALESCE(tp.geloescht, 0) = 0
             ORDER BY tp.datum, tp.reihenfolge, tp.id
-        ''', (session['user_id'],))
+        ''', (session['user_id'], tp_woche_montag.isoformat(), tp_woche_sonntag.isoformat()))
         # Stationsliste für Self-Service-Formular
         assigned = query(
             "SELECT verkaufsstelle_id FROM mitarbeiter_verkaufsstelle WHERE mitarbeiter_id=?",
@@ -1668,8 +1684,13 @@ def dashboard():
         tagesplan_rep=tagesplan_rep,
         alle_verkaufsstellen_rep=alle_verkaufsstellen_rep,
         datum_woche_rep=datum_woche_rep,
-        today_str=date.today().isoformat(),
-        tomorrow_str=(date.today() + timedelta(days=1)).isoformat(),
+        tp_kw=tp_kw,
+        tp_prev_kw=tp_prev_kw,
+        tp_next_kw=tp_next_kw,
+        tp_prev_woche=tp_prev_woche,
+        tp_next_woche=tp_next_woche,
+        today_str=_today.isoformat(),
+        tomorrow_str=(_today + timedelta(days=1)).isoformat(),
     )
 
 
@@ -1690,7 +1711,17 @@ def tourenplanung():
 
     # Tag-Modus
     datum = request.args.get('datum', today.isoformat())
-    datum_woche = [(today + timedelta(days=i)).isoformat() for i in range(7)]
+    try:
+        _datum_d = date.fromisoformat(datum)
+    except ValueError:
+        _datum_d = today
+    _datum_montag  = _datum_d - timedelta(days=_datum_d.weekday())
+    datum_woche    = [(_datum_montag + timedelta(days=i)).isoformat() for i in range(7)]
+    tag_kw         = _datum_montag.isocalendar()[1]
+    tag_prev_kw    = tag_kw - 1 if tag_kw > 1 else 52
+    tag_next_kw    = tag_kw + 1 if tag_kw < 52 else 1
+    tag_prev_datum = (_datum_d - timedelta(days=7)).isoformat()
+    tag_next_datum = (_datum_d + timedelta(days=7)).isoformat()
     plan_tag = query(f'''
         SELECT tp.id, tp.datum, tp.reihenfolge, tp.notiz, tp.erledigt,
                COALESCE(tp.geloescht, 0) AS geloescht, tp.geloescht_am,
@@ -1733,6 +1764,11 @@ def tourenplanung():
         # Tag
         datum=datum,
         datum_woche=datum_woche,
+        tag_kw=tag_kw,
+        tag_prev_kw=tag_prev_kw,
+        tag_next_kw=tag_next_kw,
+        tag_prev_datum=tag_prev_datum,
+        tag_next_datum=tag_next_datum,
         plan_tag=plan_tag,
         today_str=today.isoformat(),
         tomorrow_str=(today + timedelta(days=1)).isoformat(),
@@ -1777,6 +1813,28 @@ def tourenplanung_neu():
     if is_manager:
         return redirect(url_for('tourenplanung', datum=datum, ma=ma_id))
     return redirect(url_for('dashboard') + '#tab-tagesplan-btn')
+
+
+@app.route('/api/tagesplan/stopp/neu', methods=['POST'])
+@login_required
+def api_tagesplan_stopp_neu():
+    if session.get('rolle') not in ('rep', 'verkaufsleiter', 'admin'):
+        return jsonify({'ok': False, 'error': 'Kein Zugriff'}), 403
+    data  = request.get_json(silent=True) or {}
+    vs_id = data.get('vs_id')
+    datum = data.get('datum', date.today().isoformat())
+    if not vs_id:
+        return jsonify({'ok': False, 'error': 'Keine Verkaufsstelle'})
+    ma_id = session['user_id']
+    max_r = query(
+        "SELECT COALESCE(MAX(reihenfolge), 0) AS m FROM tagesplan WHERE mitarbeiter_id=? AND datum=?",
+        (ma_id, datum), one=True
+    )['m']
+    execute(
+        "INSERT INTO tagesplan (mitarbeiter_id, verkaufsstelle_id, datum, reihenfolge, erstellt_von) VALUES (?,?,?,?,?)",
+        (ma_id, int(vs_id), datum, max_r + 1, ma_id)
+    )
+    return jsonify({'ok': True})
 
 
 @app.route('/tourenplanung/<int:tp_id>/loeschen', methods=['POST'])

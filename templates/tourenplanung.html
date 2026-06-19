@@ -24,13 +24,27 @@
 {# ══════════════════════════════ TAG-MODUS ══════════════════════════════ #}
 {% if modus == 'tag' %}
 
-<!-- Tagwahl -->
+<!-- KW-Navigation + Tagwahl -->
 <div class="card mb-4">
   <div class="card-body py-2">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <a href="{{ url_for('tourenplanung', modus='tag', datum=tag_prev_datum) }}"
+         class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-chevron-left me-1"></i>KW {{ tag_prev_kw }}
+      </a>
+      <span class="fw-semibold" style="color:#1a3a5c;font-size:.85rem">
+        KW {{ tag_kw }} &nbsp;·&nbsp;
+        {{ datum_woche[0][8:10] }}.{{ datum_woche[0][5:7] }}. – {{ datum_woche[6][8:10] }}.{{ datum_woche[6][5:7] }}.{{ datum_woche[6][0:4] }}
+      </span>
+      <a href="{{ url_for('tourenplanung', modus='tag', datum=tag_next_datum) }}"
+         class="btn btn-sm btn-outline-secondary">
+        KW {{ tag_next_kw }}<i class="bi bi-chevron-right ms-1"></i>
+      </a>
+    </div>
     <div class="d-flex flex-wrap gap-1">
       {% for d in datum_woche %}
       <a href="{{ url_for('tourenplanung', modus='tag', datum=d) }}"
-         class="btn btn-sm {{ 'btn-primary' if d == datum else 'btn-outline-secondary' }}"
+         class="btn btn-sm {% if d == datum %}btn-primary{% elif d < today_str %}btn-outline-secondary opacity-50{% else %}btn-outline-secondary{% endif %}"
          style="font-size:.8rem;padding:4px 10px;min-width:64px;text-align:center">
         <span class="d-block fw-semibold">
           {% if d == today_str %}Heute

@@ -86,7 +86,26 @@
       {% endif %}
     </button>
   </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-wochenplan-btn" data-bs-toggle="tab"
+            data-bs-target="#tab-wochenplan" type="button" role="tab">
+      <i class="bi bi-calendar-week me-1"></i>Wochenplan
+    </button>
+  </li>
 </ul>
+<script>
+// Tab per Hash aktivieren (nach KW-Navigation)
+(function(){
+  const hash = window.location.hash;
+  if (hash === '#tab-wochenplan-btn') {
+    const btn = document.getElementById('tab-wochenplan-btn');
+    if (btn) { new bootstrap.Tab(btn).show(); }
+  } else if (hash === '#tab-tagesplan-btn') {
+    const btn = document.getElementById('tab-tagesplan-btn');
+    if (btn) { new bootstrap.Tab(btn).show(); }
+  }
+})();
+</script>
 
 <div class="tab-content" id="repTabContent">
 <!-- ── TAB 1: ÜBERSICHT ── -->
@@ -567,6 +586,22 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
 <!-- ── TAB 2: TAGESPLAN ── -->
 <div class="tab-pane fade" id="tab-tagesplan" role="tabpanel">
 
+<!-- KW-Navigation -->
+<div class="d-flex justify-content-between align-items-center mb-3 px-1">
+  <a href="{{ url_for('dashboard', tp_woche=tp_prev_woche) }}#tab-tagesplan-btn"
+     class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-chevron-left me-1"></i>KW {{ tp_prev_kw }}
+  </a>
+  <span class="fw-semibold" style="color:#1a3a5c;font-size:.9rem">
+    KW {{ tp_kw }} &nbsp;·&nbsp;
+    {{ datum_woche_rep[0][8:10] }}.{{ datum_woche_rep[0][5:7] }}. – {{ datum_woche_rep[6][8:10] }}.{{ datum_woche_rep[6][5:7] }}.{{ datum_woche_rep[6][0:4] }}
+  </span>
+  <a href="{{ url_for('dashboard', tp_woche=tp_next_woche) }}#tab-tagesplan-btn"
+     class="btn btn-sm btn-outline-secondary">
+    KW {{ tp_next_kw }}<i class="bi bi-chevron-right ms-1"></i>
+  </a>
+</div>
+
 <!-- Stop selbst hinzufügen -->
 <div class="card mb-3">
   <div class="card-body py-3 px-3">
@@ -577,19 +612,28 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
       <div class="mb-2">
         <label class="form-label mb-1" style="font-size:.8rem;color:#555;font-weight:600">Datum</label>
         <input type="hidden" name="datum" id="repDatumHidden" value="{{ today_str }}">
-        <div class="d-flex flex-wrap gap-1">
+        <div class="d-flex flex-wrap gap-1 align-items-center">
           {% for d in datum_woche_rep %}
-          <button type="button" class="btn btn-sm rep-datum-tile {{ 'btn-primary' if loop.first else 'btn-outline-secondary' }}"
+          {% set is_past = d < today_str %}
+          {% set is_today = d == today_str %}
+          <button type="button"
+                  class="btn btn-sm rep-datum-tile {% if is_today %}btn-primary{% else %}btn-outline-secondary{% endif %}{% if is_past %} opacity-50{% endif %}"
                   data-datum="{{ d }}"
+                  data-past="{{ 'true' if is_past else 'false' }}"
                   style="font-size:.8rem;padding:4px 10px;min-width:64px;text-align:center">
             <span class="d-block fw-semibold">
-              {% if d == today_str %}Heute
+              {% if is_today %}Heute
               {% elif d == tomorrow_str %}Morgen
               {% else %}{{ d | weekday_de }}{% endif %}
             </span>
             <span style="font-size:.7rem;opacity:.75">{{ d[8:10] }}.{{ d[5:7] }}</span>
           </button>
           {% endfor %}
+          <!-- Eigenes Datum wählen -->
+          <input type="date" id="repDatumCustom"
+                 min="{{ today_str }}"
+                 title="Eigenes Datum wählen"
+                 style="font-size:.78rem;padding:4px 8px;height:36px;border:1px solid #dee2e6;border-radius:.375rem;min-width:130px;cursor:pointer;color:#555">
         </div>
       </div>
 
@@ -836,18 +880,160 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
     if (leerMsg) leerMsg.classList.toggle('d-none', gefunden || gruppen.length === 0);
   }
 
+  function updateSubmitState(datum) {
+    const past = datum < '{{ today_str }}';
+    const btn  = document.querySelector('#stopForm button[type=submit]');
+    if (btn) {
+      btn.disabled = past;
+      btn.title = past ? 'Vergangene Tage können nicht mehr geplant werden' : '';
+    }
+  }
+
   tiles.forEach(btn => {
     btn.addEventListener('click', function() {
-      tiles.forEach(b => { b.classList.remove('btn-primary'); b.classList.add('btn-outline-secondary'); });
+      tiles.forEach(b => {
+        b.classList.remove('btn-primary');
+        b.classList.add('btn-outline-secondary');
+      });
       this.classList.add('btn-primary');
       this.classList.remove('btn-outline-secondary');
       const d = this.dataset.datum;
       if (hiddenInp) hiddenInp.value = d;
       zeigeTag(d);
+      updateSubmitState(d);
+      const cp = document.getElementById('repDatumCustom');
+      if (cp) cp.value = '';
     });
   });
 
+  // Eigenes Datum (Datumspicker)
+  const repDatumCustom = document.getElementById('repDatumCustom');
+  if (repDatumCustom) {
+    repDatumCustom.addEventListener('change', function() {
+      if (!this.value) return;
+      tiles.forEach(b => { b.classList.remove('btn-primary'); b.classList.add('btn-outline-secondary'); });
+      if (hiddenInp) hiddenInp.value = this.value;
+      zeigeTag(this.value);
+      updateSubmitState(this.value);
+    });
+  }
+
   zeigeTag('{{ today_str }}');
+  updateSubmitState('{{ today_str }}');
+})();
+</script>
+
+<!-- Schnellplan: Stationen direkt per Klick zum Plan hinzufügen -->
+<div class="card mb-3" id="schnellplanPanel">
+  <div class="card-header py-2 px-3 d-flex justify-content-between align-items-center"
+       style="background:#f0f4f8;cursor:pointer" id="schnellplanToggle">
+    <span class="fw-semibold" style="color:#1a3a5c;font-size:.85rem">
+      <i class="bi bi-lightning-charge me-1"></i>Schnell hinzufügen
+    </span>
+    <i class="bi bi-chevron-down" id="schnellplanChevron" style="color:#6c757d;font-size:.8rem"></i>
+  </div>
+  <div class="card-body p-0 d-none" id="schnellplanBody">
+    <div class="p-2 border-bottom">
+      <input type="text" id="schnellSuche" class="form-control form-control-sm"
+             placeholder="Station suchen…" autocomplete="off" style="font-size:.82rem">
+    </div>
+    <div id="schnellListe" style="max-height:260px;overflow-y:auto"></div>
+    <div id="schnellFeedback" class="py-2 px-3 d-none"
+         style="font-size:.82rem;color:#155724;background:#d4edda;border-top:1px solid #c3e6cb">
+      <i class="bi bi-check-circle me-1"></i><span id="schnellFeedbackText"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const toggle   = document.getElementById('schnellplanToggle');
+  const body     = document.getElementById('schnellplanBody');
+  const chevron  = document.getElementById('schnellplanChevron');
+  const suche    = document.getElementById('schnellSuche');
+  const liste    = document.getElementById('schnellListe');
+  if (!toggle) return;
+
+  const vsSelect = document.getElementById('vsHauptSelect');
+
+  function getOpts(q) {
+    if (!vsSelect) return [];
+    return Array.from(vsSelect.options).filter(o =>
+      o.value && o.style.display !== 'none' &&
+      (!q || o.text.toLowerCase().includes(q.toLowerCase()))
+    );
+  }
+
+  function buildListe(q) {
+    const opts = getOpts(q);
+    if (!opts.length) {
+      liste.innerHTML = '<div class="py-3 text-center text-muted" style="font-size:.82rem">Keine Stationen gefunden</div>';
+      return;
+    }
+    liste.innerHTML = opts.map(o => `
+      <div class="d-flex align-items-center px-3 py-2 border-bottom"
+           style="gap:10px">
+        <span style="flex:1;font-size:.84rem;color:#1a3a5c;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+              title="${o.text}">${o.text}</span>
+        <button type="button" class="btn btn-sm btn-outline-primary schnell-plus flex-shrink-0"
+                data-vs-id="${o.value}" data-vs-name="${o.text}"
+                style="font-size:.75rem;padding:2px 10px;white-space:nowrap">
+          <i class="bi bi-plus-lg"></i>
+        </button>
+      </div>`
+    ).join('');
+
+    liste.querySelectorAll('.schnell-plus').forEach(btn => {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        const vsId   = this.dataset.vsId;
+        const vsName = this.dataset.vsName;
+        const datum  = document.getElementById('repDatumHidden')?.value || '{{ today_str }}';
+        const origHtml = this.innerHTML;
+        this.disabled = true;
+        this.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+        fetch('{{ url_for("api_tagesplan_stopp_neu") }}', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({vs_id: vsId, datum: datum})
+        })
+        .then(r => r.json())
+        .then(data => {
+          if (data.ok) {
+            this.innerHTML = '<i class="bi bi-check-lg"></i>';
+            this.classList.replace('btn-outline-primary', 'btn-outline-success');
+            const fb   = document.getElementById('schnellFeedback');
+            const fbtx = document.getElementById('schnellFeedbackText');
+            if (fb && fbtx) {
+              fbtx.textContent = `„${vsName}" für ${datum.slice(8,10)}.${datum.slice(5,7)}. hinzugefügt`;
+              fb.classList.remove('d-none');
+              setTimeout(() => fb.classList.add('d-none'), 3000);
+            }
+            setTimeout(() => {
+              this.innerHTML = origHtml;
+              this.disabled = false;
+              this.classList.replace('btn-outline-success', 'btn-outline-primary');
+            }, 2000);
+          } else {
+            alert(data.error || 'Fehler beim Hinzufügen');
+            this.innerHTML = origHtml;
+            this.disabled = false;
+          }
+        })
+        .catch(() => { this.innerHTML = origHtml; this.disabled = false; });
+      });
+    });
+  }
+
+  toggle.addEventListener('click', function() {
+    const open = !body.classList.contains('d-none');
+    body.classList.toggle('d-none', open);
+    chevron.classList.toggle('bi-chevron-down', open);
+    chevron.classList.toggle('bi-chevron-up', !open);
+    if (!open) { buildListe(''); if (suche) suche.focus(); }
+  });
+
+  if (suche) suche.addEventListener('input', function() { buildListe(this.value); });
 })();
 </script>
 
@@ -947,6 +1133,78 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
 {% endif %}
 
 </div>{# /tab-pane #tab-tagesplan #}
+
+<!-- ── TAB 3: WOCHENPLAN (Rep) ── -->
+<div class="tab-pane fade" id="tab-wochenplan" role="tabpanel">
+
+<div class="d-flex justify-content-between align-items-center mb-3 px-1">
+  <a href="{{ url_for('dashboard', tp_woche=tp_prev_woche) }}#tab-wochenplan-btn"
+     class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-chevron-left me-1"></i>KW {{ tp_prev_kw }}
+  </a>
+  <span class="fw-semibold" style="color:#1a3a5c;font-size:.9rem">
+    KW {{ tp_kw }} &nbsp;·&nbsp;
+    {{ datum_woche_rep[0][8:10] }}.{{ datum_woche_rep[0][5:7] }}. – {{ datum_woche_rep[6][8:10] }}.{{ datum_woche_rep[6][5:7] }}.{{ datum_woche_rep[6][0:4] }}
+  </span>
+  <a href="{{ url_for('dashboard', tp_woche=tp_next_woche) }}#tab-wochenplan-btn"
+     class="btn btn-sm btn-outline-secondary">
+    KW {{ tp_next_kw }}<i class="bi bi-chevron-right ms-1"></i>
+  </a>
+</div>
+
+{% for d in datum_woche_rep %}
+  {% set tag_stops = tagesplan_rep | selectattr('datum', 'equalto', d) | list %}
+  {% set offen_n   = tag_stops | rejectattr('erledigt') | list | length %}
+  {% set erl_n     = tag_stops | selectattr('erledigt') | list | length %}
+  <div class="card mb-2 {% if d < today_str %}opacity-75{% endif %}">
+    <div class="card-header py-2 px-3 d-flex justify-content-between align-items-center"
+         style="background:{% if d == today_str %}#eef4fb{% else %}#f7fafc{% endif %}">
+      <span class="fw-semibold" style="color:#1a3a5c;font-size:.85rem">
+        {% if d == today_str %}<span class="badge me-1" style="background:#1a3a5c;font-size:.7rem">Heute</span>{% endif %}
+        {{ d | weekday_de }}, {{ d[8:10] }}.{{ d[5:7] }}.{{ d[0:4] }}
+      </span>
+      <span class="d-flex gap-1">
+        {% if erl_n %}<span class="badge" style="background:#d4edda;color:#155724;font-size:.7rem">{{ erl_n }} ✓</span>{% endif %}
+        {% if offen_n %}<span class="badge" style="background:#fff3cd;color:#856404;font-size:.7rem">{{ offen_n }} offen</span>{% endif %}
+        {% if not tag_stops %}<span class="badge" style="background:#e2e8f0;color:#adb5bd;font-size:.7rem">Kein Plan</span>{% endif %}
+      </span>
+    </div>
+    {% if tag_stops %}
+    <div class="list-group list-group-flush">
+      {% for stop in tag_stops %}
+      <div class="list-group-item py-2 px-3 d-flex align-items-center gap-2 {% if stop.erledigt %}bg-light{% endif %}">
+        {% if stop.erledigt %}
+        <i class="bi bi-check-circle-fill flex-shrink-0" style="color:#27ae60"></i>
+        {% else %}
+        <i class="bi bi-circle flex-shrink-0" style="color:#cbd5e0"></i>
+        {% endif %}
+        <div style="flex:1;min-width:0">
+          <div class="fw-semibold {% if stop.erledigt %}text-decoration-line-through text-muted{% endif %}"
+               style="font-size:.85rem;color:#1a3a5c">{{ stop.station }}</div>
+          {% if stop.plz or stop.ort %}<div style="font-size:.74rem;color:#6c757d">{% if stop.plz %}{{ stop.plz }} {% endif %}{{ stop.ort or '' }}</div>{% endif %}
+        </div>
+        {% if stop.erledigt %}
+        <span class="badge flex-shrink-0" style="background:#d4edda;color:#155724;font-size:.7rem">Erledigt</span>
+        {% else %}
+        <span class="badge flex-shrink-0" style="background:#fff3cd;color:#856404;font-size:.7rem">Offen</span>
+        {% if d >= today_str %}
+        <form method="POST" action="{{ url_for('tourenplanung_loeschen', tp_id=stop.id) }}" class="d-inline">
+          <button type="submit" class="btn btn-sm btn-outline-danger"
+                  style="font-size:.72rem;padding:2px 7px" title="Stop entfernen">
+            <i class="bi bi-trash"></i>
+          </button>
+        </form>
+        {% endif %}
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+{% endfor %}
+
+</div>{# /tab-wochenplan #}
+
 </div>{# /tab-content #}
 {% endif %}{# /touren_modus rep tabs #}
 
