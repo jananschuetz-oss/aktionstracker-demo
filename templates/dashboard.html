@@ -864,7 +864,7 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
 </div>
 
 <script>
-(function(){
+document.addEventListener('DOMContentLoaded', function(){
   const tiles      = document.querySelectorAll('.rep-datum-tile');
   const hiddenInp  = document.getElementById('repDatumHidden');
   const leerMsg    = document.getElementById('repKeinPlanTag');
@@ -920,7 +920,7 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
 
   zeigeTag('{{ today_str }}');
   updateSubmitState('{{ today_str }}');
-})();
+});
 </script>
 
 <!-- Schnellplan: Stationen direkt per Klick zum Plan hinzufügen -->
@@ -1069,7 +1069,7 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
           {% if stop.notiz %}
           <div style="font-size:.75rem;color:#2c7a7b;margin-top:2px"><i class="bi bi-chat-left-text me-1"></i>{{ stop.notiz }}</div>
           {% endif %}
-          {% if not stop.erledigt %}
+          {% if not stop.erledigt and stop.datum >= today_str %}
           <div class="d-flex gap-2 mt-2 d-sm-none">
             <a href="{{ url_for('neue_aktivitaet') }}?vs_id={{ stop.vs_id }}"
                class="btn btn-sm d-inline-flex align-items-center gap-1"
