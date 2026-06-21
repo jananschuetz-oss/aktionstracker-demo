@@ -493,6 +493,12 @@ def init_db():
             "ALTER TABLE verkaufsstelle ADD COLUMN plz              TEXT",
             "ALTER TABLE verkaufsstelle ADD COLUMN landkreis        TEXT",
             "ALTER TABLE mitarbeiter   ADD COLUMN aktiv             INTEGER DEFAULT 1",
+            "ALTER TABLE verkaufsstelle ADD COLUMN geocode_quelle   TEXT",
+            """CREATE TABLE IF NOT EXISTS plz_zentrum (
+                plz  TEXT PRIMARY KEY,
+                lat  REAL NOT NULL,
+                lng  REAL NOT NULL
+            )""",
         ]:
             try:
                 db.execute(migration)
@@ -3707,9 +3713,10 @@ def admin_vs_neu():
             (name, strasse, plz or None, ort, landkreis or None, typ, ansprechpartner)
         )
         if KARTE_MODUS != 'aus' and (strasse or ort):
-            lat, lng = _geocode_adresse(strasse, ort, plz=plz or None)
+            lat, lng, quelle = _geocode_adresse(strasse, ort, plz=plz or None)
             if lat is not None:
-                execute("UPDATE verkaufsstelle SET lat=?, lng=? WHERE id=?", (lat, lng, new_id))
+                execute("UPDATE verkaufsstelle SET lat=?, lng=?, geocode_quelle=? WHERE id=?",
+                        (lat, lng, quelle, new_id))
                 flash(f'Verkaufsstelle "{name}" angelegt und auf Karte verortet.', 'success')
             else:
                 flash(f'Verkaufsstelle "{name}" angelegt. Koordinaten konnten nicht automatisch ermittelt werden – bitte "Koordinaten ermitteln" auf der Karte nutzen.', 'warning')
@@ -3742,9 +3749,10 @@ def admin_vs_bearbeiten(vs_id):
         (name, strasse, plz or None, ort, landkreis or None, typ, ansprechpartner, vs_id)
     )
     if adresse_geaendert and KARTE_MODUS != 'aus' and (strasse or ort):
-        lat, lng = _geocode_adresse(strasse, ort, plz=plz or None)
+        lat, lng, quelle = _geocode_adresse(strasse, ort, plz=plz or None)
         if lat is not None:
-            execute("UPDATE verkaufsstelle SET lat=?, lng=? WHERE id=?", (lat, lng, vs_id))
+            execute("UPDATE verkaufsstelle SET lat=?, lng=?, geocode_quelle=? WHERE id=?",
+                    (lat, lng, quelle, vs_id))
             flash(f'„{name}" gespeichert und neu auf Karte verortet.', 'success')
         else:
             flash(f'„{name}" gespeichert. Koordinaten konnten nicht neu ermittelt werden.', 'warning')
@@ -6142,10 +6150,45 @@ def _in_dach(lat, lon):
     return (_DACH_BBOX['lat_min'] <= lat <= _DACH_BBOX['lat_max'] and
             _DACH_BBOX['lon_min'] <= lon <= _DACH_BBOX['lon_max'])
 
+def _plz_zentroid(plz, timeout=6):
+    """PLZ-Mittelpunkt: erst lokaler Cache (plz_zentrum), dann Nominatim-PLZ-Lookup.
+    Thread-sicher durch eigene sqlite3-Verbindung. Gibt (lat, lng) oder (None, None) zurück."""
+    if not plz or len(plz.strip()) < 4:
+        return None, None
+    plz = plz.strip()
+    import sqlite3 as _sq3
+    try:
+        with _sq3.connect(DATABASE) as _c:
+            r = _c.execute("SELECT lat, lng FROM plz_zentrum WHERE plz=?", (plz,)).fetchone()
+            if r:
+                return r[0], r[1]
+    except Exception:
+        pass
+    url = (f'https://nominatim.openstreetmap.org/search?format=json&limit=1'
+           f'&countrycodes=de,at,ch&postalcode={urllib.parse.quote(plz)}')
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'AktionsTracker/1.0 (info@aktionstracker.de)'})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            hits = json.loads(resp.read().decode())
+        if hits:
+            lat, lng = float(hits[0]['lat']), float(hits[0]['lon'])
+            if _in_dach(lat, lng):
+                try:
+                    with _sq3.connect(DATABASE) as _c:
+                        _c.execute("INSERT OR IGNORE INTO plz_zentrum (plz, lat, lng) VALUES (?,?,?)",
+                                   (plz, lat, lng))
+                except Exception:
+                    pass
+                return lat, lng
+    except Exception as exc:
+        app.logger.warning(f"PLZ-Zentroid '{plz}': {exc}")
+    return None, None
+
 def _geocode_adresse(strasse, ort, plz=None, timeout=8):
     """Koordinaten via Nominatim mit strukturierten Parametern und PLZ-Priorisierung.
-    Fallback-Kette: Straße+PLZ+Ort → PLZ+Ort → PLZ allein → Ort (Freitext).
-    Ergebnis wird gegen DACH-Bounding-Box validiert. Gibt (lat, lng) oder (None, None) zurück."""
+    Fallback-Kette: Straße+PLZ+Ort → PLZ+Ort → PLZ allein → Ort (Freitext) → PLZ-Zentroid.
+    Ergebnis wird gegen DACH-Bounding-Box validiert.
+    Gibt (lat, lng, quelle) zurück; quelle ist 'nominatim', 'plz' oder None."""
     base = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=de,at,ch'
     headers = {'User-Agent': 'AktionsTracker/1.0 (info@aktionstracker.de)'}
 
@@ -6176,12 +6219,20 @@ def _geocode_adresse(strasse, ort, plz=None, timeout=8):
             if hits:
                 lat, lon = float(hits[0]['lat']), float(hits[0]['lon'])
                 if _in_dach(lat, lon):
-                    return lat, lon
-                app.logger.warning(f"Geocode außerhalb DACH verworfen: {lat},{lon} für {url}")
+                    return lat, lon, 'nominatim'
+                app.logger.warning(f"Geocode außerhalb DACH verworfen: {lat},{lon}")
         except Exception as exc:
-            app.logger.warning(f"Geocode-Fehler ({url}): {exc}")
+            app.logger.warning(f"Geocode-Fehler: {exc}")
         _time.sleep(1.1)
-    return None, None
+
+    if plz:
+        _time.sleep(1.1)
+        lat, lng = _plz_zentroid(plz)
+        if lat is not None:
+            app.logger.info(f"PLZ-Zentroid verwendet für PLZ {plz}")
+            return lat, lng, 'plz'
+
+    return None, None, None
 
 
 @app.route('/api/karte/geocode', methods=['POST'])
@@ -6205,13 +6256,13 @@ def api_karte_geocode():
         ok = fail = 0
         try:
             for stelle in items:
-                lat, lng = _geocode_adresse(
+                lat, lng, quelle = _geocode_adresse(
                     stelle.get('strasse', ''), stelle.get('ort', ''), plz=stelle.get('plz')
                 )
                 if lat is not None:
                     conn.execute(
-                        "UPDATE verkaufsstelle SET lat=?, lng=? WHERE id=?",
-                        (lat, lng, stelle['id'])
+                        "UPDATE verkaufsstelle SET lat=?, lng=?, geocode_quelle=? WHERE id=?",
+                        (lat, lng, quelle, stelle['id'])
                     )
                     conn.commit()
                     ok += 1
