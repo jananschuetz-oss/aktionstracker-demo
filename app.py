@@ -4828,14 +4828,14 @@ def _do_send_wochenbericht(force=False):
                 else:
                     ueberfaellig_html = ''
 
-                # Tagesplan-Erfüllung Vorwoche (Team + pro Rep)
+                # Tagesplan-Erfüllung berichtete Woche (= montag_diese, gleiche Periode wie Haupt-KPIs)
                 _tp_team_row = query(f'''
                     SELECT COUNT(*) AS geplant,
                            COALESCE(SUM(tp.erledigt), 0) AS erledigt
                     FROM tagesplan tp JOIN mitarbeiter m ON m.id=tp.mitarbeiter_id
                     WHERE tp.datum BETWEEN ? AND ?
                       AND COALESCE(tp.geloescht,0)=0 AND m.rolle=\'rep\'{tf}
-                ''', [montag_letzte.isoformat(), sonntag_letzte.isoformat()] + t_p, one=True)
+                ''', [montag_diese.isoformat(), sonntag_diese.isoformat()] + t_p, one=True)
                 _tp_team = dict(_tp_team_row) if _tp_team_row else {}
                 _tp_reps = query(f'''
                     SELECT tp.mitarbeiter_id, COUNT(*) AS geplant,
@@ -4844,7 +4844,7 @@ def _do_send_wochenbericht(force=False):
                     WHERE tp.datum BETWEEN ? AND ?
                       AND COALESCE(tp.geloescht,0)=0 AND m.rolle=\'rep\'{tf}
                     GROUP BY tp.mitarbeiter_id
-                ''', [montag_letzte.isoformat(), sonntag_letzte.isoformat()] + t_p) or []
+                ''', [montag_diese.isoformat(), sonntag_diese.isoformat()] + t_p) or []
                 tp_map = {r['mitarbeiter_id']: dict(r) for r in _tp_reps}
 
                 def _plan_badge(geplant, erledigt):
