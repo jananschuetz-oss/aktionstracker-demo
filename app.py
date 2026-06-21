@@ -4828,14 +4828,14 @@ def _do_send_wochenbericht(force=False):
                 else:
                     ueberfaellig_html = ''
 
-                # Tagesplan-Erfüllung diese Woche (Team + pro Rep)
+                # Tagesplan-Erfüllung Vorwoche (Team + pro Rep)
                 _tp_team_row = query(f'''
                     SELECT COUNT(*) AS geplant,
                            COALESCE(SUM(tp.erledigt), 0) AS erledigt
                     FROM tagesplan tp JOIN mitarbeiter m ON m.id=tp.mitarbeiter_id
                     WHERE tp.datum BETWEEN ? AND ?
                       AND COALESCE(tp.geloescht,0)=0 AND m.rolle=\'rep\'{tf}
-                ''', [montag_diese.isoformat(), sonntag_diese.isoformat()] + t_p, one=True)
+                ''', [montag_letzte.isoformat(), sonntag_letzte.isoformat()] + t_p, one=True)
                 _tp_team = dict(_tp_team_row) if _tp_team_row else {}
                 _tp_reps = query(f'''
                     SELECT tp.mitarbeiter_id, COUNT(*) AS geplant,
@@ -4844,7 +4844,7 @@ def _do_send_wochenbericht(force=False):
                     WHERE tp.datum BETWEEN ? AND ?
                       AND COALESCE(tp.geloescht,0)=0 AND m.rolle=\'rep\'{tf}
                     GROUP BY tp.mitarbeiter_id
-                ''', [montag_diese.isoformat(), sonntag_diese.isoformat()] + t_p) or []
+                ''', [montag_letzte.isoformat(), sonntag_letzte.isoformat()] + t_p) or []
                 tp_map = {r['mitarbeiter_id']: dict(r) for r in _tp_reps}
 
                 def _plan_badge(geplant, erledigt):
@@ -4924,7 +4924,7 @@ def _do_send_wochenbericht(force=False):
   {ueberfaellig_html}
 
   <div style="padding:14px 32px;background:#f0f4f8;border-top:1px solid #e4eaf0">
-    <span style="font-size:13px;font-weight:bold;color:#1a3a5c">&#128203; Besuchsplanung diese Woche:</span>
+    <span style="font-size:13px;font-weight:bold;color:#1a3a5c">&#128203; Besuchsplanung Vorwoche:</span>
     <span style="margin-left:10px;font-size:13px">
       <span style="color:#555">{tp_g} geplant</span>
       &nbsp;&middot;&nbsp;
@@ -5609,14 +5609,14 @@ def wochenbericht_vorschau():
         "SELECT COUNT(*) AS geplant, COALESCE(SUM(tp.erledigt),0) AS erledigt "
         "FROM tagesplan tp JOIN mitarbeiter m ON m.id=tp.mitarbeiter_id "
         "WHERE tp.datum BETWEEN ? AND ? AND COALESCE(tp.geloescht,0)=0 AND m.rolle='rep'",
-        (montag_diese.isoformat(), sonntag_diese.isoformat()), one=True)
+        (montag_letzte.isoformat(), sonntag_letzte.isoformat()), one=True)
     _tp_team_v = dict(_tp_team_v_row) if _tp_team_v_row else {}
     _tp_reps_v = query(
         "SELECT tp.mitarbeiter_id, COUNT(*) AS geplant, COALESCE(SUM(tp.erledigt),0) AS erledigt "
         "FROM tagesplan tp JOIN mitarbeiter m ON m.id=tp.mitarbeiter_id "
         "WHERE tp.datum BETWEEN ? AND ? AND COALESCE(tp.geloescht,0)=0 AND m.rolle='rep' "
         "GROUP BY tp.mitarbeiter_id",
-        (montag_diese.isoformat(), sonntag_diese.isoformat())) or []
+        (montag_letzte.isoformat(), sonntag_letzte.isoformat())) or []
     tp_map_v = {r['mitarbeiter_id']: dict(r) for r in _tp_reps_v}
 
     def _plan_badge_v(geplant, erledigt):
@@ -5635,7 +5635,7 @@ def wochenbericht_vorschau():
     tp_summary_v = (
         f'<div style="padding:12px 32px 0">'
         f'<div style="background:#f3f0fa;border:1px solid #d5cdf0;border-radius:8px;padding:10px 16px;font-size:13px">'
-        f'<span style="font-weight:bold;color:#5a3e9e">Besuchsplanung diese Woche:</span>'
+        f'<span style="font-weight:bold;color:#5a3e9e">Besuchsplanung Vorwoche:</span>'
         f'&nbsp;&nbsp;{tp_g_v} geplant &nbsp;·&nbsp; {tp_e_v} erledigt &nbsp;·&nbsp; {tp_o_v} offen'
         f'&nbsp;&nbsp;<span style="font-weight:bold;color:{tp_col_v}">{tp_pct_v}%</span>'
         f'</div></div>'
