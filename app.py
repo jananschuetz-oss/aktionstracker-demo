@@ -3707,7 +3707,7 @@ def admin_vs_neu():
             (name, strasse, plz or None, ort, landkreis or None, typ, ansprechpartner)
         )
         if KARTE_MODUS != 'aus' and (strasse or ort):
-            lat, lng = _geocode_adresse(strasse, ort)
+            lat, lng = _geocode_adresse(strasse, ort, plz=plz or None)
             if lat is not None:
                 execute("UPDATE verkaufsstelle SET lat=?, lng=? WHERE id=?", (lat, lng, new_id))
                 flash(f'Verkaufsstelle "{name}" angelegt und auf Karte verortet.', 'success')
@@ -3742,7 +3742,7 @@ def admin_vs_bearbeiten(vs_id):
         (name, strasse, plz or None, ort, landkreis or None, typ, ansprechpartner, vs_id)
     )
     if adresse_geaendert and KARTE_MODUS != 'aus' and (strasse or ort):
-        lat, lng = _geocode_adresse(strasse, ort)
+        lat, lng = _geocode_adresse(strasse, ort, plz=plz or None)
         if lat is not None:
             execute("UPDATE verkaufsstelle SET lat=?, lng=? WHERE id=?", (lat, lng, vs_id))
             flash(f'„{name}" gespeichert und neu auf Karte verortet.', 'success')
@@ -6136,28 +6136,50 @@ def api_karte_zuordnung_aendern():
     return jsonify({'ok': True, 'stelle_name': stelle_name})
 
 
-def _geocode_adresse(strasse, ort, timeout=8):
-    """Koordinaten via Nominatim: erst Straße+Ort, dann nur Ort als Fallback.
-    Gibt (lat, lng) oder (None, None) zurück."""
+_DACH_BBOX = {'lat_min': 45.8, 'lat_max': 55.2, 'lon_min': 5.8, 'lon_max': 17.2}
+
+def _in_dach(lat, lon):
+    return (_DACH_BBOX['lat_min'] <= lat <= _DACH_BBOX['lat_max'] and
+            _DACH_BBOX['lon_min'] <= lon <= _DACH_BBOX['lon_max'])
+
+def _geocode_adresse(strasse, ort, plz=None, timeout=8):
+    """Koordinaten via Nominatim mit strukturierten Parametern und PLZ-Priorisierung.
+    Fallback-Kette: Straße+PLZ+Ort → PLZ+Ort → PLZ allein → Ort (Freitext).
+    Ergebnis wird gegen DACH-Bounding-Box validiert. Gibt (lat, lng) oder (None, None) zurück."""
+    base = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=de,at,ch'
+    headers = {'User-Agent': 'AktionsTracker/1.0 (info@aktionstracker.de)'}
+
+    def _strukturiert(**felder):
+        params = '&'.join(
+            f"{k}={urllib.parse.quote(str(v))}"
+            for k, v in felder.items() if v
+        )
+        return f"{base}&{params}" if params else None
+
     kandidaten = []
-    if strasse and ort:
-        kandidaten.append(f"{strasse}, {ort}, Deutschland")
+    if strasse and plz and ort:
+        kandidaten.append(_strukturiert(street=strasse, postalcode=plz, city=ort))
+    if plz and ort:
+        kandidaten.append(_strukturiert(postalcode=plz, city=ort))
+    if plz:
+        kandidaten.append(_strukturiert(postalcode=plz))
     if ort:
-        kandidaten.append(f"{ort}, Deutschland")
-    for suchbegriff in kandidaten:
-        url = ('https://nominatim.openstreetmap.org/search?q='
-               + urllib.parse.quote(suchbegriff)
-               + '&format=json&limit=1&countrycodes=de')
+        kandidaten.append(f"{base}&q={urllib.parse.quote(ort + ', Deutschland')}")
+
+    for url in kandidaten:
+        if not url:
+            continue
         try:
-            req = urllib.request.Request(
-                url, headers={'User-Agent': 'AktionsTracker/1.0 (info@aktionstracker.de)'}
-            )
+            req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 hits = json.loads(resp.read().decode())
             if hits:
-                return float(hits[0]['lat']), float(hits[0]['lon'])
+                lat, lon = float(hits[0]['lat']), float(hits[0]['lon'])
+                if _in_dach(lat, lon):
+                    return lat, lon
+                app.logger.warning(f"Geocode außerhalb DACH verworfen: {lat},{lon} für {url}")
         except Exception as exc:
-            app.logger.warning(f"Geocode '{suchbegriff}': {exc}")
+            app.logger.warning(f"Geocode-Fehler ({url}): {exc}")
         _time.sleep(1.1)
     return None, None
 
@@ -6169,7 +6191,7 @@ def api_karte_geocode():
         return jsonify({'error': 'Nicht verfügbar'}), 403
 
     stellen = query(
-        "SELECT id, name, strasse, ort FROM verkaufsstelle "
+        "SELECT id, name, strasse, plz, ort FROM verkaufsstelle "
         "WHERE aktiv=1 AND (lat IS NULL OR lng IS NULL OR lat=0 OR lng=0)"
     )
     if not stellen:
@@ -6183,7 +6205,9 @@ def api_karte_geocode():
         ok = fail = 0
         try:
             for stelle in items:
-                lat, lng = _geocode_adresse(stelle.get('strasse', ''), stelle.get('ort', ''))
+                lat, lng = _geocode_adresse(
+                    stelle.get('strasse', ''), stelle.get('ort', ''), plz=stelle.get('plz')
+                )
                 if lat is not None:
                     conn.execute(
                         "UPDATE verkaufsstelle SET lat=?, lng=? WHERE id=?",
