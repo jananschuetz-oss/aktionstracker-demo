@@ -4820,6 +4820,39 @@ def _do_send_wochenbericht(force=False):
                 else:
                     ueberfaellig_html = ''
 
+                # Tagesplan-Erfüllung Vorwoche (Team + pro Rep)
+                _tp_team_row = query(f'''
+                    SELECT COUNT(*) AS geplant,
+                           COALESCE(SUM(tp.erledigt), 0) AS erledigt
+                    FROM tagesplan tp JOIN mitarbeiter m ON m.id=tp.mitarbeiter_id
+                    WHERE tp.datum BETWEEN ? AND ?
+                      AND COALESCE(tp.geloescht,0)=0 AND m.rolle=\'rep\'{tf}
+                ''', [montag_letzte.isoformat(), sonntag_letzte.isoformat()] + t_p, one=True)
+                _tp_team = dict(_tp_team_row) if _tp_team_row else {}
+                _tp_reps = query(f'''
+                    SELECT tp.mitarbeiter_id, COUNT(*) AS geplant,
+                           COALESCE(SUM(tp.erledigt),0) AS erledigt
+                    FROM tagesplan tp JOIN mitarbeiter m ON m.id=tp.mitarbeiter_id
+                    WHERE tp.datum BETWEEN ? AND ?
+                      AND COALESCE(tp.geloescht,0)=0 AND m.rolle=\'rep\'{tf}
+                    GROUP BY tp.mitarbeiter_id
+                ''', [montag_letzte.isoformat(), sonntag_letzte.isoformat()] + t_p) or []
+                tp_map = {r['mitarbeiter_id']: dict(r) for r in _tp_reps}
+
+                def _plan_badge(geplant, erledigt):
+                    if not geplant:
+                        return '<span style="color:#aaa;font-size:11px">–</span>'
+                    pct = round(erledigt / geplant * 100)
+                    col = '#2d8a4e' if pct >= 80 else '#c8860a' if pct >= 60 else '#c0392b'
+                    return (f'<span style="font-size:12px">{erledigt} erl. / {geplant} ges.</span>'
+                            f'<div style="font-size:9px;font-weight:bold;color:{col};margin-top:1px">{pct}%</div>')
+
+                tp_g = _tp_team.get('geplant', 0)
+                tp_e = _tp_team.get('erledigt', 0)
+                tp_o = tp_g - tp_e
+                tp_pct = round(tp_e / tp_g * 100) if tp_g else 0
+                tp_col = '#2d8a4e' if tp_pct >= 80 else '#c8860a' if tp_pct >= 60 else ('#c0392b' if tp_g else '#aaa')
+
                 rep_rows = ''.join(f'''
                 <tr>
                   <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px">{r["name"]}</td>
@@ -4828,8 +4861,9 @@ def _do_send_wochenbericht(force=False):
                   <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
                   <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}{_delta_w(r["kisten"], r["mitarbeiter_id"], "kisten")}</td>
                   <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{_offen_col(offen_map.get(r["mitarbeiter_id"], 0))}</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center">{_plan_badge(tp_map.get(r["mitarbeiter_id"],{}).get("geplant",0), tp_map.get(r["mitarbeiter_id"],{}).get("erledigt",0))}</td>
                 </tr>''' for r in rs) or \
-                '<tr><td colspan="6" style="padding:12px 14px;color:#999;text-align:center">Keine Aktivitäten diese Woche</td></tr>'
+                '<tr><td colspan="7" style="padding:12px 14px;color:#999;text-align:center">Keine Aktivitäten diese Woche</td></tr>'
 
                 tl = f' &ndash; {team_name}' if team_name else ''
                 dl = APP_BASE_URL or '#'
@@ -4861,7 +4895,7 @@ def _do_send_wochenbericht(force=False):
         <td width="12"></td>
         <td style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
           <div style="font-size:30px;font-weight:bold;color:#2e6da4">{diese["displays"]}</div>
-          <div style="font-size:12px;color:#666;margin-top:3px">Displays</div>
+          <div style="font-size:12px;color:#666;margin-top:3px">Aufbauten</div>
           <div style="font-size:11px;font-weight:bold;color:{trend_col(diese["displays"],letzte["displays"])};margin-top:5px">{trend_str(diese["displays"],letzte["displays"])} ggü. Vorwoche</div>
         </td>
       </tr>
@@ -4881,6 +4915,19 @@ def _do_send_wochenbericht(force=False):
 
   {ueberfaellig_html}
 
+  <div style="padding:14px 32px;background:#f0f4f8;border-top:1px solid #e4eaf0">
+    <span style="font-size:13px;font-weight:bold;color:#1a3a5c">&#128203; Besuchsplanung Vorwoche:</span>
+    <span style="margin-left:10px;font-size:13px">
+      <span style="color:#555">{tp_g} geplant</span>
+      &nbsp;&middot;&nbsp;
+      <span style="color:#2d8a4e;font-weight:bold">{tp_e} erledigt</span>
+      &nbsp;&middot;&nbsp;
+      <span style="color:#c8860a;font-weight:bold">{tp_o} nicht erledigt</span>
+      &nbsp;&middot;&nbsp;
+      <span style="font-weight:bold;color:{tp_col}">{tp_pct}%</span>
+    </span>
+  </div>
+
   <div style="padding:24px 32px">
     <div style="font-size:15px;font-weight:bold;color:#1a3a5c;margin-bottom:12px">Mitarbeiter diese Woche</div>
     <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e4eaf0;border-radius:8px;overflow:hidden">
@@ -4892,6 +4939,7 @@ def _do_send_wochenbericht(force=False):
           <th style="padding:8px 10px;text-align:center;font-size:10px;color:#27ae60;font-weight:600;letter-spacing:.5px">AUFBAUT.</th>
           <th style="padding:8px 10px;text-align:center;font-size:10px;color:#c8860a;font-weight:600;letter-spacing:.5px">{UNIT_LABEL.upper()[:7]}</th>
           <th style="padding:8px 10px;text-align:center;font-size:10px;color:#c8860a;font-weight:600;letter-spacing:.5px">OFFEN</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#5a3e9e;font-weight:600;letter-spacing:.5px">BESUCHSPL.</th>
         </tr>
       </thead>
       <tbody>{rep_rows}</tbody>
@@ -5074,6 +5122,33 @@ def _do_send_monatsbericht(force=False):
                 ts  = trend_str(val, prev)
                 return f'<div style="font-size:9px;font-weight:bold;color:{col};margin-top:1px">{ts}</div>'
 
+            # Tagesplan-Erfüllung Vormonat (Team + pro Rep)
+            _mtp_team_row = query(f'''
+                SELECT COUNT(*) AS geplant,
+                       COALESCE(SUM(tp.erledigt), 0) AS erledigt
+                FROM tagesplan tp JOIN mitarbeiter m ON m.id=tp.mitarbeiter_id
+                WHERE tp.datum BETWEEN ? AND ?
+                  AND COALESCE(tp.geloescht,0)=0 AND m.rolle=\'rep\'{tf}
+            ''', [erster_vormonat.isoformat(), letzter_vormonat.isoformat()] + t_p, one=True)
+            _mtp_team = dict(_mtp_team_row) if _mtp_team_row else {}
+            _mtp_reps = query(f'''
+                SELECT tp.mitarbeiter_id, COUNT(*) AS geplant,
+                       COALESCE(SUM(tp.erledigt),0) AS erledigt
+                FROM tagesplan tp JOIN mitarbeiter m ON m.id=tp.mitarbeiter_id
+                WHERE tp.datum BETWEEN ? AND ?
+                  AND COALESCE(tp.geloescht,0)=0 AND m.rolle=\'rep\'{tf}
+                GROUP BY tp.mitarbeiter_id
+            ''', [erster_vormonat.isoformat(), letzter_vormonat.isoformat()] + t_p) or []
+            mtp_map = {r['mitarbeiter_id']: dict(r) for r in _mtp_reps}
+
+            def _mplan_badge(geplant, erledigt):
+                if not geplant:
+                    return '<span style="color:#aaa;font-size:11px">–</span>'
+                pct = round(erledigt / geplant * 100)
+                col = '#2d8a4e' if pct >= 80 else '#c8860a' if pct >= 60 else '#c0392b'
+                return (f'<span style="font-size:12px">{erledigt} erl. / {geplant} ges.</span>'
+                        f'<div style="font-size:9px;font-weight:bold;color:{col};margin-top:1px">{pct}%</div>')
+
             if team_id:
                 pipeline = query(
                     "SELECT COALESCE(SUM(CASE WHEN COALESCE(a.bestell_status,'offen')='offen' THEN 1 END),0) AS offen,"
@@ -5096,8 +5171,15 @@ def _do_send_monatsbericht(force=False):
                 <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
                 <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}{_delta_m(r["kisten"], r["mitarbeiter_id"], "kisten")}</td>
                 <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["displays"]}{_delta_m(r["displays"], r["mitarbeiter_id"], "displays")}</td>
+                <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center">{_mplan_badge(mtp_map.get(r["mitarbeiter_id"],{}).get("geplant",0), mtp_map.get(r["mitarbeiter_id"],{}).get("erledigt",0))}</td>
               </tr>''' for r in rs) or \
-            '<tr><td colspan="6" style="padding:12px 14px;color:#999;text-align:center">Keine Aktivitäten im Vormonat</td></tr>'
+            '<tr><td colspan="7" style="padding:12px 14px;color:#999;text-align:center">Keine Aktivitäten im Vormonat</td></tr>'
+
+            mtp_g = _mtp_team.get('geplant', 0)
+            mtp_e = _mtp_team.get('erledigt', 0)
+            mtp_o = mtp_g - mtp_e
+            mtp_pct = round(mtp_e / mtp_g * 100) if mtp_g else 0
+            mtp_col = '#2d8a4e' if mtp_pct >= 80 else '#c8860a' if mtp_pct >= 60 else ('#c0392b' if mtp_g else '#aaa')
 
             tl = f' &ndash; {team_name}' if team_name else ''
             dl = APP_BASE_URL or '#'
@@ -5129,7 +5211,7 @@ def _do_send_monatsbericht(force=False):
         <td width="12"></td>
         <td style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
           <div style="font-size:30px;font-weight:bold;color:#2e6da4">{dieser["displays"]}</div>
-          <div style="font-size:12px;color:#666;margin-top:3px">Displays</div>
+          <div style="font-size:12px;color:#666;margin-top:3px">Aufbauten</div>
           <div style="font-size:11px;font-weight:bold;color:{trend_col(dieser["displays"],vorher["displays"])};margin-top:5px">{trend_str(dieser["displays"],vorher["displays"])} ggü. {vmonat_name}</div>
         </td>
       </tr>
@@ -5147,6 +5229,19 @@ def _do_send_monatsbericht(force=False):
     </span>
   </div>
 
+  <div style="padding:14px 32px;background:#f0f4f8;border-top:1px solid #e4eaf0">
+    <span style="font-size:13px;font-weight:bold;color:#1a3a5c">&#128203; Besuchsplanung {monat_name}:</span>
+    <span style="margin-left:10px;font-size:13px">
+      <span style="color:#555">{mtp_g} geplant</span>
+      &nbsp;&middot;&nbsp;
+      <span style="color:#2d8a4e;font-weight:bold">{mtp_e} erledigt</span>
+      &nbsp;&middot;&nbsp;
+      <span style="color:#c8860a;font-weight:bold">{mtp_o} nicht erledigt</span>
+      &nbsp;&middot;&nbsp;
+      <span style="font-weight:bold;color:{mtp_col}">{mtp_pct}%</span>
+    </span>
+  </div>
+
   <div style="padding:24px 32px">
     <div style="font-size:15px;font-weight:bold;color:#1a3a5c;margin-bottom:12px">Mitarbeiter &ndash; {monat_name}</div>
     <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e4eaf0;border-radius:8px;overflow:hidden">
@@ -5157,7 +5252,8 @@ def _do_send_monatsbericht(force=False):
           <th style="padding:8px 10px;text-align:center;font-size:10px;color:#2e6da4;font-weight:600;letter-spacing:.5px">BESTELL.</th>
           <th style="padding:8px 10px;text-align:center;font-size:10px;color:#27ae60;font-weight:600;letter-spacing:.5px">AUFBAUT.</th>
           <th style="padding:8px 10px;text-align:center;font-size:10px;color:#c8860a;font-weight:600;letter-spacing:.5px">{UNIT_LABEL.upper()[:7]}</th>
-          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#2e6da4;font-weight:600;letter-spacing:.5px">DISPLAYS</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#2e6da4;font-weight:600;letter-spacing:.5px">AUFBAUT.GES.</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#5a3e9e;font-weight:600;letter-spacing:.5px">BESUCHSPL.</th>
         </tr>
       </thead>
       <tbody>{rep_rows}</tbody>
@@ -5501,6 +5597,42 @@ def wochenbericht_vorschau():
     ''', (montag_letzte.isoformat(), sonntag_letzte.isoformat()))
     letzte_map_w = {r['mitarbeiter_id']: r for r in rep_letzte_w}
 
+    _tp_team_v_row = query(
+        "SELECT COUNT(*) AS geplant, COALESCE(SUM(tp.erledigt),0) AS erledigt "
+        "FROM tagesplan tp JOIN mitarbeiter m ON m.id=tp.mitarbeiter_id "
+        "WHERE tp.datum BETWEEN ? AND ? AND COALESCE(tp.geloescht,0)=0 AND m.rolle='rep'",
+        (montag_diese.isoformat(), sonntag_diese.isoformat()), one=True)
+    _tp_team_v = dict(_tp_team_v_row) if _tp_team_v_row else {}
+    _tp_reps_v = query(
+        "SELECT tp.mitarbeiter_id, COUNT(*) AS geplant, COALESCE(SUM(tp.erledigt),0) AS erledigt "
+        "FROM tagesplan tp JOIN mitarbeiter m ON m.id=tp.mitarbeiter_id "
+        "WHERE tp.datum BETWEEN ? AND ? AND COALESCE(tp.geloescht,0)=0 AND m.rolle='rep' "
+        "GROUP BY tp.mitarbeiter_id",
+        (montag_diese.isoformat(), sonntag_diese.isoformat())) or []
+    tp_map_v = {r['mitarbeiter_id']: dict(r) for r in _tp_reps_v}
+
+    def _plan_badge_v(geplant, erledigt):
+        if not geplant:
+            return '<span style="color:#aaa;font-size:12px">–</span>'
+        pct = round(erledigt / geplant * 100)
+        col = '#2d8a4e' if pct >= 80 else '#c8860a' if pct >= 60 else '#c0392b'
+        return (f'<span style="font-size:12px">{erledigt} erl. / {geplant} ges.</span>'
+                f'<br><span style="font-size:11px;font-weight:bold;color:{col}">{pct}%</span>')
+
+    tp_g_v = _tp_team_v.get('geplant', 0)
+    tp_e_v = _tp_team_v.get('erledigt', 0)
+    tp_o_v = tp_g_v - tp_e_v
+    tp_pct_v = round(tp_e_v / tp_g_v * 100) if tp_g_v else 0
+    tp_col_v = '#2d8a4e' if tp_pct_v >= 80 else '#c8860a' if tp_pct_v >= 60 else ('#c0392b' if tp_g_v else '#aaa')
+    tp_summary_v = (
+        f'<div style="padding:12px 32px 0">'
+        f'<div style="background:#f3f0fa;border:1px solid #d5cdf0;border-radius:8px;padding:10px 16px;font-size:13px">'
+        f'<span style="font-weight:bold;color:#5a3e9e">Besuchsplanung diese Woche:</span>'
+        f'&nbsp;&nbsp;{tp_g_v} geplant &nbsp;·&nbsp; {tp_e_v} erledigt &nbsp;·&nbsp; {tp_o_v} offen'
+        f'&nbsp;&nbsp;<span style="font-weight:bold;color:{tp_col_v}">{tp_pct_v}%</span>'
+        f'</div></div>'
+    ) if tp_g_v else ''
+
     offene_map = {r['mitarbeiter_id']: r['n'] for r in query(
         "SELECT a.mitarbeiter_id, COUNT(*) AS n FROM aktivitaet a "
         "JOIN mitarbeiter m ON m.id=a.mitarbeiter_id "
@@ -5572,8 +5704,9 @@ def wochenbericht_vorschau():
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}<br>{_trend_cell_w(r["kisten"], letzte_map_w.get(r["mitarbeiter_id"], _rep_0)["kisten"])}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{_offen_col(offene_map.get(r["mitarbeiter_id"], 0))}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center">{_plan_badge_v(tp_map_v.get(r["mitarbeiter_id"],{}).get("geplant",0), tp_map_v.get(r["mitarbeiter_id"],{}).get("erledigt",0))}</td>
         </tr>''' for r in rep_stats) or \
-        '<tr><td colspan="6" style="padding:12px;color:#999;text-align:center">Keine Aktivitäten diese Woche</td></tr>'
+        '<tr><td colspan="7" style="padding:12px;color:#999;text-align:center">Keine Aktivitäten diese Woche</td></tr>'
 
     dashboard_link = APP_BASE_URL or 'http://localhost:5000'
 
@@ -5610,7 +5743,7 @@ def wochenbericht_vorschau():
         <td width="12"></td>
         <td style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
           <div style="font-size:30px;font-weight:bold;color:#2e6da4">{diese["displays"]}</div>
-          <div style="font-size:12px;color:#666;margin-top:3px">Displays</div>
+          <div style="font-size:12px;color:#666;margin-top:3px">Aufbauten</div>
           <div style="font-size:11px;font-weight:bold;color:{trend_col(diese["displays"],letzte["displays"])};margin-top:5px">{trend_str(diese["displays"],letzte["displays"])} ggü. Vorwoche</div>
         </td>
       </tr>
@@ -5626,7 +5759,8 @@ def wochenbericht_vorschau():
       <span style="color:#6c757d;font-weight:bold">{pipeline["storniert"]}</span><span style="color:#777"> storniert</span>
     </span>
   </div>
-{ueberfaellig_html_v}
+  {ueberfaellig_html_v}
+  {tp_summary_v}
   <div style="padding:24px 32px">
     <div style="font-size:15px;font-weight:bold;color:#1a3a5c;margin-bottom:12px">Mitarbeiter diese Woche</div>
     <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e4eaf0;border-radius:8px;overflow:hidden">
@@ -5638,6 +5772,7 @@ def wochenbericht_vorschau():
           <th style="padding:8px 10px;text-align:center;font-size:10px;color:#27ae60;font-weight:600;letter-spacing:.5px">AUFBAUT.</th>
           <th style="padding:8px 10px;text-align:center;font-size:10px;color:#c8860a;font-weight:600;letter-spacing:.5px">{UNIT_LABEL[:7].upper()}</th>
           <th style="padding:8px 10px;text-align:center;font-size:10px;color:#c8860a;font-weight:600;letter-spacing:.5px">OFFEN</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#5a3e9e;font-weight:600;letter-spacing:.5px">BESUCHSPL.</th>
         </tr>
       </thead>
       <tbody>{rep_rows}</tbody>
@@ -5720,6 +5855,42 @@ def monatsbericht_vorschau():
     ''', (erster_vorvorm.isoformat(), letzter_vorvorm.isoformat()))
     letzte_map_m = {r['mitarbeiter_id']: r for r in rep_letzte_m}
 
+    _mtp_team_v_row = query(
+        "SELECT COUNT(*) AS geplant, COALESCE(SUM(tp.erledigt),0) AS erledigt "
+        "FROM tagesplan tp JOIN mitarbeiter m ON m.id=tp.mitarbeiter_id "
+        "WHERE tp.datum BETWEEN ? AND ? AND COALESCE(tp.geloescht,0)=0 AND m.rolle='rep'",
+        (erster_dieses.isoformat(), heute.isoformat()), one=True)
+    _mtp_team_v = dict(_mtp_team_v_row) if _mtp_team_v_row else {}
+    _mtp_reps_v = query(
+        "SELECT tp.mitarbeiter_id, COUNT(*) AS geplant, COALESCE(SUM(tp.erledigt),0) AS erledigt "
+        "FROM tagesplan tp JOIN mitarbeiter m ON m.id=tp.mitarbeiter_id "
+        "WHERE tp.datum BETWEEN ? AND ? AND COALESCE(tp.geloescht,0)=0 AND m.rolle='rep' "
+        "GROUP BY tp.mitarbeiter_id",
+        (erster_dieses.isoformat(), heute.isoformat())) or []
+    mtp_map_v = {r['mitarbeiter_id']: dict(r) for r in _mtp_reps_v}
+
+    def _mplan_badge_v(geplant, erledigt):
+        if not geplant:
+            return '<span style="color:#aaa;font-size:12px">–</span>'
+        pct = round(erledigt / geplant * 100)
+        col = '#2d8a4e' if pct >= 80 else '#c8860a' if pct >= 60 else '#c0392b'
+        return (f'<span style="font-size:12px">{erledigt} erl. / {geplant} ges.</span>'
+                f'<br><span style="font-size:11px;font-weight:bold;color:{col}">{pct}%</span>')
+
+    mtp_g_v = _mtp_team_v.get('geplant', 0)
+    mtp_e_v = _mtp_team_v.get('erledigt', 0)
+    mtp_o_v = mtp_g_v - mtp_e_v
+    mtp_pct_v = round(mtp_e_v / mtp_g_v * 100) if mtp_g_v else 0
+    mtp_col_v = '#2d8a4e' if mtp_pct_v >= 80 else '#c8860a' if mtp_pct_v >= 60 else ('#c0392b' if mtp_g_v else '#aaa')
+    mtp_summary_v = (
+        f'<div style="padding:12px 32px 0">'
+        f'<div style="background:#f3f0fa;border:1px solid #d5cdf0;border-radius:8px;padding:10px 16px;font-size:13px">'
+        f'<span style="font-weight:bold;color:#5a3e9e">Besuchsplanung {monat_name}:</span>'
+        f'&nbsp;&nbsp;{mtp_g_v} geplant &nbsp;·&nbsp; {mtp_e_v} erledigt &nbsp;·&nbsp; {mtp_o_v} offen'
+        f'&nbsp;&nbsp;<span style="font-weight:bold;color:{mtp_col_v}">{mtp_pct_v}%</span>'
+        f'</div></div>'
+    ) if mtp_g_v else ''
+
     pipeline = query(
         "SELECT COALESCE(SUM(CASE WHEN COALESCE(bestell_status,'offen')='offen' THEN 1 END),0) AS offen,"
         "       COALESCE(SUM(CASE WHEN bestell_status='aufgebaut' THEN 1 END),0) AS aufgebaut,"
@@ -5747,8 +5918,9 @@ def monatsbericht_vorschau():
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}<br>{_trend_cell_m(r["kisten"], letzte_map_m.get(r["mitarbeiter_id"], _rep_0)["kisten"])}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["displays"]}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center">{_mplan_badge_v(mtp_map_v.get(r["mitarbeiter_id"],{}).get("geplant",0), mtp_map_v.get(r["mitarbeiter_id"],{}).get("erledigt",0))}</td>
         </tr>''' for r in rep_stats) or \
-        '<tr><td colspan="6" style="padding:12px;color:#999;text-align:center">Noch keine Aktivitäten diesen Monat</td></tr>'
+        '<tr><td colspan="7" style="padding:12px;color:#999;text-align:center">Noch keine Aktivitäten diesen Monat</td></tr>'
 
     tage_aktuell  = (heute - erster_dieses).days + 1
     tage_vormonat = (letzter_vorvorm - erster_vorvorm).days + 1
@@ -5785,7 +5957,7 @@ def monatsbericht_vorschau():
         <td width="12"></td>
         <td style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
           <div style="font-size:30px;font-weight:bold;color:#2e6da4">{dieser["displays"]}</div>
-          <div style="font-size:12px;color:#666;margin-top:3px">Displays</div>
+          <div style="font-size:12px;color:#666;margin-top:3px">Aufbauten</div>
           <div style="font-size:11px;font-weight:bold;color:{trend_col(dieser["displays"],vorher["displays"])};margin-top:5px">{trend_str(dieser["displays"],vorher["displays"])} ggü. {vmonat_name}</div>
         </td>
       </tr>
@@ -5803,6 +5975,7 @@ def monatsbericht_vorschau():
     </span>
   </div>
 
+  {mtp_summary_v}
   <div style="padding:24px 32px">
     <div style="font-size:15px;font-weight:bold;color:#1a3a5c;margin-bottom:12px">Mitarbeiter &ndash; {monat_name} (bis heute)</div>
     <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e4eaf0;border-radius:8px;overflow:hidden">
@@ -5813,7 +5986,8 @@ def monatsbericht_vorschau():
           <th style="padding:8px 10px;text-align:center;font-size:10px;color:#2e6da4;font-weight:600;letter-spacing:.5px">BESTELL.</th>
           <th style="padding:8px 10px;text-align:center;font-size:10px;color:#27ae60;font-weight:600;letter-spacing:.5px">AUFBAUT.</th>
           <th style="padding:8px 10px;text-align:center;font-size:10px;color:#c8860a;font-weight:600;letter-spacing:.5px">{UNIT_LABEL.upper()[:7]}</th>
-          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#2e6da4;font-weight:600;letter-spacing:.5px">DISPLAYS</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#2e6da4;font-weight:600;letter-spacing:.5px">AUFBAUT.GES.</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#5a3e9e;font-weight:600;letter-spacing:.5px">BESUCHSPL.</th>
         </tr>
       </thead>
       <tbody>{rep_rows}</tbody>
