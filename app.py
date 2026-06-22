@@ -28,6 +28,7 @@ import urllib.request
 import urllib.parse
 import time as _time
 import threading
+import re
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'aktionstracker_geheim_xK9m')
@@ -4708,9 +4709,9 @@ def _do_send_wochenbericht(force=False):
                 "WHERE rolle='verkaufsleiter' AND email IS NOT NULL AND email != ''",
             ) or []
 
-            # Zeiträume
+            # Zeiträume — berichtete Woche ist immer die abgeschlossene Vorwoche
             heute          = date.today()
-            montag_diese   = heute - timedelta(days=heute.weekday())
+            montag_diese   = heute - timedelta(days=heute.weekday() + 7)
             sonntag_diese  = montag_diese + timedelta(days=6)
             montag_letzte  = montag_diese - timedelta(days=7)
             sonntag_letzte = montag_letzte + timedelta(days=6)
