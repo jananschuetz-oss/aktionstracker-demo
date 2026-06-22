@@ -305,12 +305,17 @@ def send_email_with_attachments(to: str, subject: str, body_html: str,
 
 
 def _html_to_pdf(html: str) -> bytes | None:
-    """Konvertiert einen HTML-String zu PDF-Bytes via WeasyPrint."""
+    """Konvertiert einen HTML-String zu PDF-Bytes via xhtml2pdf."""
     try:
-        from weasyprint import HTML as _WP
-        return _WP(string=html).write_pdf()
+        from xhtml2pdf import pisa
+        buf = io.BytesIO()
+        status = pisa.CreatePDF(html.encode('utf-8'), dest=buf, encoding='utf-8')
+        if not status.err:
+            return buf.getvalue()
+        app.logger.warning(f"xhtml2pdf Fehler: {status.err}")
+        return None
     except Exception as e:
-        app.logger.warning(f"WeasyPrint PDF-Fehler: {e}")
+        app.logger.warning(f"PDF-Fehler: {e}")
         return None
 
 
