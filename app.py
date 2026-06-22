@@ -250,8 +250,34 @@ def send_email_with_attachments(to: str, subject: str, body_html: str,
                                 attachments: list) -> bool:
     """Sendet eine HTML-E-Mail mit Dateianhängen.
     attachments: Liste von (dateiname, bytes_daten, content_type) Tupeln."""
+
+    # ── Resend API ────────────────────────────────────────────────────────────
+    if RESEND_API_KEY:
+        try:
+            import base64 as _b64
+            import resend as _resend
+            _resend.api_key = RESEND_API_KEY
+            from_addr = MAIL_FROM or f'Aktionstracker <{MAIL_USERNAME}>'
+            resend_attachments = [
+                {'filename': name, 'content': list(_b64.b64encode(data))}
+                for name, data, _ in attachments
+            ]
+            _resend.Emails.send({
+                'from':        from_addr,
+                'to':          [to],
+                'subject':     subject,
+                'html':        body_html,
+                'attachments': resend_attachments,
+            })
+            app.logger.info(f"E-Mail+Anhang via Resend gesendet an {to}")
+            return True
+        except Exception as e:
+            app.logger.error(f"Resend-Fehler (Anhang): {e}")
+            return False
+
+    # ── SMTP-Fallback ─────────────────────────────────────────────────────────
     if not MAIL_SERVER or not MAIL_USERNAME:
-        app.logger.warning("E-Mail nicht konfiguriert – Auto-Export nicht möglich.")
+        app.logger.warning("E-Mail nicht konfiguriert – Versand mit Anhang nicht möglich.")
         return False
     try:
         msg = MIMEMultipart('mixed')
@@ -275,6 +301,16 @@ def send_email_with_attachments(to: str, subject: str, body_html: str,
     except Exception as e:
         app.logger.error(f"E-Mail-Fehler (Anhang): {e}")
         return False
+
+
+def _html_to_pdf(html: str) -> bytes | None:
+    """Konvertiert einen HTML-String zu PDF-Bytes via WeasyPrint."""
+    try:
+        from weasyprint import HTML as _WP
+        return _WP(string=html).write_pdf()
+    except Exception as e:
+        app.logger.warning(f"WeasyPrint PDF-Fehler: {e}")
+        return None
 
 
 # ── Datenbank-Backup ──────────────────────────────────────────────────────────
@@ -4983,6 +5019,19 @@ def _do_send_wochenbericht(force=False):
 
             firma_teil = f' – {FIRMA_NAME}' if FIRMA_NAME else ''
             ok_count = 0
+            _safe_co   = re.sub(r'[^\w]', '_', COMPANY_SHORT).strip('_') or 'AktionsTracker'
+
+            def _send_wb(to, betreff, html, tag=''):
+                pdf      = _html_to_pdf(html)
+                fname    = f'Wochenbericht_{_safe_co}_KW{kw_nr:02d}.pdf'
+                atts     = [(fname, pdf, 'application/pdf')] if pdf else []
+                fn       = send_email_with_attachments if atts else send_email
+                args     = (to, betreff, html, atts) if atts else (to, betreff, html)
+                if fn(*args):
+                    app.logger.info(f"WOCHENBERICHT KW {kw_nr}{tag}: Gesendet an {to}")
+                    return True
+                app.logger.error(f"WOCHENBERICHT KW {kw_nr}{tag}: Versand an {to} fehlgeschlagen")
+                return False
 
             # Multi-Team: VKLs in 2+ verschiedenen Teams -> separate Berichte
             vkl_teams = list(dict.fromkeys(v['team_id'] for v in vkls if v['team_id']))
@@ -4993,20 +5042,14 @@ def _do_send_wochenbericht(force=False):
                     tname   = team_map.get(v['team_id'], f'Team {v["team_id"]}')
                     html    = build_html(team_id=v['team_id'], team_name=tname)
                     betreff = f'Wochenbericht{firma_teil} – {tname} – KW {kw_nr}'
-                    if send_email(v['email'], betreff, html):
-                        app.logger.info(f"WOCHENBERICHT KW {kw_nr} [{tname}]: Gesendet an {v['email']}")
+                    if _send_wb(v['email'], betreff, html, f' [{tname}]'):
                         ok_count += 1
-                    else:
-                        app.logger.error(f"WOCHENBERICHT KW {kw_nr} [{tname}]: Versand an {v['email']} fehlgeschlagen")
                 if empfaenger_admin:
                     html_g  = build_html(team_id=None, team_name='Alle Teams')
                     betreff = f'Wochenbericht{firma_teil} – Alle Teams – KW {kw_nr}'
                     for mail in empfaenger_admin:
-                        if send_email(mail, betreff, html_g):
-                            app.logger.info(f"WOCHENBERICHT KW {kw_nr} [Gesamt]: Gesendet an {mail}")
+                        if _send_wb(mail, betreff, html_g, ' [Gesamt]'):
                             ok_count += 1
-                        else:
-                            app.logger.error(f"WOCHENBERICHT KW {kw_nr} [Gesamt]: Versand an {mail} fehlgeschlagen")
             else:
                 # Einzel-Modus (ein Team oder keine Teams)
                 empfaenger = []
@@ -5019,11 +5062,8 @@ def _do_send_wochenbericht(force=False):
                 html    = build_html(team_id=None)
                 betreff = f'Wochenbericht Aktionstracker{firma_teil} – KW {kw_nr}'
                 for mail in empfaenger:
-                    if send_email(mail, betreff, html):
-                        app.logger.info(f"WOCHENBERICHT KW {kw_nr}: Gesendet an {mail}")
+                    if _send_wb(mail, betreff, html):
                         ok_count += 1
-                    else:
-                        app.logger.error(f"WOCHENBERICHT KW {kw_nr}: Versand an {mail} fehlgeschlagen")
 
             if ok_count > 0:
                 execute("UPDATE wochenbericht_config SET zuletzt_gesendet=? WHERE id=1", (kw_key,))
@@ -5317,10 +5357,20 @@ def _do_send_monatsbericht(force=False):
         von_str           = erster_vormonat.isoformat()
         bis_str           = letzter_vormonat.isoformat()
         zip_bytes, foto_count = erstelle_fotos_zip_bytes(von=von_str, bis=bis_str)
-        attachments = []
+        base_atts = []
         if foto_count > 0:
             zip_name = f"Fotos_{erster_vormonat.strftime('%Y-%m')}.zip"
-            attachments.append((zip_name, zip_bytes, "application/zip"))
+            base_atts.append((zip_name, zip_bytes, "application/zip"))
+
+        _safe_co_m  = re.sub(r'[^\w]', '_', COMPANY_SHORT).strip('_') or 'AktionsTracker'
+        _mb_label   = erster_vormonat.strftime('%Y-%m')
+
+        def _atts_with_pdf(html):
+            pdf = _html_to_pdf(html)
+            if pdf:
+                fname = f'Monatsbericht_{_safe_co_m}_{_mb_label}.pdf'
+                return base_atts + [(fname, pdf, 'application/pdf')]
+            return base_atts
 
         vkl_teams = list(dict.fromkeys(v['team_id'] for v in vkls if v['team_id']))
         if len(vkl_teams) >= 2:
@@ -5330,7 +5380,7 @@ def _do_send_monatsbericht(force=False):
                 tname   = team_map.get(v['team_id'], f'Team {v["team_id"]}')
                 html    = build_html(team_id=v['team_id'], team_name=tname)
                 betreff = f'Monatsbericht{firma_teil} – {tname} – {monat_label}'
-                if send_email_with_attachments(v['email'], betreff, html, attachments):
+                if send_email_with_attachments(v['email'], betreff, html, _atts_with_pdf(html)):
                     app.logger.info(f"MONATSBERICHT {monat_label} [{tname}]: Gesendet an {v['email']} ({foto_count} Fotos)")
                     ok_count += 1
                 else:
@@ -5339,7 +5389,7 @@ def _do_send_monatsbericht(force=False):
                 html_g  = build_html(team_id=None, team_name='Alle Teams')
                 betreff = f'Monatsbericht{firma_teil} – Alle Teams – {monat_label}'
                 for mail in empfaenger_admin:
-                    if send_email_with_attachments(mail, betreff, html_g, attachments):
+                    if send_email_with_attachments(mail, betreff, html_g, _atts_with_pdf(html_g)):
                         app.logger.info(f"MONATSBERICHT {monat_label} [Gesamt]: Gesendet an {mail} ({foto_count} Fotos)")
                         ok_count += 1
         else:
@@ -5352,8 +5402,9 @@ def _do_send_monatsbericht(force=False):
                 return False, "Keine Empfänger konfiguriert."
             html    = build_html(team_id=None)
             betreff = f'Monatsbericht Aktionstracker{firma_teil} – {monat_label}'
+            atts    = _atts_with_pdf(html)
             for mail in empfaenger:
-                if send_email_with_attachments(mail, betreff, html, attachments):
+                if send_email_with_attachments(mail, betreff, html, atts):
                     app.logger.info(f"MONATSBERICHT {monat_label}: Gesendet an {mail} ({foto_count} Fotos)")
                     ok_count += 1
 
