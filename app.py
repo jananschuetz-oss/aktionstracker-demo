@@ -3897,6 +3897,31 @@ def admin_vs_reaktivieren(vs_id):
     return redirect(url_for('admin'))
 
 
+@app.route('/admin/vs-ohne-koordinaten')
+@admin_required
+def admin_vs_ohne_koordinaten():
+    stellen = query(
+        "SELECT id, name, strasse, ort, landkreis, typ, lat, lng FROM verkaufsstelle "
+        "WHERE aktiv=1 AND (lat IS NULL OR lat=0) ORDER BY landkreis, ort, name"
+    )
+    return render_template('vs_ohne_koordinaten.html', stellen=stellen)
+
+
+@app.route('/admin/vs-koordinaten-setzen/<int:vs_id>', methods=['POST'])
+@admin_required
+def admin_vs_koordinaten_setzen(vs_id):
+    try:
+        lat = float(request.form.get('lat', '').replace(',', '.'))
+        lng = float(request.form.get('lng', '').replace(',', '.'))
+        b = _DACH_BBOX
+        if not (b['lat_min'] <= lat <= b['lat_max'] and b['lon_min'] <= lng <= b['lon_max']):
+            return jsonify({'error': 'Koordinaten außerhalb des erlaubten Bereichs'}), 400
+        execute("UPDATE verkaufsstelle SET lat=?, lng=? WHERE id=?", (lat, lng, vs_id))
+        return jsonify({'ok': True, 'lat': lat, 'lng': lng})
+    except (ValueError, TypeError) as e:
+        return jsonify({'error': str(e)}), 400
+
+
 @app.route('/verkaufsstelle/neu', methods=['POST'])
 @login_required
 def vs_neu_rep():

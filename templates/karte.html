@@ -121,7 +121,8 @@
   <i class="bi bi-exclamation-triangle me-2"></i>
   <span id="ohneKoordinatenText"></span>
   {% if is_manager %}
-  Klicken Sie auf <strong>„Koordinaten ermitteln"</strong>, um diese Stationen auf der Karte anzuzeigen.
+  Klicken Sie auf <strong>„Koordinaten ermitteln"</strong> oder korrigieren Sie die Adresse unter
+  <a href="{{ url_for('admin_vs_ohne_koordinaten') }}" class="alert-link">Stationen ohne Koordinaten</a>.
   {% endif %}
 </div>
 
@@ -240,8 +241,8 @@ function renderMarkers() {
 
   alleStellen.forEach(s => {
     if (!stelleIstSichtbar(s)) return;
-    if (s.lat == null || s.lng == null) {
-      ohneKoord.push(s.name);
+    if (s.lat == null || s.lng == null || (s.lat === 0 && s.lng === 0)) {
+      ohneKoord.push(s);
       return;
     }
 
@@ -277,7 +278,8 @@ function renderMarkers() {
   const info    = document.getElementById('ohneKoordinatenInfo');
   const infoTxt = document.getElementById('ohneKoordinatenText');
   if (ohneKoord.length > 0) {
-    infoTxt.textContent = `${ohneKoord.length} Station(en) ohne Koordinaten werden nicht angezeigt. `;
+    const namen = ohneKoord.map(s => `„${s.name}"${s.ort ? ' (' + s.ort + ')' : ''}`).join(', ');
+    infoTxt.textContent = `${ohneKoord.length} Station(en) ohne Koordinaten werden nicht angezeigt: ${namen}. `;
     info.classList.remove('d-none');
   } else {
     info.classList.add('d-none');

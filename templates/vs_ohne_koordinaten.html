@@ -1,0 +1,81 @@
+{% extends 'base.html' %}
+{% block title %}VS ohne Koordinaten{% endblock %}
+{% block content %}
+<div class="container-fluid py-3">
+  <div class="d-flex align-items-center gap-3 mb-3">
+    <a href="{{ url_for('admin') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-arrow-left me-1"></i>Admin
+    </a>
+    <h5 class="mb-0">{{ stellen|length }} Verkaufsstellen ohne Koordinaten</h5>
+    <span class="text-muted small">Lat/Lng aus Google Maps kopieren und eintragen</span>
+  </div>
+
+  <div class="alert alert-info py-2 small">
+    <strong>So geht's:</strong> VS auf Google Maps suchen → Rechtsklick auf den Standort → Koordinaten kopieren (z.B. <code>48.7183, 9.6512</code>) → in die Felder eintragen → Speichern.
+  </div>
+
+  <table class="table table-sm table-hover" id="tblVS">
+    <thead class="table-dark">
+      <tr>
+        <th>Name</th>
+        <th>Straße</th>
+        <th>Ort</th>
+        <th>Landkreis</th>
+        <th style="width:130px">Latitude</th>
+        <th style="width:130px">Longitude</th>
+        <th style="width:90px"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in stellen %}
+      <tr id="row-{{ s.id }}">
+        <td class="fw-semibold">{{ s.name }}</td>
+        <td class="text-muted small">{{ s.strasse or '–' }}</td>
+        <td class="text-muted small">{{ s.ort or '<span class="text-danger">leer</span>'|safe }}</td>
+        <td class="text-muted small">{{ s.landkreis or '–' }}</td>
+        <td><input type="text" class="form-control form-control-sm lat-inp" placeholder="48.7183" inputmode="decimal"></td>
+        <td><input type="text" class="form-control form-control-sm lng-inp" placeholder="9.6512" inputmode="decimal"></td>
+        <td>
+          <button class="btn btn-primary btn-sm save-btn" data-id="{{ s.id }}">
+            <i class="bi bi-check2"></i>
+          </button>
+          <span class="status-icon ms-1"></span>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<script>
+document.querySelectorAll('.save-btn').forEach(btn => {
+  btn.addEventListener('click', async function() {
+    const row  = document.getElementById('row-' + this.dataset.id);
+    const lat  = row.querySelector('.lat-inp').value.trim();
+    const lng  = row.querySelector('.lng-inp').value.trim();
+    const icon = row.querySelector('.status-icon');
+    if (!lat || !lng) { icon.textContent = '⚠️'; return; }
+    btn.disabled = true;
+    try {
+      const resp = await fetch(`/admin/vs-koordinaten-setzen/${this.dataset.id}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: `lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        row.classList.add('table-success');
+        icon.textContent = '✅';
+        btn.disabled = true;
+      } else {
+        icon.textContent = '❌ ' + (data.error || '');
+        btn.disabled = false;
+      }
+    } catch(e) {
+      icon.textContent = '❌';
+      btn.disabled = false;
+    }
+  });
+});
+</script>
+{% endblock %}
