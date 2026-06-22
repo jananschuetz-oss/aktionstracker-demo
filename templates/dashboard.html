@@ -1612,7 +1612,8 @@ if (bierData.length > 0) {
     var btn = e.target.closest('.tp-detail-btn');
     if (!btn) return;
     var tpId = btn.dataset.tpId;
-    var pane = document.querySelector('.tp-detail-pane[data-tp-id="' + tpId + '"]');
+    var container = btn.closest('.tp-stop-item, .list-group-item');
+    var pane = container ? container.querySelector('.tp-detail-pane') : document.querySelector('.tp-detail-pane[data-tp-id="' + tpId + '"]');
     var chev = btn.querySelector('.tp-detail-chevron');
     if (!pane) return;
     var open = !pane.classList.contains('d-none');
