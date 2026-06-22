@@ -3901,7 +3901,7 @@ def admin_vs_reaktivieren(vs_id):
 @admin_required
 def admin_vs_ohne_koordinaten():
     stellen = query(
-        "SELECT id, name, strasse, ort, landkreis, typ, lat, lng FROM verkaufsstelle "
+        "SELECT id, name, strasse, plz, ort, landkreis, typ, lat, lng FROM verkaufsstelle "
         "WHERE aktiv=1 AND (lat IS NULL OR lat=0) ORDER BY landkreis, ort, name"
     )
     return render_template('vs_ohne_koordinaten.html', stellen=stellen)

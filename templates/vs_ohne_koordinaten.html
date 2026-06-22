@@ -19,6 +19,7 @@
       <tr>
         <th>Name</th>
         <th>Straße</th>
+        <th>PLZ</th>
         <th>Ort</th>
         <th>Landkreis</th>
         <th style="width:130px">Latitude</th>
@@ -31,6 +32,7 @@
       <tr id="row-{{ s.id }}">
         <td class="fw-semibold">{{ s.name }}</td>
         <td class="text-muted small">{{ s.strasse or '–' }}</td>
+        <td class="text-muted small">{{ s.plz or '–' }}</td>
         <td class="text-muted small">{{ s.ort or '<span class="text-danger">leer</span>'|safe }}</td>
         <td class="text-muted small">{{ s.landkreis or '–' }}</td>
         <td><input type="text" class="form-control form-control-sm lat-inp" placeholder="48.7183" inputmode="decimal"></td>
