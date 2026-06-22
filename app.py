@@ -6123,14 +6123,15 @@ def monatsbericht_vorschau():
     tage_vormonat = (letzter_vorvorm - erster_vorvorm).days + 1
 
     html = f'''<!DOCTYPE html>
-<html><head><meta charset="utf-8"></head>
-<body style="margin:0;padding:16px;background:#f0f4f8;font-family:Arial,Helvetica,sans-serif">
-<div style="position:relative;background:#fffbf0;border:2px dashed #c8860a;padding:10px 24px;text-align:center;font-size:13px;color:#8a5a00;max-width:600px;margin:0 auto 16px;border-radius:8px">
-  <a href="/einstellungen/wochenbericht" style="position:absolute;left:16px;top:50%;transform:translateY(-50%);color:#8a5a00;text-decoration:none;font-weight:bold">&larr; Zurück</a>
-  <strong>Vorschau</strong> &nbsp;·&nbsp; {monat_name}: {erster_dieses.strftime('%d.%m.')}–{heute.strftime('%d.%m.')} ({tage_aktuell} Tage) &nbsp;·&nbsp; {vmonat_name}: vollständig ({tage_vormonat} Tage) &nbsp;·&nbsp; wird nicht versendet
+<html><head><meta charset="utf-8">
+<style>body{{margin:0;padding:0;background:#f0f4f8;font-family:Arial,Helvetica,sans-serif}}</style>
+</head>
+<body>
+<div style="position:relative;background:#fffbf0;border:2px dashed #c8860a;padding:10px 24px;text-align:center;font-size:13px;color:#8a5a00">
+  <a href="/einstellungen/monatsbericht" style="position:absolute;left:16px;top:50%;transform:translateY(-50%);color:#8a5a00;text-decoration:none;font-weight:bold">&larr; Zurück</a>
+  <strong>Vorschau-Modus</strong> – Diese E-Mail wird nicht versendet &nbsp;·&nbsp; {monat_name} {heute.year} ({erster_dieses.strftime('%d.%m.')} – {heute.strftime('%d.%m.')}, {tage_aktuell} Tage)
 </div>
-<div style="max-width:600px;margin:0 auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.10)">
-
+<div style="max-width:600px;margin:24px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.10)">
   <div style="background:#1a3a5c;padding:26px 32px">
     <div style="color:#fff;font-size:20px;font-weight:bold;letter-spacing:.3px">Aktions Tracker</div>
     <div style="color:#90b8d8;font-size:13px;margin-top:5px">Monatsbericht {monat_name} {heute.year} &nbsp;&middot;&nbsp; {erster_dieses.strftime('%d.%m.')} &ndash; {heute.strftime('%d.%m.%Y')} (laufend)</div>
