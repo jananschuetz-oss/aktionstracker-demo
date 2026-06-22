@@ -1018,5 +1018,22 @@ document.getElementById('aktivForm').addEventListener('submit', async function(e
 {% if preselect_typ in ('Aufbau', 'Bestellung', 'Besuch') %}
 setTyp('{{ preselect_typ }}');
 {% endif %}
+
+// Uhrzeiten auf 5-Minuten-Schritte runden (iOS ignoriert step="300")
+(function() {
+  function snap5(inp) {
+    if (!inp.value) return;
+    var parts = inp.value.split(':');
+    var h = parseInt(parts[0], 10);
+    var m = parseInt(parts[1], 10);
+    var rounded = Math.round(m / 5) * 5;
+    if (rounded >= 60) { rounded = 0; h = (h + 1) % 24; }
+    inp.value = String(h).padStart(2, '0') + ':' + String(rounded).padStart(2, '0');
+  }
+  ['von_uhrzeit', 'bis_uhrzeit'].forEach(function(name) {
+    var inp = document.querySelector('[name="' + name + '"]');
+    if (inp) inp.addEventListener('change', function() { snap5(this); });
+  });
+})();
 </script>
 {% endblock %}
