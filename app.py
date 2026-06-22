@@ -5024,7 +5024,7 @@ def _do_send_wochenbericht(force=False):
 
             def _send_wb(to, betreff, html, tag=''):
                 pdf      = _html_to_pdf(html)
-                fname    = f'Wochenbericht_{_safe_co}_KW{kw_nr:02d}.pdf'
+                fname    = f'Wochenbericht_{_safe_co}_KW{kw_nr}.pdf'
                 atts     = [(fname, pdf, 'application/pdf')] if pdf else []
                 fn       = send_email_with_attachments if atts else send_email
                 args     = (to, betreff, html, atts) if atts else (to, betreff, html)
