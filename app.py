@@ -2776,7 +2776,7 @@ def aktivitaeten_liste():
     sql = '''
         SELECT a.id, a.datum, m.name AS mitarbeiter, m.id AS mitarbeiter_id,
                v.name AS verkaufsstelle, v.id AS verkaufsstelle_id,
-               v.ort, v.typ, a.anzahl_displays, a.notizen, a.erstellt_am,
+               v.ort, v.strasse, v.typ, a.anzahl_displays, a.notizen, a.erstellt_am,
                a.foto_pfad,
                COALESCE(a.aktionstyp, 'Aufbau') AS aktionstyp,
                COALESCE(SUM(b.kisten_anzahl), 0) AS kisten_gesamt

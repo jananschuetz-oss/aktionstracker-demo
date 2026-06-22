@@ -238,7 +238,7 @@
               {% endif %}
             </div>
             <small class="text-muted">
-              <i class="bi bi-geo-alt me-1"></i>{{ a.ort or '–' }}
+              <i class="bi bi-geo-alt me-1"></i>{{ a.ort or '–' }}{% if a.strasse %} · {{ a.strasse }}{% endif %}
               &nbsp;·&nbsp;
               <i class="bi bi-tag me-1"></i>{{ a.typ or '–' }}
             </small>
