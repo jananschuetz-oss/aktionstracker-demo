@@ -4876,32 +4876,45 @@ def _do_send_wochenbericht(force=False):
                 tl = f' &ndash; {team_name}' if team_name else ''
                 dl = APP_BASE_URL or '#'
                 return f'''<!DOCTYPE html>
-<html><head><meta charset="utf-8"></head>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<style>
+@media only screen and (max-width:480px){{
+  .outer{{margin:0!important;border-radius:0!important}}
+  .hd{{padding:18px 16px!important}}
+  .pad{{padding:16px 12px!important}}
+  .kpi-cell{{display:block!important;width:100%!important;box-sizing:border-box!important;margin-bottom:8px!important}}
+  .kpi-spc{{display:none!important}}
+  .rep-wrap{{overflow-x:auto;-webkit-overflow-scrolling:touch}}
+  .pipeline{{padding:12px 16px!important;font-size:12px!important}}
+  .plan-bar{{padding:10px 16px!important;font-size:12px!important}}
+}}
+</style>
+</head>
 <body style="margin:0;padding:0;background:#f0f4f8;font-family:Arial,Helvetica,sans-serif">
-<div style="max-width:600px;margin:32px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.10)">
+<div class="outer" style="max-width:600px;margin:32px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.10)">
 
-  <div style="background:#1a3a5c;padding:26px 32px">
+  <div class="hd" style="background:#1a3a5c;padding:26px 32px">
     <div style="color:#fff;font-size:20px;font-weight:bold;letter-spacing:.3px">Aktions Tracker{tl}</div>
     <div style="color:#90b8d8;font-size:13px;margin-top:5px">Wochenbericht KW {kw_nr} &nbsp;&middot;&nbsp; {datum_von} – {datum_bis}</div>
   </div>
 
-  <div style="padding:28px 32px 8px">
+  <div class="pad" style="padding:28px 32px 8px">
     <div style="font-size:15px;font-weight:bold;color:#1a3a5c;margin-bottom:16px">Gesamtübersicht</div>
     <table width="100%" cellpadding="0" cellspacing="0">
       <tr>
-        <td style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
+        <td class="kpi-cell" style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
           <div style="font-size:30px;font-weight:bold;color:#1a3a5c">{diese["besuche"]}</div>
           <div style="font-size:12px;color:#666;margin-top:3px">Besuche</div>
           <div style="font-size:11px;font-weight:bold;color:{trend_col(diese["besuche"],letzte["besuche"])};margin-top:5px">{trend_str(diese["besuche"],letzte["besuche"])} ggü. Vorwoche</div>
         </td>
-        <td width="12"></td>
-        <td style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
+        <td class="kpi-spc" width="12"></td>
+        <td class="kpi-cell" style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
           <div style="font-size:30px;font-weight:bold;color:#c8860a">{diese["kisten"]}</div>
           <div style="font-size:12px;color:#666;margin-top:3px">{UNIT_LABEL}</div>
           <div style="font-size:11px;font-weight:bold;color:{trend_col(diese["kisten"],letzte["kisten"])};margin-top:5px">{trend_str(diese["kisten"],letzte["kisten"])} ggü. Vorwoche</div>
         </td>
-        <td width="12"></td>
-        <td style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
+        <td class="kpi-spc" width="12"></td>
+        <td class="kpi-cell" style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
           <div style="font-size:30px;font-weight:bold;color:#2e6da4">{diese["displays"]}</div>
           <div style="font-size:12px;color:#666;margin-top:3px">Aufbauten</div>
           <div style="font-size:11px;font-weight:bold;color:{trend_col(diese["displays"],letzte["displays"])};margin-top:5px">{trend_str(diese["displays"],letzte["displays"])} ggü. Vorwoche</div>
@@ -4910,7 +4923,7 @@ def _do_send_wochenbericht(force=False):
     </table>
   </div>
 
-  <div style="padding:16px 32px;background:#fffbf0;border-top:1px solid #f0c674">
+  <div class="pipeline" style="padding:16px 32px;background:#fffbf0;border-top:1px solid #f0c674">
     <span style="font-size:13px;font-weight:bold;color:#1a3a5c">Bestellungen Pipeline:</span>
     <span style="margin-left:14px;font-size:13px">
       <span style="color:#c8860a;font-weight:bold">{pipeline["offen"]}</span><span style="color:#777"> offen</span>
@@ -4923,7 +4936,7 @@ def _do_send_wochenbericht(force=False):
 
   {ueberfaellig_html}
 
-  <div style="padding:14px 32px;background:#f0f4f8;border-top:1px solid #e4eaf0">
+  <div class="plan-bar" style="padding:14px 32px;background:#f0f4f8;border-top:1px solid #e4eaf0">
     <span style="font-size:13px;font-weight:bold;color:#1a3a5c">&#128203; Besuchsplanung diese Woche:</span>
     <span style="margin-left:10px;font-size:13px">
       <span style="color:#555">{tp_g} geplant</span>
@@ -4936,9 +4949,10 @@ def _do_send_wochenbericht(force=False):
     </span>
   </div>
 
-  <div style="padding:24px 32px">
+  <div class="pad" style="padding:24px 32px">
     <div style="font-size:15px;font-weight:bold;color:#1a3a5c;margin-bottom:12px">Mitarbeiter diese Woche</div>
-    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e4eaf0;border-radius:8px;overflow:hidden">
+    <div class="rep-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e4eaf0;border-radius:8px;overflow:hidden;min-width:420px">
       <thead>
         <tr style="background:#edf2f7">
           <th style="padding:8px 10px;text-align:left;font-size:10px;color:#666;font-weight:600;letter-spacing:.5px">MITARBEITER</th>
@@ -4952,6 +4966,7 @@ def _do_send_wochenbericht(force=False):
       </thead>
       <tbody>{rep_rows}</tbody>
     </table>
+    </div>
   </div>
 
   <div style="padding:16px 32px 24px;text-align:center">
@@ -5192,32 +5207,45 @@ def _do_send_monatsbericht(force=False):
             tl = f' &ndash; {team_name}' if team_name else ''
             dl = APP_BASE_URL or '#'
             return f'''<!DOCTYPE html>
-<html><head><meta charset="utf-8"></head>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<style>
+@media only screen and (max-width:480px){{
+  .outer{{margin:0!important;border-radius:0!important}}
+  .hd{{padding:18px 16px!important}}
+  .pad{{padding:16px 12px!important}}
+  .kpi-cell{{display:block!important;width:100%!important;box-sizing:border-box!important;margin-bottom:8px!important}}
+  .kpi-spc{{display:none!important}}
+  .rep-wrap{{overflow-x:auto;-webkit-overflow-scrolling:touch}}
+  .pipeline{{padding:12px 16px!important;font-size:12px!important}}
+  .plan-bar{{padding:10px 16px!important;font-size:12px!important}}
+}}
+</style>
+</head>
 <body style="margin:0;padding:0;background:#f0f4f8;font-family:Arial,Helvetica,sans-serif">
-<div style="max-width:600px;margin:32px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.10)">
+<div class="outer" style="max-width:600px;margin:32px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.10)">
 
-  <div style="background:#1a3a5c;padding:26px 32px">
+  <div class="hd" style="background:#1a3a5c;padding:26px 32px">
     <div style="color:#fff;font-size:20px;font-weight:bold;letter-spacing:.3px">Aktions Tracker{tl}</div>
     <div style="color:#90b8d8;font-size:13px;margin-top:5px">Monatsbericht {monat_label} &nbsp;&middot;&nbsp; {erster_vormonat.strftime('%d.%m.')} &ndash; {letzter_vormonat.strftime('%d.%m.%Y')}</div>
   </div>
 
-  <div style="padding:28px 32px 8px">
+  <div class="pad" style="padding:28px 32px 8px">
     <div style="font-size:15px;font-weight:bold;color:#1a3a5c;margin-bottom:16px">Gesamtübersicht {monat_name}</div>
     <table width="100%" cellpadding="0" cellspacing="0">
       <tr>
-        <td style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
+        <td class="kpi-cell" style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
           <div style="font-size:30px;font-weight:bold;color:#1a3a5c">{dieser["besuche"]}</div>
           <div style="font-size:12px;color:#666;margin-top:3px">Besuche</div>
           <div style="font-size:11px;font-weight:bold;color:{trend_col(dieser["besuche"],vorher["besuche"])};margin-top:5px">{trend_str(dieser["besuche"],vorher["besuche"])} ggü. {vmonat_name}</div>
         </td>
-        <td width="12"></td>
-        <td style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
+        <td class="kpi-spc" width="12"></td>
+        <td class="kpi-cell" style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
           <div style="font-size:30px;font-weight:bold;color:#c8860a">{dieser["kisten"]}</div>
           <div style="font-size:12px;color:#666;margin-top:3px">{UNIT_LABEL}</div>
           <div style="font-size:11px;font-weight:bold;color:{trend_col(dieser["kisten"],vorher["kisten"])};margin-top:5px">{trend_str(dieser["kisten"],vorher["kisten"])} ggü. {vmonat_name}</div>
         </td>
-        <td width="12"></td>
-        <td style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
+        <td class="kpi-spc" width="12"></td>
+        <td class="kpi-cell" style="text-align:center;padding:18px 10px;background:#f4f8fc;border-radius:8px">
           <div style="font-size:30px;font-weight:bold;color:#2e6da4">{dieser["displays"]}</div>
           <div style="font-size:12px;color:#666;margin-top:3px">Aufbauten</div>
           <div style="font-size:11px;font-weight:bold;color:{trend_col(dieser["displays"],vorher["displays"])};margin-top:5px">{trend_str(dieser["displays"],vorher["displays"])} ggü. {vmonat_name}</div>
@@ -5226,7 +5254,7 @@ def _do_send_monatsbericht(force=False):
     </table>
   </div>
 
-  <div style="padding:16px 32px;background:#fffbf0;border-top:1px solid #f0c674">
+  <div class="pipeline" style="padding:16px 32px;background:#fffbf0;border-top:1px solid #f0c674">
     <span style="font-size:13px;font-weight:bold;color:#1a3a5c">Bestellungen Pipeline:</span>
     <span style="margin-left:14px;font-size:13px">
       <span style="color:#c8860a;font-weight:bold">{pipeline["offen"]}</span><span style="color:#777"> offen</span>
@@ -5237,7 +5265,7 @@ def _do_send_monatsbericht(force=False):
     </span>
   </div>
 
-  <div style="padding:14px 32px;background:#f0f4f8;border-top:1px solid #e4eaf0">
+  <div class="plan-bar" style="padding:14px 32px;background:#f0f4f8;border-top:1px solid #e4eaf0">
     <span style="font-size:13px;font-weight:bold;color:#1a3a5c">&#128203; Besuchsplanung {monat_name}:</span>
     <span style="margin-left:10px;font-size:13px">
       <span style="color:#555">{mtp_g} geplant</span>
@@ -5250,9 +5278,10 @@ def _do_send_monatsbericht(force=False):
     </span>
   </div>
 
-  <div style="padding:24px 32px">
+  <div class="pad" style="padding:24px 32px">
     <div style="font-size:15px;font-weight:bold;color:#1a3a5c;margin-bottom:12px">Mitarbeiter &ndash; {monat_name}</div>
-    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e4eaf0;border-radius:8px;overflow:hidden">
+    <div class="rep-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e4eaf0;border-radius:8px;overflow:hidden;min-width:420px">
       <thead>
         <tr style="background:#edf2f7">
           <th style="padding:8px 10px;text-align:left;font-size:10px;color:#666;font-weight:600;letter-spacing:.5px">MITARBEITER</th>
@@ -5266,6 +5295,7 @@ def _do_send_monatsbericht(force=False):
       </thead>
       <tbody>{rep_rows}</tbody>
     </table>
+    </div>
   </div>
 
   <div style="padding:16px 32px 24px;text-align:center">
