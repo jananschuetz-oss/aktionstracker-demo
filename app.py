@@ -535,6 +535,7 @@ def init_db():
             "ALTER TABLE mitarbeiter ADD COLUMN team_id INTEGER REFERENCES team(id) ON DELETE SET NULL",
             "ALTER TABLE wochenbericht_config ADD COLUMN zuletzt_gesendet_monat TEXT DEFAULT ''",
             "ALTER TABLE wochenbericht_config ADD COLUMN urlaubsmail_empfaenger TEXT DEFAULT ''",
+            "ALTER TABLE wochenbericht_config ADD COLUMN neue_vs_empfaenger TEXT DEFAULT ''",
             "ALTER TABLE tagesplan ADD COLUMN geloescht INTEGER DEFAULT 0",
             "ALTER TABLE tagesplan ADD COLUMN geloescht_am TEXT",
             "ALTER TABLE aktivitaet    ADD COLUMN von_uhrzeit       TEXT",
@@ -3276,8 +3277,9 @@ def admin():
     # Alle Außendienst-Mitarbeiter für Dropdowns
     alle_ad = query("SELECT id, name FROM mitarbeiter WHERE rolle IN ('rep','verkaufsleiter') ORDER BY name")
 
-    cfg = query("SELECT urlaubsmail_empfaenger FROM wochenbericht_config WHERE id=1", one=True)
+    cfg = query("SELECT urlaubsmail_empfaenger, neue_vs_empfaenger FROM wochenbericht_config WHERE id=1", one=True)
     urlaubsmail_empfaenger = cfg['urlaubsmail_empfaenger'] if cfg else ''
+    neue_vs_empfaenger     = cfg['neue_vs_empfaenger']     if cfg else ''
 
     return render_template('admin.html',
         mitarbeiter=mitarbeiter,
@@ -3290,7 +3292,8 @@ def admin():
         alle_ad=alle_ad,
         teams=teams,
         mail_konfiguriert=mail_konfiguriert,
-        urlaubsmail_empfaenger=urlaubsmail_empfaenger)
+        urlaubsmail_empfaenger=urlaubsmail_empfaenger,
+        neue_vs_empfaenger=neue_vs_empfaenger)
 
 
 @app.route('/admin/mitarbeiter/neu', methods=['POST'])
@@ -3705,6 +3708,59 @@ def admin_urlaubsmail_empfaenger():
     return redirect(url_for('admin') + '#vertretung')
 
 
+@app.route('/admin/neue-vs/empfaenger', methods=['POST'])
+@admin_required
+def admin_neue_vs_empfaenger():
+    empfaenger = request.form.get('neue_vs_empfaenger', '').strip()
+    execute("UPDATE wochenbericht_config SET neue_vs_empfaenger=? WHERE id=1", (empfaenger,))
+    flash('E-Mail-Adresse für neue Verkaufsstellen gespeichert.', 'success')
+    return redirect(url_for('admin'))
+
+
+def _notify_neue_vs(name, strasse, plz, ort, typ, ansprechpartner, erstellt_von_name):
+    cfg = query("SELECT neue_vs_empfaenger FROM wochenbericht_config WHERE id=1", one=True)
+    if not cfg or not cfg['neue_vs_empfaenger']:
+        return
+    adresse_teile = [t for t in [strasse, (f'{plz} {ort}').strip()] if t]
+    adresse = ', '.join(adresse_teile) if adresse_teile else '–'
+    jetzt = datetime.now().strftime('%d.%m.%Y %H:%M')
+    html = f'''<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f0f4f8;font-family:Arial,Helvetica,sans-serif">
+<div style="max-width:520px;margin:32px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.10)">
+  <div style="background:#1a3a5c;padding:20px 28px">
+    <div style="color:#fff;font-size:17px;font-weight:bold">Aktions Tracker – Neue Verkaufsstelle</div>
+    <div style="color:#90b8d8;font-size:12px;margin-top:4px">Angelegt am {jetzt} von {erstellt_von_name}</div>
+  </div>
+  <div style="padding:24px 28px">
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr><td style="padding:6px 0;font-size:13px;color:#666;width:130px">Name</td>
+          <td style="padding:6px 0;font-size:13px;font-weight:bold;color:#1a3a5c">{name}</td></tr>
+      <tr><td style="padding:6px 0;font-size:13px;color:#666">Adresse</td>
+          <td style="padding:6px 0;font-size:13px;color:#333">{adresse}</td></tr>
+      <tr><td style="padding:6px 0;font-size:13px;color:#666">Typ</td>
+          <td style="padding:6px 0;font-size:13px;color:#333">{typ or '–'}</td></tr>
+      <tr><td style="padding:6px 0;font-size:13px;color:#666">Ansprechpartner</td>
+          <td style="padding:6px 0;font-size:13px;color:#333">{ansprechpartner or '–'}</td></tr>
+      <tr><td style="padding:6px 0;font-size:13px;color:#666">Angelegt von</td>
+          <td style="padding:6px 0;font-size:13px;color:#333">{erstellt_von_name}</td></tr>
+    </table>
+    <div style="margin-top:16px;padding:12px 16px;background:#fff8e1;border-left:4px solid #c8860a;border-radius:4px;font-size:12px;color:#8a5a00">
+      Bitte Verkaufsstelle in den zentralen Stammdaten anlegen, damit Belieferung sichergestellt ist.
+    </div>
+  </div>
+  <div style="padding:12px 28px;background:#f4f8fc;border-top:1px solid #e4eaf0;text-align:center">
+    <div style="font-size:11px;color:#aaa">Aktions Tracker – automatische Benachrichtigung</div>
+  </div>
+</div>
+</body></html>'''
+    for addr in [a.strip() for a in cfg['neue_vs_empfaenger'].split(',') if a.strip()]:
+        try:
+            send_email(addr, f'Neue Verkaufsstelle: {name}, {ort}', html)
+        except Exception as e:
+            app.logger.error(f"Neue-VS-Benachrichtigung an {addr} fehlgeschlagen: {e}")
+
+
 @app.route('/profil/vertretung/neu', methods=['POST'])
 @login_required
 def profil_vertretung_neu():
@@ -3771,6 +3827,9 @@ def admin_vs_neu():
                 flash(f'Verkaufsstelle "{name}" angelegt. Koordinaten konnten nicht automatisch ermittelt werden – bitte "Koordinaten ermitteln" auf der Karte nutzen.', 'warning')
         else:
             flash(f'Verkaufsstelle "{name}" angelegt.', 'success')
+        ersteller = query("SELECT name FROM mitarbeiter WHERE id=?", (session['user_id'],), one=True)
+        _notify_neue_vs(name, strasse, plz, ort, typ, ansprechpartner,
+                        ersteller['name'] if ersteller else session.get('user_name', 'Admin'))
     is_admin = session.get('rolle') == 'admin'
     return redirect(url_for('admin') if is_admin else url_for('team_verwaltung'))
 
@@ -3879,6 +3938,9 @@ def vs_neu_rep():
                 (session['user_id'], new_id)
             )
         flash(f'Verkaufsstelle "{name}" wurde angelegt und ausgewählt.', 'success')
+        ersteller = query("SELECT name FROM mitarbeiter WHERE id=?", (session['user_id'],), one=True)
+        _notify_neue_vs(name, strasse, plz_rep, ort, typ, ansprechpartner,
+                        ersteller['name'] if ersteller else session.get('user_name', ''))
         return redirect(url_for('dashboard') if vom_dashboard else url_for('neue_aktivitaet', vs_id=new_id))
     flash('Name, Straße und Ort sind Pflichtfelder.', 'danger')
     return redirect(url_for('dashboard') if vom_dashboard else url_for('neue_aktivitaet'))

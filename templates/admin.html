@@ -474,6 +474,20 @@
                 <i class="bi bi-floppy me-1"></i>Speichern
               </button>
             </form>
+            <hr class="mt-3 mb-2">
+            <form method="POST" action="{{ url_for('admin_neue_vs_empfaenger') }}" class="d-flex align-items-end gap-2">
+              <div class="flex-grow-1">
+                <label class="form-label small fw-bold mb-1">
+                  <i class="bi bi-shop me-1"></i>Neue Verkaufsstelle melden an <span class="text-muted fw-normal">(Innendienst / Stammdaten)</span>
+                </label>
+                <input type="text" name="neue_vs_empfaenger" class="form-control form-control-sm"
+                       placeholder="z.B. innendienst@firma.de, stammdaten@firma.de"
+                       value="{{ neue_vs_empfaenger or '' }}">
+              </div>
+              <button type="submit" class="btn btn-sm btn-outline-secondary" style="white-space:nowrap">
+                <i class="bi bi-floppy me-1"></i>Speichern
+              </button>
+            </form>
           </div>
           <!-- Bestehende Vertretungen -->
           <div class="col-md-7">
