@@ -309,8 +309,12 @@ def _html_to_pdf(html: str) -> bytes | None:
     import traceback as _tb
     try:
         from xhtml2pdf import pisa
+        # Spacer-TDs (class="kpi-spc") und @media-Style entfernen,
+        # da xhtml2pdf sonst negative verfügbare Breite berechnet.
+        clean = re.sub(r'<td[^>]*class=["\']kpi-spc["\'][^>]*>.*?</td>', '', html, flags=re.DOTALL)
+        clean = re.sub(r'<style[^>]*>.*?</style>', '', clean, flags=re.DOTALL)
         buf = io.BytesIO()
-        status = pisa.CreatePDF(html.encode('utf-8'), dest=buf, encoding='utf-8')
+        status = pisa.CreatePDF(clean.encode('utf-8'), dest=buf, encoding='utf-8')
         data = buf.getvalue()
         if not status.err and data:
             app.logger.info(f"PDF generiert: {len(data)} Bytes")
