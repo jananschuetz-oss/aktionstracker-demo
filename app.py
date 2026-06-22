@@ -306,16 +306,19 @@ def send_email_with_attachments(to: str, subject: str, body_html: str,
 
 def _html_to_pdf(html: str) -> bytes | None:
     """Konvertiert einen HTML-String zu PDF-Bytes via xhtml2pdf."""
+    import traceback as _tb
     try:
         from xhtml2pdf import pisa
         buf = io.BytesIO()
         status = pisa.CreatePDF(html.encode('utf-8'), dest=buf, encoding='utf-8')
-        if not status.err:
-            return buf.getvalue()
-        app.logger.warning(f"xhtml2pdf Fehler: {status.err}")
+        data = buf.getvalue()
+        if not status.err and data:
+            app.logger.info(f"PDF generiert: {len(data)} Bytes")
+            return data
+        app.logger.error(f"xhtml2pdf Fehler={status.err}, Bytes={len(data)}")
         return None
     except Exception as e:
-        app.logger.warning(f"PDF-Fehler: {e}")
+        app.logger.error(f"PDF-Fehler: {e}\n{_tb.format_exc()}")
         return None
 
 
