@@ -260,7 +260,7 @@ def send_email_with_attachments(to: str, subject: str, body_html: str,
             _resend.api_key = RESEND_API_KEY
             from_addr = MAIL_FROM or f'Aktionstracker <{MAIL_USERNAME}>'
             resend_attachments = [
-                {'filename': name, 'content': list(_b64.b64encode(data))}
+                {'filename': name, 'content': _b64.b64encode(data).decode('ascii')}
                 for name, data, _ in attachments
             ]
             _resend.Emails.send({
