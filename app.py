@@ -1052,8 +1052,10 @@ def seed_demo_data(db):
                         (cur.lastrowid, bier_id, menge)
                     )
 
-    # Zielzahlen 2026 – ambitionierte Jahresziele (Reps bei ~55 % zur Jahresmitte)
-    ZIELE = {'MM':(200,12000),'AS':(185,11500),'TW':(175,11000),'LF':(175,11000),'KH':(165,10500)}
+    # Zielzahlen 2026 – realistisches Bild: Stern / Grün / Gelb / Rot / Sehr Rot
+    # Berechnet auf Basis der IST-Werte per Ende Juni (SONNENSCHLÜSSEL Jan-Jun = 47 %)
+    # MM: ~120 % Saisonstatus | TW: ~104 % | AS: ~80 % | LF: ~45 % | KH: 0 %
+    ZIELE = {'MM':(80,2900),'AS':(120,4600),'TW':(80,2600),'LF':(90,3900),'KH':(80,2500)}
     for rep in reps:
         if rep['kuerzel'] in ZIELE:
             d, k = ZIELE[rep['kuerzel']]
@@ -1062,7 +1064,7 @@ def seed_demo_data(db):
                 displays_ziel=excluded.displays_ziel, kisten_ziel=excluded.kisten_ziel''',
                 (rep['id'], d, k))
     db.execute('''INSERT INTO zielzahlen (mitarbeiter_id,jahr,displays_ziel,kisten_ziel)
-        VALUES (NULL,2026,900,56000) ON CONFLICT(mitarbeiter_id,jahr) DO UPDATE SET
+        VALUES (NULL,2026,450,16500) ON CONFLICT(mitarbeiter_id,jahr) DO UPDATE SET
         displays_ziel=excluded.displays_ziel, kisten_ziel=excluded.kisten_ziel''')
 
     # Verkaufsstellen gleichmäßig auf Reps verteilen (für Karten-Demo)
@@ -1180,8 +1182,8 @@ def seed_demo_data_relativ(db):
                             (cur.lastrowid, bid, rnd.randint(5, 45))
                         )
 
-    # Zielzahlen
-    ZIELE = {'MM': (200, 12000), 'AS': (185, 11500), 'TW': (175, 11000), 'LF': (165, 10000)}
+    # Zielzahlen – realistisches Bild: Stern / Grün / Gelb / Rot / Sehr Rot
+    ZIELE = {'MM': (80, 2900), 'AS': (120, 4600), 'TW': (80, 2600), 'LF': (90, 3900), 'KH': (80, 2500)}
     for rep in reps:
         if rep['kuerzel'] in ZIELE:
             d, k = ZIELE[rep['kuerzel']]
@@ -1190,7 +1192,7 @@ def seed_demo_data_relativ(db):
                 displays_ziel=excluded.displays_ziel, kisten_ziel=excluded.kisten_ziel''',
                 (rep['id'], today.year, d, k))
     db.execute('''INSERT INTO zielzahlen (mitarbeiter_id,jahr,displays_ziel,kisten_ziel)
-        VALUES (NULL,?,750,44500) ON CONFLICT(mitarbeiter_id,jahr) DO UPDATE SET
+        VALUES (NULL,?,450,16500) ON CONFLICT(mitarbeiter_id,jahr) DO UPDATE SET
         displays_ziel=excluded.displays_ziel, kisten_ziel=excluded.kisten_ziel''',
         (today.year,))
 
