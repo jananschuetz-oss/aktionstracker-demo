@@ -670,6 +670,24 @@ def init_db():
             displays_ziel=excluded.displays_ziel, kisten_ziel=excluded.kisten_ziel''')
         db.commit()
 
+        # Bestellpositionen nachfüllen wenn Tabelle leer aber Bestellungen existieren
+        if not db.execute("SELECT 1 FROM bestellposition LIMIT 1").fetchone():
+            import random as _rnd
+            _biere = db.execute("SELECT id FROM biersorte WHERE aktiv=1").fetchall()
+            _bier_ids = [b['id'] for b in _biere]
+            if _bier_ids:
+                _best_akt = db.execute(
+                    "SELECT id FROM aktivitaet WHERE aktionstyp='Bestellung' AND bestell_status IN ('offen','aufgebaut')"
+                ).fetchall()
+                for _a in _best_akt:
+                    for _bid in _rnd.sample(_bier_ids, k=min(_rnd.randint(2,4), len(_bier_ids))):
+                        db.execute(
+                            "INSERT OR IGNORE INTO bestellposition (aktivitaet_id,biersorte_id,kisten_anzahl) VALUES (?,?,?)",
+                            (_a['id'], _bid, _rnd.randint(5, 45))
+                        )
+                db.commit()
+                app.logger.info("Bestellpositionen nachgefüllt für %d Bestellungen.", len(_best_akt))
+
         # Beispielfotos einmalig zuweisen – NACH seed_demo_data (Aktivitäten müssen existieren)
         fotos_in_db = db.execute(
             "SELECT COUNT(*) FROM aktivitaet WHERE foto_pfad IS NOT NULL AND foto_pfad != ''"
