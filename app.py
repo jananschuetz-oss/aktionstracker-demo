@@ -1709,7 +1709,7 @@ def dashboard():
             FROM bestellposition bp
             JOIN biersorte bs ON bs.id = bp.biersorte_id
             JOIN aktivitaet a ON a.id = bp.aktivitaet_id
-            WHERE strftime('%Y', a.datum) = ? AND COALESCE(a.aktionstyp,'Aufbau')='Aufbau' {ma_clause}{t_ma_sql}
+            WHERE strftime('%Y', a.datum) = ? AND a.aktionstyp='Bestellung' {ma_clause}{t_ma_sql}
             GROUP BY bs.id ORDER BY kisten DESC LIMIT 6
         ''', (str(jahr),) + ma_params + t_ma_p)
     else:
@@ -1718,7 +1718,7 @@ def dashboard():
             FROM bestellposition bp
             JOIN biersorte bs ON bs.id = bp.biersorte_id
             JOIN aktivitaet a ON a.id = bp.aktivitaet_id
-            WHERE strftime('%Y', a.datum) = ? AND a.mitarbeiter_id = ? AND COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+            WHERE strftime('%Y', a.datum) = ? AND a.mitarbeiter_id = ? AND a.aktionstyp='Bestellung'
             GROUP BY bs.id ORDER BY kisten DESC LIMIT 6
         ''', (str(jahr), session['user_id']))
 
