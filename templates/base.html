@@ -394,16 +394,16 @@
   {% if touren_modus != 'aus' or karte_modus != 'aus' %}
   <a href="{{ url_for('tourenplanung') if touren_modus != 'aus' else url_for('karte') }}"
      class="vkl-tab {% if request.endpoint in ('tourenplanung', 'karte') %}active{% endif %}">
-    <i class="bi bi-route"></i>Planung
+    <i class="bi bi-route"></i>Besuchsplanung
   </a>
   {% endif %}
   <a href="{{ url_for('einstellungen_wochenbericht') }}"
      class="vkl-tab {% if request.endpoint in ('einstellungen_wochenbericht', 'bestellungen_uebersicht') %}active{% endif %}">
-    <i class="bi bi-bar-chart-line"></i>Berichte
+    <i class="bi bi-bar-chart-line"></i>Wochen-/Monatsbericht
   </a>
   <a href="{{ url_for('team_verwaltung') }}"
      class="vkl-tab {% if request.endpoint in ('team_verwaltung', 'zielzahlen') %}active{% endif %}">
-    <i class="bi bi-gear"></i>Einstellungen
+    <i class="bi bi-people-fill"></i>Team-Verwaltung
   </a>
 </nav>
 {% endif %}
