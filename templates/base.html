@@ -195,6 +195,27 @@
       .mobile-save-bar { display: block; }
       .desktop-save-btn { display: none !important; }
     }
+
+    /* ── VKL Sub-Navigation ─────────────────────────────── */
+    #vkl-subnav {
+      background: #14304d;
+      position: fixed; top: 58px; left: 0; right: 0; z-index: 1029;
+      display: flex; border-bottom: 1px solid rgba(255,255,255,.1);
+    }
+    .vkl-tab {
+      padding: 9px 20px; color: rgba(255,255,255,.65);
+      text-decoration: none; font-size: .875rem; font-weight: 500;
+      border-bottom: 2px solid transparent;
+      display: flex; align-items: center; gap: .4rem;
+      transition: color .15s;
+    }
+    .vkl-tab:hover { color: #fff; }
+    .vkl-tab.active {
+      color: #fff !important;
+      border-bottom-color: var(--brand-gold);
+      background: rgba(255,255,255,.08);
+    }
+    @media (max-width: 991.98px) { #vkl-subnav { display: none !important; } }
   </style>
 </head>
 <body>
@@ -267,7 +288,7 @@
              href="{{ url_for('vergleich') }}"><i class="bi bi-bullseye"></i>Mein Zielkurs</a>
         </li>
         {% endif %}
-        {% if session.rolle in ('admin', 'verkaufsleiter') %}
+        {% if session.rolle == 'admin' %}
         <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
             <i class="bi bi-graph-up-arrow"></i>Verkaufsleiter
@@ -364,7 +385,30 @@
 </nav>
 {% endif %}
 
-<div class="container-fluid px-4 py-3" style="padding-top: calc(.75rem + 58px) !important">
+{% if session.user_id and session.rolle == 'verkaufsleiter' %}
+<nav id="vkl-subnav">
+  <a href="{{ url_for('vergleich') }}"
+     class="vkl-tab {% if request.endpoint in ('dashboard', 'vergleich') %}active{% endif %}">
+    <i class="bi bi-speedometer2"></i>Übersicht
+  </a>
+  {% if touren_modus != 'aus' or karte_modus != 'aus' %}
+  <a href="{{ url_for('tourenplanung') if touren_modus != 'aus' else url_for('karte') }}"
+     class="vkl-tab {% if request.endpoint in ('tourenplanung', 'karte') %}active{% endif %}">
+    <i class="bi bi-route"></i>Planung
+  </a>
+  {% endif %}
+  <a href="{{ url_for('einstellungen_wochenbericht') }}"
+     class="vkl-tab {% if request.endpoint in ('einstellungen_wochenbericht', 'bestellungen_uebersicht') %}active{% endif %}">
+    <i class="bi bi-bar-chart-line"></i>Berichte
+  </a>
+  <a href="{{ url_for('team_verwaltung') }}"
+     class="vkl-tab {% if request.endpoint in ('team_verwaltung', 'zielzahlen') %}active{% endif %}">
+    <i class="bi bi-gear"></i>Einstellungen
+  </a>
+</nav>
+{% endif %}
+
+<div class="container-fluid px-4 py-3" style="padding-top: calc(.75rem + 58px{% if session.user_id and session.rolle == 'verkaufsleiter' %} + 44px{% endif %}) !important">
   <!-- PWA Install Banner (nur Mobile) -->
   {% if session.user_id %}
   <div id="installBanner"
