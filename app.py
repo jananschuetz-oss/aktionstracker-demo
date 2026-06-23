@@ -4491,6 +4491,8 @@ def zielzahlen():
         ''', (jar, int(td), int(tk)))
 
         flash(f'Zielzahlen für {jar} gespeichert.', 'success')
+        if request.form.get('redirect_to') == 'team_verwaltung':
+            return redirect(url_for('team_verwaltung', jahr=jar))
         return redirect(url_for('zielzahlen', jahr=jar))
 
     _zz_sql, _zz_p = _team_m_clause('m')
@@ -4519,6 +4521,7 @@ def zielzahlen():
 def team_verwaltung():
     is_admin = session.get('rolle') == 'admin'
     is_vkl   = session.get('rolle') == 'verkaufsleiter'
+    jahr     = request.args.get('jahr', date.today().year, type=int)
 
     _t_sql, _t_p = _team_m_clause('m')
     reps = query(
@@ -4546,9 +4549,19 @@ def team_verwaltung():
             ORDER BY v.bis DESC
         """)
 
+    # Zielzahlen-Daten für eingebettetes Formular
+    ziele_raw = query(
+        "SELECT mitarbeiter_id, displays_ziel, kisten_ziel FROM zielzahlen WHERE jahr = ?",
+        (str(jahr),)
+    )
+    ziele    = {r['mitarbeiter_id']: dict(r) for r in ziele_raw}
+    teamziel = ziele.get(None)
+    alle_jahre = list(range(date.today().year, date.today().year + 3))
+
     return render_template('team_verwaltung.html',
         reps=reps, vertretungen=vertretungen,
-        is_admin=is_admin, is_vkl=is_vkl)
+        is_admin=is_admin, is_vkl=is_vkl,
+        ziele=ziele, teamziel=teamziel, jahr=jahr, alle_jahre=alle_jahre)
 
 
 # ─── Team-Vergleich (Admin) ───────────────────────────────────────────────────

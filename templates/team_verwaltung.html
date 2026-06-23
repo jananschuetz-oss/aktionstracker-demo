@@ -7,16 +7,11 @@
     <h1><i class="bi bi-people-fill me-2"></i>Team-Verwaltung</h1>
     <p>Mitarbeiter anlegen, Passwörter setzen und Vertretungen verwalten</p>
   </div>
-  <div class="d-flex gap-2">
-    <a href="{{ url_for('zielzahlen') }}" class="btn btn-outline-light btn-sm">
-      <i class="bi bi-bullseye me-1"></i>Zielzahlen setzen
-    </a>
-    {% if is_admin %}
-    <a href="{{ url_for('admin') }}" class="btn btn-outline-light btn-sm">
-      <i class="bi bi-arrow-left me-1"></i>Zurück zu Admin
-    </a>
-    {% endif %}
-  </div>
+  {% if is_admin %}
+  <a href="{{ url_for('admin') }}" class="btn btn-outline-light btn-sm">
+    <i class="bi bi-arrow-left me-1"></i>Zurück zu Admin
+  </a>
+  {% endif %}
 </div>
 
 {% with messages = get_flashed_messages(with_categories=true) %}
@@ -297,4 +292,124 @@
     {% endif %}
   </div>
 </div>
+
+<!-- ── Zielzahlen setzen ────────────────────────────────────────────── -->
+<form method="POST" action="{{ url_for('zielzahlen') }}" class="mt-4">
+  <input type="hidden" name="jahr" value="{{ jahr }}">
+  <input type="hidden" name="redirect_to" value="team_verwaltung">
+
+  <!-- Jahr-Auswahl -->
+  <div class="card mb-4">
+    <div class="card-header"><i class="bi bi-bullseye me-2"></i>Zielzahlen setzen – {{ jahr }}</div>
+    <div class="card-body py-2">
+      <div class="d-flex align-items-center gap-3 flex-wrap">
+        <span class="fw-bold" style="color:#1a3a5c"><i class="bi bi-calendar me-1"></i>Jahr:</span>
+        {% for j in alle_jahre %}
+        <a href="{{ url_for('team_verwaltung', jahr=j) }}"
+           class="btn btn-sm {% if j==jahr %}btn-primary{% else %}btn-outline-secondary{% endif %}">{{ j }}</a>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Mitarbeiter-Ziele -->
+  <div class="card mb-4">
+    <div class="card-header"><i class="bi bi-people me-2"></i>Ziele pro Mitarbeiter</div>
+    <div class="card-body p-0">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            <th style="width:35%">Mitarbeiter</th>
+            <th class="text-center" style="width:25%"><i class="bi bi-display me-1" style="color:#2e6da4"></i>Displays-Ziel</th>
+            <th class="text-center" style="width:25%"><i class="bi bi-box-seam me-1" style="color:#c8860a"></i>{{ unit_label }}-Ziel</th>
+            <th class="text-center" style="width:15%">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for rep in reps %}
+          {% set z = ziele.get(rep.id, {}) %}
+          <tr>
+            <td class="align-middle">
+              <span class="badge rounded-pill me-2" style="background:#1a3a5c">{{ rep.kuerzel }}</span>
+              <span class="fw-semibold">{{ rep.name }}</span>
+            </td>
+            <td class="text-center">
+              <div class="input-group input-group-sm justify-content-center" style="max-width:160px;margin:0 auto">
+                <span class="input-group-text" style="background:#eef4fb;border-color:#2e6da4"><i class="bi bi-display" style="color:#2e6da4"></i></span>
+                <input type="number" name="disp_{{ rep.id }}" class="form-control text-center zz-disp"
+                       value="{{ z.get('displays_ziel', '') or '' }}" min="0" max="9999" placeholder="z.B. 50">
+              </div>
+            </td>
+            <td class="text-center">
+              <div class="input-group input-group-sm justify-content-center" style="max-width:160px;margin:0 auto">
+                <span class="input-group-text" style="background:#fffbf0;border-color:#c8860a"><i class="bi bi-box-seam" style="color:#c8860a"></i></span>
+                <input type="number" name="kist_{{ rep.id }}" class="form-control text-center zz-kist"
+                       value="{{ z.get('kisten_ziel', '') or '' }}" min="0" max="99999" placeholder="z.B. 400">
+              </div>
+            </td>
+            <td class="text-center">
+              {% if z %}<span class="badge bg-success"><i class="bi bi-check2 me-1"></i>Gesetzt</span>
+              {% else %}<span class="badge bg-secondary">Noch leer</span>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Teamziel -->
+  <div class="card mb-4" style="border:2px solid #2e6da4">
+    <div class="card-header" style="background:#2e6da4"><i class="bi bi-trophy me-2"></i>Teamziel gesamt</div>
+    <div class="card-body">
+      <div class="row g-4 align-items-center">
+        <div class="col-md-4">
+          <label class="form-label fw-bold" style="color:#1a3a5c"><i class="bi bi-display me-1"></i>Displays-Teamziel</label>
+          <div class="input-group">
+            <span class="input-group-text" style="background:#eef4fb;border-color:#2e6da4"><i class="bi bi-display" style="color:#2e6da4"></i></span>
+            <input type="number" name="team_disp" class="form-control form-control-lg text-center fw-bold"
+                   value="{{ teamziel.displays_ziel if teamziel else '' }}" min="0" placeholder="z.B. 1000">
+          </div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label fw-bold" style="color:#c8860a"><i class="bi bi-box-seam me-1"></i>{{ unit_label }}-Teamziel</label>
+          <div class="input-group">
+            <span class="input-group-text" style="background:#fffbf0;border-color:#c8860a"><i class="bi bi-box-seam" style="color:#c8860a"></i></span>
+            <input type="number" name="team_kist" class="form-control form-control-lg text-center fw-bold"
+                   value="{{ teamziel.kisten_ziel if teamziel else '' }}" min="0" placeholder="z.B. 8000">
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="p-3 rounded-3" style="background:#eef4fb;border:1px solid #2e6da4">
+            <p class="mb-1 small text-muted">Summe Einzelziele</p>
+            <div class="d-flex gap-4">
+              <div><i class="bi bi-display me-1" style="color:#2e6da4"></i><strong id="zzSumDisp">–</strong></div>
+              <div><i class="bi bi-box-seam me-1" style="color:#c8860a"></i><strong id="zzSumKist">–</strong></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="d-flex justify-content-end mb-5">
+    <button type="submit" class="btn btn-primary btn-lg px-5">
+      <i class="bi bi-check-circle me-2"></i>Zielzahlen speichern
+    </button>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function zzUpdateSums() {
+  let sd = 0, sk = 0;
+  document.querySelectorAll('.zz-disp').forEach(el => { sd += parseInt(el.value) || 0; });
+  document.querySelectorAll('.zz-kist').forEach(el => { sk += parseInt(el.value) || 0; });
+  document.getElementById('zzSumDisp').textContent = sd;
+  document.getElementById('zzSumKist').textContent = sk;
+}
+document.querySelectorAll('.zz-disp, .zz-kist').forEach(el => el.addEventListener('input', zzUpdateSums));
+zzUpdateSums();
+</script>
 {% endblock %}
