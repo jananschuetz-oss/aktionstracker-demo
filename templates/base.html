@@ -369,6 +369,12 @@
      class="vkl-tab {% if request.endpoint in ('bestellungen_uebersicht', 'bestellung_detail') %}active{% endif %}">
     <i class="bi bi-clipboard-check"></i>Bestellungen
   </a>
+  {% if karte_modus != 'aus' %}
+  <a href="{{ url_for('karte') }}"
+     class="vkl-tab {% if request.endpoint == 'karte' %}active{% endif %}">
+    <i class="bi bi-map"></i>Karte
+  </a>
+  {% endif %}
   <a href="{{ url_for('team_verwaltung') }}"
      class="vkl-tab {% if request.endpoint in ('team_verwaltung', 'zielzahlen') %}active{% endif %}">
     <i class="bi bi-people-fill"></i>Team-Verwaltung
