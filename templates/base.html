@@ -289,44 +289,11 @@
         </li>
         {% endif %}
         {% if session.rolle == 'admin' %}
-        <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint in ('vergleich','tourenplanung','karte','einstellungen_wochenbericht','bestellungen_uebersicht','team_verwaltung','zielzahlen') %}active{% endif %}"
+             href="{{ url_for('vergleich') }}">
             <i class="bi bi-graph-up-arrow"></i>Verkaufsleiter
           </a>
-          <ul class="dropdown-menu">
-            {% if touren_modus != 'aus' %}
-            <li><a class="dropdown-item {% if request.endpoint == 'tourenplanung' %}active{% endif %}" href="{{ url_for('tourenplanung') }}">
-              <i class="bi bi-map me-2"></i>Besuchsplanung
-            </a></li>
-            <li><hr class="dropdown-divider"></li>
-            {% endif %}
-            <li><a class="dropdown-item" href="{{ url_for('vergleich') }}">
-              <i class="bi bi-people me-2"></i>Mitarbeiter-Vergleich
-            </a></li>
-            <li><a class="dropdown-item {% if request.endpoint == 'bestellungen_uebersicht' %}active{% endif %}" href="{{ url_for('bestellungen_uebersicht') }}">
-              <i class="bi bi-clipboard-check me-2"></i>Bestellungen
-            </a></li>
-            <li><a class="dropdown-item" href="{{ url_for('zielzahlen') }}">
-              <i class="bi bi-bullseye me-2"></i>Zielzahlen setzen
-            </a></li>
-            <li><hr class="dropdown-divider"></li>
-            <li><a class="dropdown-item {% if request.endpoint == 'einstellungen_wochenbericht' %}active{% endif %}"
-                   href="{{ url_for('einstellungen_wochenbericht') }}">
-              <i class="bi bi-envelope-at me-2"></i>Wochen-/Monatsbericht
-            </a></li>
-            <li><hr class="dropdown-divider"></li>
-            <li><a class="dropdown-item {% if request.endpoint == 'team_verwaltung' %}active{% endif %}"
-                   href="{{ url_for('team_verwaltung') }}">
-              <i class="bi bi-people-fill me-2"></i>Team-Verwaltung
-            </a></li>
-            {% if karte_modus != 'aus' %}
-            <li><hr class="dropdown-divider"></li>
-            <li><a class="dropdown-item {% if request.endpoint == 'karte' %}active{% endif %}"
-                   href="{{ url_for('karte') }}">
-              <i class="bi bi-map me-2"></i>Karte der Gebiete
-            </a></li>
-            {% endif %}
-          </ul>
         </li>
         {% elif session.rolle == 'rep' and karte_modus != 'aus' %}
         <li class="nav-item">
@@ -385,7 +352,7 @@
 </nav>
 {% endif %}
 
-{% if session.user_id and session.rolle == 'verkaufsleiter' %}
+{% if session.user_id and session.rolle in ('admin', 'verkaufsleiter') %}
 <nav id="vkl-subnav">
   <a href="{{ url_for('vergleich') }}"
      class="vkl-tab {% if request.endpoint in ('dashboard', 'vergleich') %}active{% endif %}">
@@ -408,7 +375,7 @@
 </nav>
 {% endif %}
 
-<div class="container-fluid px-4 py-3" style="padding-top: calc(.75rem + 58px{% if session.user_id and session.rolle == 'verkaufsleiter' %} + 44px{% endif %}) !important">
+<div class="container-fluid px-4 py-3" style="padding-top: calc(.75rem + 58px{% if session.user_id and session.rolle in ('admin', 'verkaufsleiter') %} + 44px{% endif %}) !important">
   <!-- PWA Install Banner (nur Mobile) -->
   {% if session.user_id %}
   <div id="installBanner"
