@@ -655,6 +655,21 @@ def init_db():
             seed_demo_data_relativ(db)
             seed_demo_besuchsplan(db)
 
+        # Zielzahlen immer aktualisieren (unabhängig ob Seed gelaufen)
+        _ziele_2026 = {'MM':(80,2900),'AS':(120,4600),'TW':(80,2600),'LF':(90,3900),'KH':(80,2500)}
+        _reps_all = db.execute("SELECT id, kuerzel FROM mitarbeiter WHERE rolle='rep'").fetchall()
+        for _r in _reps_all:
+            if _r['kuerzel'] in _ziele_2026:
+                _d, _k = _ziele_2026[_r['kuerzel']]
+                db.execute('''INSERT INTO zielzahlen (mitarbeiter_id,jahr,displays_ziel,kisten_ziel)
+                    VALUES (?,2026,?,?) ON CONFLICT(mitarbeiter_id,jahr) DO UPDATE SET
+                    displays_ziel=excluded.displays_ziel, kisten_ziel=excluded.kisten_ziel''',
+                    (_r['id'], _d, _k))
+        db.execute('''INSERT INTO zielzahlen (mitarbeiter_id,jahr,displays_ziel,kisten_ziel)
+            VALUES (NULL,2026,450,16500) ON CONFLICT(mitarbeiter_id,jahr) DO UPDATE SET
+            displays_ziel=excluded.displays_ziel, kisten_ziel=excluded.kisten_ziel''')
+        db.commit()
+
         # Beispielfotos einmalig zuweisen – NACH seed_demo_data (Aktivitäten müssen existieren)
         fotos_in_db = db.execute(
             "SELECT COUNT(*) FROM aktivitaet WHERE foto_pfad IS NOT NULL AND foto_pfad != ''"
