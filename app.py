@@ -4716,6 +4716,13 @@ def service_worker():
     return send_from_directory('static', 'sw.js', mimetype='application/javascript')
 
 
+@app.route('/uploads/<path:filename>')
+@login_required
+def serve_upload(filename):
+    from flask import send_from_directory
+    return send_from_directory(UPLOAD_FOLDER, filename)
+
+
 # ─── API: Autocomplete ────────────────────────────────────────────────────────
 
 @app.route('/api/verkaufsstellen')
