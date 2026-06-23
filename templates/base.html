@@ -352,7 +352,8 @@
 </nav>
 {% endif %}
 
-{% if session.user_id and session.rolle in ('admin', 'verkaufsleiter') %}
+{% set _vkl_seiten = ('vergleich','tourenplanung','karte','einstellungen_wochenbericht','bestellungen_uebersicht','team_verwaltung','zielzahlen') %}
+{% if session.user_id and (session.rolle == 'verkaufsleiter' or (session.rolle == 'admin' and request.endpoint in _vkl_seiten)) %}
 <nav id="vkl-subnav">
   <a href="{{ url_for('vergleich') }}"
      class="vkl-tab {% if request.endpoint in ('dashboard', 'vergleich') %}active{% endif %}">
@@ -375,7 +376,7 @@
 </nav>
 {% endif %}
 
-<div class="container-fluid px-4 py-3" style="padding-top: calc(.75rem + 58px{% if session.user_id and session.rolle in ('admin', 'verkaufsleiter') %} + 44px{% endif %}) !important">
+<div class="container-fluid px-4 py-3" style="padding-top: calc(.75rem + 58px{% if session.user_id and (session.rolle == 'verkaufsleiter' or (session.rolle == 'admin' and request.endpoint in _vkl_seiten)) %} + 44px{% endif %}) !important">
   <!-- PWA Install Banner (nur Mobile) -->
   {% if session.user_id %}
   <div id="installBanner"
