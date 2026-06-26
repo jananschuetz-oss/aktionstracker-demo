@@ -911,6 +911,22 @@ def init_db():
             db.commit()
             app.logger.info(f"Migration: {_n_2025} Aktivitaeten aus 2025 geloescht.")
 
+        # Migration: Überfällige Demo-Bestellungen auf max. 5 begrenzen
+        _ue_ids = db.execute(
+            "SELECT id FROM aktivitaet "
+            "WHERE aktionstyp='Bestellung' AND COALESCE(bestell_status,'offen')='offen' "
+            "AND julianday('now') - julianday(datum) > 28 "
+            "ORDER BY datum ASC"
+        ).fetchall()
+        if len(_ue_ids) > 5:
+            _close_ids = [r[0] for r in _ue_ids[:-5]]
+            db.execute(
+                f"UPDATE aktivitaet SET bestell_status='aufgebaut' WHERE id IN ({','.join('?'*len(_close_ids))})",
+                _close_ids
+            )
+            db.commit()
+            app.logger.info(f"Migration: {len(_close_ids)} ueberfaellige Demo-Bestellungen geschlossen.")
+
         # Migration: Überfällige Demo-Bestellungen sicherstellen (für Wochenbericht-Demo)
         # Wenn keine offene Bestellung >28 Tage existiert, 3 steckengebliebene einfügen
         _ue_count = db.execute(
