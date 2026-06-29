@@ -1311,6 +1311,7 @@ def _do_demo_daily_reset():
         db.commit()
         seed_demo_data_relativ(db)
         seed_demo_besuchsplan(db)
+        _demo_tagesplan_fortschritt()
         app.logger.info("Demo-Daily-Reset abgeschlossen.")
     except Exception as e:
         app.logger.error(f"Demo-Reset Fehler: {e}", exc_info=True)
@@ -1323,28 +1324,32 @@ def demo_daily_reset():
 
 
 def _demo_tagesplan_fortschritt():
-    """Markiert heutige Tagesplan-Einträge anteilig als erledigt — simuliert Tagesfortschritt."""
+    """Markiert heutige Tagesplan-Einträge als erledigt — lässt je Rep 1–2 zufällig offen.
+    Seed ist tagesabhängig: welche Einträge offen bleiben, wechselt täglich und variiert pro Rep."""
     if not DEMO_MODUS:
         return
-    from datetime import date, datetime
-    today  = date.today()
-    stunde = datetime.now().hour
-    if stunde >= 16:
-        anteil = 0.85
-    elif stunde >= 13:
-        anteil = 0.55
-    elif stunde >= 10:
-        anteil = 0.30
-    else:
-        return  # vor 10 Uhr nichts tun
-    db = get_db()
-    eintraege = db.execute(
-        "SELECT id FROM tagesplan WHERE datum=? AND erledigt=0 AND COALESCE(geloescht,0)=0 ORDER BY reihenfolge",
-        (today.isoformat(),)
-    ).fetchall()
-    n = int(len(eintraege) * anteil)
-    for row in eintraege[:n]:
-        db.execute("UPDATE tagesplan SET erledigt=1 WHERE id=?", (row['id'],))
+    import random as rnd
+    from datetime import date
+    today = date.today()
+    rnd.seed(today.toordinal())  # deterministisch pro Tag, aber täglich anders
+
+    db  = get_db()
+    reps = db.execute("SELECT id FROM mitarbeiter WHERE rolle='rep' AND aktiv=1").fetchall()
+
+    for rep in reps:
+        eintraege = db.execute(
+            "SELECT id FROM tagesplan WHERE mitarbeiter_id=? AND datum=? AND COALESCE(geloescht,0)=0 ORDER BY reihenfolge",
+            (rep['id'], today.isoformat())
+        ).fetchall()
+        if not eintraege:
+            continue
+        # 1–2 Einträge zufällig offen lassen (variiert pro Rep und Tag)
+        n_offen  = rnd.randint(1, min(2, len(eintraege)))
+        offen_ids = {row['id'] for row in rnd.sample(eintraege, k=n_offen)}
+        for row in eintraege:
+            if row['id'] not in offen_ids:
+                db.execute("UPDATE tagesplan SET erledigt=1 WHERE id=? AND erledigt=0", (row['id'],))
+
     db.commit()
 
 
