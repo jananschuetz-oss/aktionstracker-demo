@@ -1820,23 +1820,24 @@ def dashboard():
     inaktiv_reps = []
     if is_manager and not ma_filter:
         _heute = date.today()
-        _mo_kw = _heute - timedelta(days=_heute.weekday())  # Montag dieser Woche
-        _t_sql, _t_p = _team_m_clause('m')
-        inaktiv_reps = query(
-            f"""SELECT m.id, m.name, m.kuerzel
-                FROM mitarbeiter m
-                WHERE m.rolle = 'rep' {_t_sql}
-                AND m.id NOT IN (
-                    SELECT DISTINCT mitarbeiter_id FROM aktivitaet
-                    WHERE datum >= ?
-                )
-                AND m.id NOT IN (
-                    SELECT abwesender_id FROM vertretung
-                    WHERE von <= ? AND bis >= ? AND status = 'bestätigt'
-                )
-                ORDER BY m.name""",
-            _t_p + (_mo_kw.isoformat(), _heute.isoformat(), _heute.isoformat())
-        )
+        if _heute.weekday() >= 2:  # erst ab Mittwoch sinnvoll (Mo=0, Di=1, Mi=2)
+            _mo_kw = _heute - timedelta(days=_heute.weekday())  # Montag dieser Woche
+            _t_sql, _t_p = _team_m_clause('m')
+            inaktiv_reps = query(
+                f"""SELECT m.id, m.name, m.kuerzel
+                    FROM mitarbeiter m
+                    WHERE m.rolle = 'rep' {_t_sql}
+                    AND m.id NOT IN (
+                        SELECT DISTINCT mitarbeiter_id FROM aktivitaet
+                        WHERE datum >= ?
+                    )
+                    AND m.id NOT IN (
+                        SELECT abwesender_id FROM vertretung
+                        WHERE von <= ? AND bis >= ? AND status = 'bestätigt'
+                    )
+                    ORDER BY m.name""",
+                _t_p + (_mo_kw.isoformat(), _heute.isoformat(), _heute.isoformat())
+            )
 
     # Offene Urlaubsanträge (Manager: zum Bestätigen/Ablehnen direkt im Dashboard)
     urlaubsantraege = []
