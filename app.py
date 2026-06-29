@@ -1322,6 +1322,38 @@ def demo_daily_reset():
         _do_demo_daily_reset()
 
 
+def _demo_tagesplan_fortschritt():
+    """Markiert heutige Tagesplan-Einträge anteilig als erledigt — simuliert Tagesfortschritt."""
+    if not DEMO_MODUS:
+        return
+    from datetime import date, datetime
+    today  = date.today()
+    stunde = datetime.now().hour
+    if stunde >= 16:
+        anteil = 0.85
+    elif stunde >= 13:
+        anteil = 0.55
+    elif stunde >= 10:
+        anteil = 0.30
+    else:
+        return  # vor 10 Uhr nichts tun
+    db = get_db()
+    eintraege = db.execute(
+        "SELECT id FROM tagesplan WHERE datum=? AND erledigt=0 AND COALESCE(geloescht,0)=0 ORDER BY reihenfolge",
+        (today.isoformat(),)
+    ).fetchall()
+    n = int(len(eintraege) * anteil)
+    for row in eintraege[:n]:
+        db.execute("UPDATE tagesplan SET erledigt=1 WHERE id=?", (row['id'],))
+    db.commit()
+
+
+def demo_tagesplan_fortschritt():
+    """Wrapper für APScheduler."""
+    with app.app_context():
+        _demo_tagesplan_fortschritt()
+
+
 # ─── Auth ─────────────────────────────────────────────────────────────────────
 
 def login_required(f):
@@ -3300,7 +3332,8 @@ def admin_demo_cleanup():
     """Einmaliger Trigger: Demo-Pipeline bereinigen (alte Bestellungen schließen, vergangene Vertretungen löschen, neue anlegen)."""
     try:
         _demo_pipeline_cleanup()
-        flash('Demo-Cleanup erfolgreich: Pipeline bereinigt, Vertretungen aktualisiert.', 'success')
+        _demo_tagesplan_fortschritt()
+        flash('Demo-Cleanup erfolgreich: Pipeline bereinigt, Vertretungen aktualisiert, Tagesplan aktualisiert.', 'success')
     except Exception as e:
         flash(f'Fehler beim Cleanup: {e}', 'danger')
     return redirect(url_for('admin'))
@@ -5646,7 +5679,31 @@ def _demo_pipeline_cleanup():
                 (today.isoformat(), row['id'])
             )
 
-    # 2. Vergangene Vertretungen löschen; falsch gesetzte 'offen'-Einträge auf 'angefragt' korrigieren
+    # 2. Tagesplan: vergangene Tage als erledigt markieren; heute anteilig nach Uhrzeit
+    db.execute(
+        "UPDATE tagesplan SET erledigt=1 WHERE datum < ? AND erledigt=0 AND COALESCE(geloescht,0)=0",
+        (today.isoformat(),)
+    )
+    from datetime import datetime
+    stunde = datetime.now().hour
+    if stunde >= 15:
+        anteil = 0.8   # ab 15 Uhr: ~80% des Tages erledigt
+    elif stunde >= 12:
+        anteil = 0.5   # ab 12 Uhr: ~50%
+    elif stunde >= 10:
+        anteil = 0.3   # ab 10 Uhr: ~30%
+    else:
+        anteil = 0.0   # vor 10 Uhr: nichts
+    if anteil > 0:
+        heute_eintraege = db.execute(
+            "SELECT id FROM tagesplan WHERE datum=? AND erledigt=0 AND COALESCE(geloescht,0)=0 ORDER BY reihenfolge",
+            (today.isoformat(),)
+        ).fetchall()
+        n_erledigt = int(len(heute_eintraege) * anteil)
+        for row in heute_eintraege[:n_erledigt]:
+            db.execute("UPDATE tagesplan SET erledigt=1 WHERE id=?", (row['id'],))
+
+    # 3. Vergangene Vertretungen löschen; falsch gesetzte 'offen'-Einträge auf 'angefragt' korrigieren
     db.execute("DELETE FROM vertretung WHERE bis < ?", (today.isoformat(),))
     db.execute("UPDATE vertretung SET status='angefragt' WHERE status='offen' AND von > ?", (today.isoformat(),))
 
@@ -6755,10 +6812,16 @@ try:
                        id='auto_export',       replace_existing=True, timezone='Europe/Berlin')
     _scheduler.add_job(cleanup_alte_fotos,     'cron', day=1, hour=9, minute=0,
                        id='cleanup_fotos',     replace_existing=True, timezone='Europe/Berlin')
-    _scheduler.add_job(demo_daily_reset,       'cron', hour=3, minute=0,
-                       id='demo_reset',         replace_existing=True, timezone='Europe/Berlin')
+    _scheduler.add_job(demo_daily_reset,           'cron', hour=3,  minute=0,
+                       id='demo_reset',             replace_existing=True, timezone='Europe/Berlin')
+    _scheduler.add_job(demo_tagesplan_fortschritt, 'cron', hour=10, minute=0,
+                       id='demo_tp_10',             replace_existing=True, timezone='Europe/Berlin')
+    _scheduler.add_job(demo_tagesplan_fortschritt, 'cron', hour=13, minute=0,
+                       id='demo_tp_13',             replace_existing=True, timezone='Europe/Berlin')
+    _scheduler.add_job(demo_tagesplan_fortschritt, 'cron', hour=16, minute=0,
+                       id='demo_tp_16',             replace_existing=True, timezone='Europe/Berlin')
     _scheduler.start()
-    app.logger.info("Scheduler gestartet (Backup täglich, Wochenbericht Mo 07:00, Monatsbericht 1. 07:00, Export 1. 08:00, Foto-Cleanup 1. 09:00, Demo-Reset täglich 03:00)")
+    app.logger.info("Scheduler gestartet (Backup täglich, Wochenbericht Mo 07:00, Monatsbericht 1. 07:00, Export 1. 08:00, Foto-Cleanup 1. 09:00, Demo-Reset täglich 03:00, Tagesplan-Fortschritt 10/13/16 Uhr)")
 except ImportError:
     app.logger.warning("APScheduler nicht installiert – automatische Jobs deaktiviert.")
 
