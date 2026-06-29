@@ -576,6 +576,28 @@
   </div>
 </div>
 
+<!-- Demo-Cleanup -->
+<div class="row g-4 mt-2 mb-2">
+  <div class="col-12">
+    <div class="card border-warning">
+      <div class="card-header" style="background:linear-gradient(135deg,#856404,#f0a500);color:#fff">
+        <i class="bi bi-arrow-clockwise me-2"></i>Demo-Daten bereinigen
+      </div>
+      <div class="card-body">
+        <p class="small text-muted mb-3">
+          <i class="bi bi-info-circle me-1"></i>
+          Schließt alte offene Bestellungen (max. 2 pro Mitarbeiter offen), löscht vergangene Urlaubsanträge und legt neue zukünftige Vertretungen an.
+        </p>
+        <form method="POST" action="{{ url_for('admin_demo_cleanup') }}">
+          <button type="submit" class="btn btn-warning">
+            <i class="bi bi-arrow-clockwise me-2"></i>Demo jetzt bereinigen
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- System / Backup / E-Mail -->
 <div class="row g-4 mt-2">
 
