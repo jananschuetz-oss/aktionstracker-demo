@@ -5646,24 +5646,27 @@ def _demo_pipeline_cleanup():
                 (today.isoformat(), row['id'])
             )
 
-    # 2. Vergangene Vertretungen löschen
+    # 2. Vergangene Vertretungen löschen; falsch gesetzte 'offen'-Einträge auf 'angefragt' korrigieren
     db.execute("DELETE FROM vertretung WHERE bis < ?", (today.isoformat(),))
+    db.execute("UPDATE vertretung SET status='angefragt' WHERE status='offen' AND von > ?", (today.isoformat(),))
 
-    # 3. Zukünftige Vertretung pro Rep anlegen falls keine in nächsten 60 Tagen
-    for rep in reps:
+    # 3. Zukünftige Vertretungen pro Rep anlegen falls keine vorhanden:
+    #    - Erste 3 Reps → status='angefragt' (ausstehend, sichtbar für VKL zum Genehmigen)
+    #    - Restliche    → status='bestätigt' (bereits genehmigt, sichtbar in Übersicht)
+    for i, rep in enumerate(reps):
         existing = db.execute(
             "SELECT COUNT(*) FROM vertretung WHERE abwesender_id=? AND von > ?",
             (rep['id'], today.isoformat())
         ).fetchone()[0]
         if existing == 0:
-            # Zufälliger Urlaubszeitraum in den nächsten 14–45 Tagen
             start_offset = rnd.randint(14, 45)
             dauer        = rnd.randint(3, 5)
-            von = (today + timedelta(days=start_offset)).isoformat()
-            bis = (today + timedelta(days=start_offset + dauer)).isoformat()
+            von    = (today + timedelta(days=start_offset)).isoformat()
+            bis    = (today + timedelta(days=start_offset + dauer)).isoformat()
+            status = 'angefragt' if i < 3 else 'bestätigt'
             db.execute(
-                "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis, status) VALUES (?,NULL,?,?,'offen')",
-                (rep['id'], von, bis)
+                "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis, status) VALUES (?,NULL,?,?,?)",
+                (rep['id'], von, bis, status)
             )
 
     db.commit()
