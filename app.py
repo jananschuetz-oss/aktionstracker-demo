@@ -3293,6 +3293,18 @@ def export_excel():
 
 # ─── Routes: Admin ────────────────────────────────────────────────────────────
 
+@app.route('/admin/demo-cleanup', methods=['POST'])
+@admin_required
+def admin_demo_cleanup():
+    """Einmaliger Trigger: Demo-Pipeline bereinigen (alte Bestellungen schließen, vergangene Vertretungen löschen, neue anlegen)."""
+    try:
+        _demo_pipeline_cleanup()
+        flash('Demo-Cleanup erfolgreich: Pipeline bereinigt, Vertretungen aktualisiert.', 'success')
+    except Exception as e:
+        flash(f'Fehler beim Cleanup: {e}', 'danger')
+    return redirect(url_for('admin'))
+
+
 @app.route('/admin')
 @admin_required
 def admin():
@@ -5607,12 +5619,64 @@ def send_monatsbericht(force=False):
 
 # ─── Demo-Frischhaltung: jede Woche neue Aktivitäten ─────────────────────────
 
+def _demo_pipeline_cleanup():
+    """Bereinigt Demo-Daten: alte offene Bestellungen schließen, vergangene Vertretungen löschen,
+    zukünftige Vertretungen pro Rep anlegen. Läuft automatisch im Sunday-Job und per Admin-Trigger."""
+    import random as rnd
+    from datetime import date, timedelta
+
+    today = date.today()
+    db    = get_db()
+
+    reps = db.execute("SELECT id, name FROM mitarbeiter WHERE rolle='rep' AND aktiv=1").fetchall()
+
+    # 1. Alte offene Bestellungen schließen: pro Rep max 2 offen lassen, Rest → geliefert
+    for rep in reps:
+        offene = db.execute(
+            "SELECT id FROM aktivitaet WHERE aktionstyp='Bestellung' "
+            "AND COALESCE(bestell_status,'offen')='offen' AND mitarbeiter_id=? ORDER BY datum DESC",
+            (rep['id'],)
+        ).fetchall()
+        # Die 2 neuesten offen lassen, Rest schließen
+        zu_schliessen = offene[2:]
+        for row in zu_schliessen:
+            db.execute(
+                "UPDATE aktivitaet SET bestell_status='geliefert', realisiert_am=? WHERE id=?",
+                (today.isoformat(), row['id'])
+            )
+
+    # 2. Vergangene Vertretungen löschen
+    db.execute("DELETE FROM vertretung WHERE bis < ?", (today.isoformat(),))
+
+    # 3. Zukünftige Vertretung pro Rep anlegen falls keine in nächsten 60 Tagen
+    for rep in reps:
+        existing = db.execute(
+            "SELECT COUNT(*) FROM vertretung WHERE abwesender_id=? AND von > ?",
+            (rep['id'], today.isoformat())
+        ).fetchone()[0]
+        if existing == 0:
+            # Zufälliger Urlaubszeitraum in den nächsten 14–45 Tagen
+            start_offset = rnd.randint(14, 45)
+            dauer        = rnd.randint(3, 5)
+            von = (today + timedelta(days=start_offset)).isoformat()
+            bis = (today + timedelta(days=start_offset + dauer)).isoformat()
+            db.execute(
+                "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis, status) VALUES (?,NULL,?,?,'offen')",
+                (rep['id'], von, bis)
+            )
+
+    db.commit()
+    app.logger.info("Demo-Pipeline-Cleanup abgeschlossen.")
+
+
 def _do_demo_woche_nachfuellen(force=False):
     """Fügt der vergangenen Woche je 5 Aktivitäten pro Rep hinzu (Mix: Aufbau/Bestellung/Besuch).
     Läuft jeden Sonntag 23:30 – Daten sind bereit für den Montags-Wochenbericht.
     Idempotent: Falls die Woche bereits Einträge hat, wird nichts eingefügt (außer force=True)."""
     import random as rnd
     from datetime import date, timedelta
+
+    _demo_pipeline_cleanup()  # Erst aufräumen, dann neue Daten einfügen
 
     today       = date.today()
     letzter_mo  = today - timedelta(days=today.weekday() + 7)
