@@ -27,6 +27,7 @@
     <div class="card h-100">
       <div class="card-header"><i class="bi bi-people me-2"></i>Mitarbeiter</div>
       <div class="card-body p-0">
+        <div class="table-responsive">
         <table class="table table-sm table-striped mb-0">
           <thead>
             <tr><th>Name</th><th>Kürzel</th><th>Rolle</th><th>Team</th><th>E-Mail</th><th>VS</th><th></th></tr>
@@ -131,6 +132,7 @@
             {% endfor %}
           </tbody>
         </table>
+        </div>
       </div>
       <div class="card-footer bg-white">
         <button class="btn btn-primary btn-sm w-100" data-bs-toggle="modal" data-bs-target="#modalMitarbeiter">
@@ -145,7 +147,7 @@
     <div class="card h-100">
       <div class="card-header secondary"><i class="bi bi-shop me-2"></i>Verkaufsstellen</div>
       <div class="card-body p-0">
-        <div style="max-height:400px;overflow-y:auto">
+        <div style="max-height:400px;overflow-y:auto" class="table-responsive">
           <table class="table table-sm table-striped mb-0">
             <thead>
               <tr><th>Name</th><th>Ort</th><th>Typ</th><th></th></tr>
