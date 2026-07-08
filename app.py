@@ -2168,7 +2168,7 @@ def api_tagesplan_stopp_details(tp_id):
     if not is_manager and row['mitarbeiter_id'] != session['user_id']:
         return jsonify({'ok': False, 'error': 'Kein Zugriff'}), 403
     akt = query(
-        "SELECT id, COALESCE(aktionstyp,'Aufbau') AS aktionstyp, notizen, anzahl_displays FROM aktivitaet "
+        "SELECT id, COALESCE(aktionstyp,'Aufbau') AS aktionstyp, notizen, anzahl_displays, foto_pfad FROM aktivitaet "
         "WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? ORDER BY erstellt_am DESC LIMIT 1",
         (row['mitarbeiter_id'], row['verkaufsstelle_id'], row['datum']), one=True
     )
@@ -2191,6 +2191,7 @@ def api_tagesplan_stopp_details(tp_id):
         'anzahl_displays': akt['anzahl_displays'] or 0,
         'bestellungen': [{'name': b['name'], 'kisten': b['kisten_anzahl']} for b in bestellungen],
         'displays':     [{'name': d['name'], 'anzahl': d['anzahl']}        for d in displays],
+        'foto_pfad':    akt['foto_pfad'] or '',
     })
 
 

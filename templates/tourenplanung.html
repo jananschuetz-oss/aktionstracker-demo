@@ -375,6 +375,12 @@
         if (data.notizen) {
           html += '<div class="mt-1"><i class="bi bi-chat-left-text me-1" style="color:#6c757d"></i>' + data.notizen + '</div>';
         }
+        if (data.foto_pfad) {
+          html += '<div class="mt-2"><a href="/uploads/' + data.foto_pfad + '" target="_blank" title="Foto vergrößern">'
+                + '<img src="/uploads/' + data.foto_pfad + '" alt="Foto" '
+                + 'style="width:64px;height:64px;object-fit:cover;border-radius:.5rem;border:2px solid #2e6da4">'
+                + '</a></div>';
+        }
         if (!html) html = '<span class="text-muted" style="font-size:.8rem">Besuch erfasst – keine Bestellung/Notiz</span>';
         pane.innerHTML = html;
       })
