@@ -1232,50 +1232,12 @@ document.getElementById('modalVSEdit').addEventListener('show.bs.modal', functio
             </span>
           </div>
 
-          <!-- Checkbox-Liste -->
-          <div id="vsListe_{{ m.id }}"
+          <!-- Checkbox-Liste: wird erst beim Öffnen des Modals per Fetch nachgeladen (Performance) -->
+          <div id="vsListe_{{ m.id }}" data-ma-id="{{ m.id }}"
                style="max-height:380px;overflow-y:auto;border:1px solid #dee2e6;border-radius:.5rem;padding:.5rem">
-            {% set aktive_vs = verkaufsstellen | selectattr('aktiv') | list %}
-            {% if aktive_vs %}
-              {% for vs in aktive_vs %}
-              <div class="vs-item-{{ m.id }} d-flex align-items-center gap-2 py-1 px-2 rounded"
-                   style="transition:background .1s"
-                   onmouseover="this.style.background='#f0f4f8'"
-                   onmouseout="this.style.background=''">
-                <input class="form-check-input vs-cb-{{ m.id }} flex-shrink-0"
-                       type="checkbox"
-                       name="vs_ids"
-                       value="{{ vs.id }}"
-                       id="vs_{{ m.id }}_{{ vs.id }}"
-                       {% if vs.id in ma_zuordnung %}checked{% endif %}
-                       onchange="updateVsCount({{ m.id }})">
-                <label class="form-check-label w-100 small" for="vs_{{ m.id }}_{{ vs.id }}"
-                       style="cursor:pointer">
-                  <span class="fw-semibold" style="color:#1a3a5c">{{ vs.name }}</span>
-                  {% if vs.ort %}
-                  <span class="text-muted"> – {{ vs.ort }}</span>
-                  {% endif %}
-                  {% if vs.typ %}
-                  <span class="badge ms-1"
-                        style="font-size:.65rem;
-                               background:{% if vs.typ=='Gastronomie' %}#145a32{% elif vs.typ=='Einzelhandel' %}#4a235a{% elif vs.typ=='Getränkehandel' %}#c8860a{% else %}#6c757d{% endif %}">
-                    {{ vs.typ }}
-                  </span>
-                  {% endif %}
-                  {% set besitzer = vs_besitzer.get(vs.id) %}
-                  {% if besitzer and vs.id not in ma_zuordnung %}
-                  <span class="badge ms-1" style="font-size:.62rem;background:#6c757d" title="Bereits zugeordnet">
-                    <i class="bi bi-person-fill me-1"></i>{{ besitzer }}
-                  </span>
-                  {% endif %}
-                </label>
-              </div>
-              {% endfor %}
-            {% else %}
-              <p class="text-muted small text-center py-3 mb-0">
-                <i class="bi bi-inbox me-1"></i>Noch keine aktiven Verkaufsstellen vorhanden
-              </p>
-            {% endif %}
+            <p class="text-muted small text-center py-3 mb-0">
+              <i class="bi bi-hourglass-split me-1"></i>Lädt…
+            </p>
           </div>
 
           <div class="alert alert-info py-2 mt-3 mb-0" style="font-size:.82rem">
@@ -1416,5 +1378,59 @@ function updateVsCount(maId) {
   const el = document.getElementById('vsCount_' + maId);
   if (el) el.textContent = total + ' ausgewählt';
 }
+
+// Verkaufsstellen-Liste im Zuordnungs-Modal erst beim Öffnen laden (Performance:
+// verhindert, dass die Admin-Seite für JEDEN Mitarbeiter eine komplette Kopie
+// der Liste vorrendern muss)
+const TYP_FARBEN = { 'Gastronomie': '#145a32', 'Einzelhandel': '#4a235a', 'Getränkehandel': '#c8860a' };
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s == null ? '' : String(s);
+  return d.innerHTML;
+}
+document.querySelectorAll('[id^="modalZuordnung_"]').forEach(function(modalEl) {
+  modalEl.addEventListener('show.bs.modal', function() {
+    const maId = modalEl.id.replace('modalZuordnung_', '');
+    const container = document.getElementById('vsListe_' + maId);
+    if (!container || container.dataset.loaded) return;
+    fetch('/api/admin/mitarbeiter/' + maId + '/vs-liste')
+      .then(function(r) { return r.json(); })
+      .then(function(liste) {
+        container.dataset.loaded = '1';
+        if (!liste.length) {
+          container.innerHTML = '<p class="text-muted small text-center py-3 mb-0">'
+            + '<i class="bi bi-inbox me-1"></i>Noch keine aktiven Verkaufsstellen vorhanden</p>';
+          return;
+        }
+        const html = liste.map(function(vs) {
+          let extra = '';
+          if (vs.ort) {
+            extra += '<span class="text-muted"> – ' + escHtml(vs.ort) + '</span>';
+          }
+          if (vs.typ) {
+            const farbe = TYP_FARBEN[vs.typ] || '#6c757d';
+            extra += '<span class="badge ms-1" style="font-size:.65rem;background:' + farbe + '">' + escHtml(vs.typ) + '</span>';
+          }
+          if (vs.besitzer && !vs.zugeordnet) {
+            extra += '<span class="badge ms-1" style="font-size:.62rem;background:#6c757d" title="Bereits zugeordnet">'
+              + '<i class="bi bi-person-fill me-1"></i>' + escHtml(vs.besitzer) + '</span>';
+          }
+          return '<div class="vs-item-' + maId + ' d-flex align-items-center gap-2 py-1 px-2 rounded" '
+            + 'style="transition:background .1s" onmouseover="this.style.background=\'#f0f4f8\'" onmouseout="this.style.background=\'\'">'
+            + '<input class="form-check-input vs-cb-' + maId + ' flex-shrink-0" type="checkbox" name="vs_ids" '
+            + 'value="' + vs.id + '" id="vs_' + maId + '_' + vs.id + '" ' + (vs.zugeordnet ? 'checked ' : '')
+            + 'onchange="updateVsCount(' + maId + ')">'
+            + '<label class="form-check-label w-100 small" for="vs_' + maId + '_' + vs.id + '" style="cursor:pointer">'
+            + '<span class="fw-semibold" style="color:#1a3a5c">' + escHtml(vs.name) + '</span>' + extra
+            + '</label></div>';
+        }).join('');
+        container.innerHTML = html;
+        updateVsCount(maId);
+      })
+      .catch(function() {
+        container.innerHTML = '<p class="text-danger small text-center py-3 mb-0">Fehler beim Laden</p>';
+      });
+  });
+});
 </script>
 {% endblock %}

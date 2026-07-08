@@ -3482,6 +3482,32 @@ def admin_mitarbeiter_name(ma_id):
     return redirect(url_for('admin'))
 
 
+@app.route('/api/admin/mitarbeiter/<int:ma_id>/vs-liste')
+@admin_required
+def api_admin_mitarbeiter_vs_liste(ma_id):
+    """Liste aller aktiven Verkaufsstellen fürs Zuordnungs-Modal – lazy per Fetch geladen,
+    damit die Admin-Seite nicht für jeden Mitarbeiter eine komplette Kopie der Liste
+    vorrendern muss (Performance-Fix 2026-07-09)."""
+    zugeordnet_ids = {
+        r['verkaufsstelle_id'] for r in query(
+            "SELECT verkaufsstelle_id FROM mitarbeiter_verkaufsstelle WHERE mitarbeiter_id=?", (ma_id,)
+        )
+    }
+    besitzer_rows = query('''
+        SELECT mv.verkaufsstelle_id, m.name AS besitzer
+        FROM mitarbeiter_verkaufsstelle mv
+        JOIN mitarbeiter m ON m.id = mv.mitarbeiter_id
+        WHERE mv.mitarbeiter_id != ?
+    ''', (ma_id,))
+    besitzer_map = {r['verkaufsstelle_id']: r['besitzer'] for r in besitzer_rows}
+    vs_rows = query("SELECT id, name, ort, typ FROM verkaufsstelle WHERE aktiv=1 ORDER BY name")
+    return jsonify([{
+        'id': v['id'], 'name': v['name'], 'ort': v['ort'], 'typ': v['typ'],
+        'zugeordnet': v['id'] in zugeordnet_ids,
+        'besitzer': besitzer_map.get(v['id']),
+    } for v in vs_rows])
+
+
 @app.route('/admin/mitarbeiter/<int:ma_id>/zuordnung', methods=['POST'])
 @admin_required
 def admin_mitarbeiter_zuordnung(ma_id):
