@@ -29,11 +29,11 @@
   <p class="mb-2">
     {% if is_manager and ma_filter %}
       {% for m in alle_ma %}{% if m.id|string == ma_filter %}Ansicht: {{ m.name }}{% endif %}{% endfor %}
-    {% elif is_manager %}Gesamtübersicht aller Außendienstmitarbeiter
-    {% else %}Meine Übersicht – {{ session.name }}{% endif %}
+    {% elif zeige_eigene_ansicht %}Meine Übersicht – {{ session.name }}
+    {% else %}Gesamtübersicht aller Außendienstmitarbeiter{% endif %}
     &nbsp;|&nbsp; Jahr {{ jahr }}
   </p>
-  {% if not is_manager and heute_stats %}
+  {% if zeige_eigene_ansicht and heute_stats %}
   <p class="mb-2" style="font-size:.88rem;color:rgba(255,255,255,.85)">
     <i class="bi bi-sun me-1" style="color:#f5a623"></i>Heute:
     <strong>{{ heute_stats.besuche or 0 }}</strong> Besuche
@@ -71,7 +71,7 @@
 </div>
 
 <!-- KPI Karten -->
-{% if not is_manager %}
+{% if zeige_eigene_ansicht %}
 <!-- REP: Monat kompakt -->
 <div class="mb-3">
   <div class="d-flex flex-wrap align-items-center gap-3 px-3 py-2 rounded-3"
@@ -575,7 +575,7 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
       <thead>
         <tr>
           <th>Datum</th>
-          {% if is_manager %}<th>Mitarbeiter</th>{% endif %}
+          {% if not zeige_eigene_ansicht %}<th>Mitarbeiter</th>{% endif %}
           <th>Verkaufsstelle</th>
           <th class="text-center">Displays</th>
           <th class="text-center">{{ unit_label }}</th>
@@ -588,7 +588,7 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
             <span class="badge-kw d-none d-sm-inline" style="font-size:.7rem">KW {{ a.datum|isoweek }}</span>
             {{ a.datum[8:10] }}.{{ a.datum[5:7] }}.{{ a.datum[2:4] }}
           </td>
-          {% if is_manager %}<td><small>{{ a.mitarbeiter }}</small></td>{% endif %}
+          {% if not zeige_eigene_ansicht %}<td><small>{{ a.mitarbeiter }}</small></td>{% endif %}
           <td>{{ a.verkaufsstelle }}</td>
           <td class="text-center">{{ a.anzahl_displays }}</td>
           <td class="text-center fw-bold" style="color:#c8860a">{{ a.kisten }}</td>
@@ -602,7 +602,7 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
   </div>
 </div>
 
-{% if not is_manager and touren_modus != 'aus' %}
+{% if zeige_eigene_ansicht and touren_modus != 'aus' %}
 </div>{# /tab-pane #tab-uebersicht #}
 
 <!-- ── TAB 2: TAGESPLAN ── -->
@@ -1591,7 +1591,7 @@ if (bierData.length > 0) {
 {% endif %}
 </script>
 
-{% if not is_manager and touren_modus != 'aus' %}
+{% if zeige_eigene_ansicht and touren_modus != 'aus' %}
 <script>
 // Tab aus URL-Hash aktivieren (z.B. nach Stop hinzufügen)
 (function () {

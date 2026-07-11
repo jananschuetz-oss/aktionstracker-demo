@@ -701,7 +701,7 @@
 {% endif %}
 {% block scripts %}{% endblock %}
 
-{% if session.user_id and session.karte_benachrichtigung %}
+{% if session.user_id and karte_benachrichtigung %}
 <!-- Karte-Benachrichtigung Modal -->
 <div class="modal fade" id="modalKarteBenachrichtigung" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
   <div class="modal-dialog modal-dialog-centered">
@@ -711,7 +711,7 @@
       </div>
       <div class="modal-body">
         <p class="small text-muted mb-2">Folgende Änderungen wurden an Ihrem Verkaufsgebiet vorgenommen:</p>
-        <div class="alert alert-info py-2 px-3 mb-0" style="font-size:.85rem;white-space:pre-line">{{ session.karte_benachrichtigung }}</div>
+        <div class="alert alert-info py-2 px-3 mb-0" style="font-size:.85rem;white-space:pre-line">{{ karte_benachrichtigung }}</div>
       </div>
       <div class="modal-footer py-2">
         <button type="button" class="btn btn-primary btn-sm" id="btnKarteBenachrichtigungOk">

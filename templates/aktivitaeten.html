@@ -266,7 +266,7 @@
           <!-- Foto-Vorschau -->
           {% if a.foto_pfad %}
           <div class="col-auto">
-            <a href="/uploads/{{ a.foto_pfad }}" target="_blank" title="Foto vergrößern">
+            <a href="#" class="akt-foto-oeffnen" data-foto="/uploads/{{ a.foto_pfad }}" title="Foto vergrößern">
               <img src="/uploads/{{ a.foto_pfad }}"
                    alt="Foto"
                    style="width:56px;height:56px;object-fit:cover;border-radius:.5rem;
@@ -388,6 +388,20 @@
   </a>
 </div>
 {% endif %}
+
+<!-- Foto-Vorschau Modal -->
+<div class="modal fade" id="modalAktFoto" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content" style="background:transparent;border:none">
+      <div class="modal-header border-0">
+        <button type="button" class="btn-close btn-close-white ms-auto" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center p-0">
+        <img id="aktFotoGross" src="" alt="Foto" style="max-width:100%;max-height:80vh;border-radius:.5rem">
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -531,4 +545,13 @@ function toggleEditFields() {
 }
 </script>
 {% endif %}
+<script>
+document.addEventListener('click', function(e) {
+  const link = e.target.closest('.akt-foto-oeffnen');
+  if (!link) return;
+  e.preventDefault();
+  document.getElementById('aktFotoGross').src = link.dataset.foto;
+  new bootstrap.Modal(document.getElementById('modalAktFoto')).show();
+});
+</script>
 {% endblock %}

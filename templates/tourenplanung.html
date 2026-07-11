@@ -19,7 +19,76 @@
      class="btn btn-sm {{ 'btn-primary' if modus == 'woche' else 'btn-outline-secondary' }}">
     <i class="bi bi-calendar-week me-1"></i>Wochenansicht
   </a>
+  <button type="button" class="btn btn-sm btn-outline-primary ms-auto" data-bs-toggle="modal" data-bs-target="#modalNeuerStopp">
+    <i class="bi bi-plus-lg me-1"></i>Neuer Stopp
+  </button>
 </div>
+
+<!-- Neuer Stopp: für sich selbst oder Teammitglieder (VKL/Admin) -->
+<div class="modal fade" id="modalNeuerStopp" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('tourenplanung_neu') }}">
+        <div class="modal-header" style="background:#1a3a5c;color:white">
+          <h6 class="modal-title"><i class="bi bi-plus-lg me-2"></i>Neuer Besuchsplan-Stopp</h6>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label small fw-bold">Mitarbeiter</label>
+            <select name="mitarbeiter_id" id="npMitarbeiter" class="form-select" required>
+              {% for rep in reps %}
+              <option value="{{ rep.id }}" {% if rep.id == session.user_id %}selected{% endif %}>{{ rep.name }} ({{ rep.kuerzel }})</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-bold">Datum</label>
+            <input type="date" name="datum" id="npDatum" class="form-control" value="{{ datum if modus == 'tag' else today_str }}" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-bold">Verkaufsstelle(n)</label>
+            <select name="verkaufsstelle_id" id="npVerkaufsstellen" class="form-select" multiple size="8" required>
+              <option disabled>Lade…</option>
+            </select>
+            <div class="form-text">Mehrfachauswahl mit Strg/Cmd + Klick möglich.</div>
+          </div>
+          <div class="mb-1">
+            <label class="form-label small fw-bold">Notiz (optional)</label>
+            <input type="text" name="notiz" class="form-control" placeholder="z.B. Nachmittags, vorab anrufen">
+          </div>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-check me-1"></i>Hinzufügen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var sel = document.getElementById('npMitarbeiter');
+  var vsSel = document.getElementById('npVerkaufsstellen');
+  function ladeVerkaufsstellen(){
+    var maId = sel.value;
+    vsSel.innerHTML = '<option disabled>Lade…</option>';
+    fetch('/api/tourenplanung/mitarbeiter/' + maId + '/verkaufsstellen')
+      .then(function(r){ return r.json(); })
+      .then(function(list){
+        vsSel.innerHTML = '';
+        list.forEach(function(v){
+          var opt = document.createElement('option');
+          opt.value = v.id;
+          opt.textContent = v.name + (v.plz || v.ort ? ' – ' + (v.plz || '') + ' ' + (v.ort || '') : '');
+          vsSel.appendChild(opt);
+        });
+      });
+  }
+  sel.addEventListener('change', ladeVerkaufsstellen);
+  document.getElementById('modalNeuerStopp').addEventListener('show.bs.modal', ladeVerkaufsstellen);
+})();
+</script>
 
 {# ══════════════════════════════ TAG-MODUS ══════════════════════════════ #}
 {% if modus == 'tag' %}
@@ -336,6 +405,20 @@
 
 {% endif %}
 
+<!-- Foto-Vorschau Modal -->
+<div class="modal fade" id="modalTpFoto" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content" style="background:transparent;border:none">
+      <div class="modal-header border-0">
+        <button type="button" class="btn-close btn-close-white ms-auto" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center p-0">
+        <img id="tpFotoGross" src="" alt="Foto" style="max-width:100%;max-height:80vh;border-radius:.5rem">
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 (function() {
   function tpDetailHandler(e) {
@@ -376,7 +459,7 @@
           html += '<div class="mt-1"><i class="bi bi-chat-left-text me-1" style="color:#6c757d"></i>' + data.notizen + '</div>';
         }
         if (data.foto_pfad) {
-          html += '<div class="mt-2"><a href="/uploads/' + data.foto_pfad + '" target="_blank" title="Foto vergrößern">'
+          html += '<div class="mt-2"><a href="#" class="tp-foto-oeffnen" data-foto="/uploads/' + data.foto_pfad + '" title="Foto vergrößern">'
                 + '<img src="/uploads/' + data.foto_pfad + '" alt="Foto" '
                 + 'style="width:64px;height:64px;object-fit:cover;border-radius:.5rem;border:2px solid #2e6da4">'
                 + '</a></div>';
@@ -386,7 +469,16 @@
       })
       .catch(function() { pane.innerHTML = '<span class="text-danger">Fehler beim Laden</span>'; });
   }
-  document.addEventListener('click', tpDetailHandler);
+  document.addEventListener('click', function(e) {
+    var link = e.target.closest('.tp-foto-oeffnen');
+    if (link) {
+      e.preventDefault();
+      document.getElementById('tpFotoGross').src = link.dataset.foto;
+      new bootstrap.Modal(document.getElementById('modalTpFoto')).show();
+      return;
+    }
+    tpDetailHandler(e);
+  });
 })();
 </script>
 

@@ -603,6 +603,29 @@
 <!-- System / Backup / E-Mail -->
 <div class="row g-4 mt-2">
 
+  <!-- Massen-Reset: Passwort für alle Mitarbeiter -->
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header" style="background:linear-gradient(135deg,#a93226,#e74c3c)">
+        <i class="bi bi-key me-2"></i>Passwort für alle Mitarbeiter zurücksetzen
+      </div>
+      <div class="card-body">
+        <p class="small text-muted mb-3">
+          <i class="bi bi-info-circle me-1"></i>
+          Setzt bei <strong>allen</strong> Mitarbeitern das Passwort auf das Standard-Passwort
+          (<code>{{ default_password }}</code>) zurück und erzwingt beim nächsten Login die
+          Festlegung eines eigenen Passworts. Praktisch beim Onboarding neuer Teams.
+        </p>
+        <form method="post" action="{{ url_for('admin_mitarbeiter_passwort_alle_zuruecksetzen') }}"
+              onsubmit="return confirm('Passwort für ALLE Mitarbeiter auf das Standard-Passwort zurücksetzen und Passwort-Wechsel erzwingen?')">
+          <button type="submit" class="btn btn-outline-danger w-100">
+            <i class="bi bi-key me-2"></i>Jetzt für alle zurücksetzen
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <!-- Datenbank-Backup -->
   <div class="col-md-6">
     <div class="card">
@@ -1337,6 +1360,12 @@ document.getElementById('modalVSEdit').addEventListener('show.bs.modal', functio
           <input type="text" name="passwort" class="form-control" required minlength="4"
                  placeholder="Mindestens 4 Zeichen" autocomplete="new-password">
           <div class="form-text">Das Passwort wird sofort geändert (kein E-Mail-Versand).</div>
+          <div class="form-check mt-2">
+            <input class="form-check-input" type="checkbox" name="muss_passwort_aendern" value="1" id="mussPwAendern_{{ m.id }}">
+            <label class="form-check-label small" for="mussPwAendern_{{ m.id }}">
+              Mitarbeiter muss bei der nächsten Anmeldung ein eigenes Passwort festlegen
+            </label>
+          </div>
         </div>
         <div class="modal-footer py-2">
           <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Abbrechen</button>

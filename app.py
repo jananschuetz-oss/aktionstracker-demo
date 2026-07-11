@@ -33,6 +33,12 @@ import re
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'aktionstracker_geheim_xK9m')
 
+# Flask setzt den Logger in Produktion (debug=False) standardmäßig auf WARNING – dadurch
+# wären sämtliche app.logger.info()-Meldungen (Wochenbericht/Monatsbericht/Export-Status
+# usw.) in den Railway-Logs unsichtbar. Explizit auf INFO heben.
+import logging as _logging
+app.logger.setLevel(_logging.INFO)
+
 # ── Session-Sicherheit ────────────────────────────────────────────────────────
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=8)
 app.config['SESSION_COOKIE_HTTPONLY']    = True
@@ -134,9 +140,12 @@ def inject_now():
         'alle_kollegen':      [],
         'offene_urlaubsantraege': 0,
         'mein_email': '',
+        'karte_benachrichtigung': None,
     }
     if session.get('user_id'):
         try:
+            _benachr = query("SELECT karte_benachrichtigung FROM mitarbeiter WHERE id=?", (session['user_id'],), one=True)
+            ctx['karte_benachrichtigung'] = (_benachr['karte_benachrichtigung'] if _benachr else None)
             ctx['meine_vertretungen'] = query(
                 '''SELECT v.id, v.von, v.bis, v.status, m.name AS vertreter_name
                    FROM vertretung v
@@ -1458,7 +1467,7 @@ def login():
 
     if request.method == 'POST':
         email_input = request.form.get('email', '').strip()
-        passwort    = request.form.get('passwort', '')
+        passwort    = request.form.get('passwort', '').strip()
 
         # ADMIN-Direktlogin: Passwort aus ENV, DB-unabhängig
         _admin_pw = ADMIN_PASSWORD.strip()
@@ -1490,10 +1499,9 @@ def login():
             session['rolle']   = user['rolle']
             session['team_id'] = user['team_id'] if 'team_id' in user.keys() else None
             session['muss_passwort_aendern'] = bool(user['muss_passwort_aendern'] if 'muss_passwort_aendern' in user.keys() else 0)
-            # Karte-Benachrichtigungen in Session laden (für Login-Notification)
-            benachrichtigung = user['karte_benachrichtigung'] if 'karte_benachrichtigung' in user.keys() else None
-            if benachrichtigung:
-                session['karte_benachrichtigung'] = benachrichtigung
+            # Karte-Benachrichtigungen werden NICHT in die Session geschrieben (kann beliebig groß
+            # werden und sprengt sonst die Session-Cookie über das 4KB-Browser-Limit – die
+            # Anzeige erfolgt stattdessen live aus der DB via context_processor, siehe inject_now()).
             if session['muss_passwort_aendern']:
                 return redirect(url_for('erstes_passwort'))
             return redirect(url_for('dashboard'))
@@ -1667,6 +1675,9 @@ def dashboard():
     is_admin  = session.get('rolle') == 'admin'
     is_manager = session.get('rolle') in ('admin', 'verkaufsleiter')
     ma_filter = request.args.get('ma', '', type=str)
+    # VKL mit eigenem Gebiet sehen standardmäßig ihre eigene (Mitarbeiter-)Ansicht,
+    # solange sie nicht per Dropdown gezielt einen anderen Mitarbeiter ansehen (ma_filter gesetzt).
+    zeige_eigene_ansicht = (not is_admin) and (not ma_filter)
     ma_clause = "AND a.mitarbeiter_id = ?" if ma_filter else ""
     ma_params = (ma_filter,) if ma_filter else ()
 
@@ -1792,7 +1803,7 @@ def dashboard():
         ''', (str(jahr),) + t_m_p)
 
     # Letzte Aktivitäten
-    if is_manager:
+    if not zeige_eigene_ansicht:
         letzte = query(f'''
             SELECT a.id, a.datum, m.name AS mitarbeiter, v.name AS verkaufsstelle,
                    a.anzahl_displays, COALESCE(SUM(b.kisten_anzahl), 0) AS kisten
@@ -1897,7 +1908,8 @@ def dashboard():
     _monat_namen = ['Januar','Februar','März','April','Mai','Juni',
                     'Juli','August','September','Oktober','November','Dezember']
     monat_name = _monat_namen[date.today().month - 1]
-    if not is_manager:
+    # Persönliche Tages-/Wochen-/Monatszahlen: eigene Ansicht (Rep, oder VKL ohne ma_filter)
+    if zeige_eigene_ansicht:
         _uid = (session['user_id'],)
         heute_stats = query(f'''
             SELECT {DISP_IST} AS displays, {KIST_IST} AS kisten, COUNT(a.id) AS besuche
@@ -1943,7 +1955,8 @@ def dashboard():
     tp_prev_woche    = (tp_woche_montag - timedelta(days=7)).isoformat()
     tp_next_woche    = (tp_woche_montag + timedelta(days=7)).isoformat()
     datum_woche_rep  = [(tp_woche_montag + timedelta(days=i)).isoformat() for i in range(7)]
-    if not is_manager:
+    # Eigener Besuchsplan: eigene Ansicht (Rep, oder VKL ohne ma_filter)
+    if zeige_eigene_ansicht:
         tagesplan_rep = query('''
             SELECT tp.id, tp.datum, tp.reihenfolge, tp.notiz, tp.erledigt,
                    v.name AS station, v.strasse, v.plz, v.ort, v.id AS vs_id
@@ -1983,6 +1996,7 @@ def dashboard():
         bier_kist=json.dumps(bier_kist),
         is_admin=is_admin,
         is_manager=is_manager,
+        zeige_eigene_ansicht=zeige_eigene_ansicht,
         ma_filter=ma_filter,
         alle_ma=alle_ma,
         vorgemerkt=vorgemerkt,
@@ -2013,6 +2027,24 @@ def dashboard():
 
 
 # ─── Tourenplanung ───────────────────────────────────────────────────────────
+
+@app.route('/api/tourenplanung/mitarbeiter/<int:ma_id>/verkaufsstellen')
+@manager_required
+def api_tourenplanung_mitarbeiter_verkaufsstellen(ma_id):
+    """Verkaufsstellen eines Mitarbeiters für das 'Neuer Stopp'-Formular auf der
+    Tourenplanung-Seite (gleiche Logik wie das Rep-Selbstservice-Widget im
+    Dashboard, nur für VKL/Admin nutzbar zur Planung für sich selbst oder das Team)."""
+    assigned = query(
+        "SELECT verkaufsstelle_id FROM mitarbeiter_verkaufsstelle WHERE mitarbeiter_id=?", (ma_id,)
+    )
+    vs_ids = [r['verkaufsstelle_id'] for r in assigned] if assigned else []
+    if vs_ids:
+        ph = ','.join('?' * len(vs_ids))
+        vs_rows = query(f"SELECT id, name, plz, ort FROM verkaufsstelle WHERE aktiv=1 AND id IN ({ph}) ORDER BY name", vs_ids)
+    else:
+        vs_rows = query("SELECT id, name, plz, ort FROM verkaufsstelle WHERE aktiv=1 ORDER BY name")
+    return jsonify([{'id': v['id'], 'name': v['name'], 'plz': v['plz'], 'ort': v['ort']} for v in vs_rows])
+
 
 @app.route('/tourenplanung')
 @login_required
@@ -2114,9 +2146,12 @@ def tourenplanung_neu():
     # Reps dürfen nur für sich selbst planen
     if is_rep and ma_id != session['user_id']:
         abort(403)
+    # VKL/Admin, die für sich SELBST planen (eigene Dashboard-Ansicht), landen wie
+    # ein Mitarbeiter zurück im Dashboard statt auf der Team-Tourenplanung-Seite.
+    eigene_planung = ma_id == session['user_id'] and session.get('rolle') != 'admin'
     if not ma_id or not vs_ids or not datum:
         flash('Bitte alle Pflichtfelder ausfüllen.', 'warning')
-        if is_manager:
+        if is_manager and not eigene_planung:
             return redirect(url_for('tourenplanung', datum=datum))
         return redirect(url_for('dashboard'))
     for vs_id in vs_ids:
@@ -2128,7 +2163,7 @@ def tourenplanung_neu():
             "INSERT INTO tagesplan (mitarbeiter_id, verkaufsstelle_id, datum, reihenfolge, notiz, erstellt_von) VALUES (?,?,?,?,?,?)",
             (ma_id, int(vs_id), datum, max_r + 1, notiz or None, session['user_id'])
         )
-    if is_manager:
+    if is_manager and not eigene_planung:
         return redirect(url_for('tourenplanung', datum=datum, ma=ma_id))
     return redirect(url_for('dashboard') + '#tab-tagesplan-btn')
 
@@ -3593,9 +3628,26 @@ def admin_mitarbeiter_passwort(ma_id):
     if len(neues_pw) < 4:
         flash('Passwort muss mindestens 4 Zeichen haben.', 'danger')
         return redirect(redirect_target)
-    execute("UPDATE mitarbeiter SET passwort=? WHERE id=?", (neues_pw, ma_id))
-    flash(f'Passwort für „{ma["name"]}" wurde geändert.', 'success')
+    muss_aendern = 1 if request.form.get('muss_passwort_aendern') else 0
+    execute("UPDATE mitarbeiter SET passwort=?, muss_passwort_aendern=? WHERE id=?", (neues_pw, muss_aendern, ma_id))
+    if muss_aendern:
+        flash(f'Passwort für „{ma["name"]}" wurde geändert – er/sie muss bei der nächsten Anmeldung ein eigenes Passwort festlegen.', 'success')
+    else:
+        flash(f'Passwort für „{ma["name"]}" wurde geändert.', 'success')
     return redirect(redirect_target)
+
+
+@app.route('/admin/mitarbeiter/passwort-alle-zuruecksetzen', methods=['POST'])
+@admin_required
+def admin_mitarbeiter_passwort_alle_zuruecksetzen():
+    """Massen-Aktion (z.B. beim Kunden-Onboarding): Setzt bei allen Mitarbeitern das
+    Passwort auf das Standard-Passwort zurück und erzwingt beim nächsten Login die
+    Festlegung eines eigenen Passworts."""
+    rows = query("SELECT id, name FROM mitarbeiter WHERE UPPER(kuerzel) NOT IN ('ADMIN', 'DEMO')")
+    for r in rows:
+        execute("UPDATE mitarbeiter SET passwort=?, muss_passwort_aendern=1 WHERE id=?", (DEFAULT_PASSWORD, r['id']))
+    flash(f'Passwort für {len(rows)} Mitarbeiter auf das Standard-Passwort zurückgesetzt – Passwort-Wechsel beim nächsten Login erzwungen.', 'success')
+    return redirect(url_for('admin'))
 
 
 @app.route('/admin/team/neu', methods=['POST'])
