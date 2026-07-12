@@ -2506,7 +2506,7 @@ def bestellungen_uebersicht():
     t_sql, t_p = _team_ma_clause('a')
     base = f"FROM aktivitaet a WHERE a.aktionstyp='Bestellung'{t_sql}"
 
-    offen, aufgebaut, storniert, _ = _bestell_kennzahlen()
+    offen, aufgebaut, storniert, ueberfaellig_gesamt = _bestell_kennzahlen()
     gesamt = offen + aufgebaut + storniert
     quote  = round(aufgebaut / gesamt * 100) if gesamt else 0
 
@@ -2523,21 +2523,21 @@ def bestellungen_uebersicht():
 
     rows = query(f'''
         SELECT a.id, a.datum, v.name AS station, m.name AS rep, a.anzahl_displays,
-               CAST(julianday('now') - julianday(a.datum) AS INTEGER) AS tage
+               CAST(julianday('now') - julianday(a.datum) AS INTEGER) AS tage,
+               COALESCE((SELECT SUM(kisten_anzahl) FROM bestellposition WHERE aktivitaet_id=a.id),0) AS kisten
         FROM aktivitaet a
         JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id
         JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
         WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen'
           AND julianday('now') - julianday(a.datum) > 28{t_sql}
         ORDER BY tage DESC
+        LIMIT 200
     ''', t_p)
     ueberfaellig = []
     for u in rows:
-        k = query("SELECT COALESCE(SUM(kisten_anzahl),0) AS s FROM bestellposition WHERE aktivitaet_id=?",
-                  (u['id'],), one=True)['s']
         teile = []
         if u['anzahl_displays']: teile.append(f"{u['anzahl_displays']} Displays")
-        if k: teile.append(f"{k} {UNIT_LABEL}")
+        if u['kisten']: teile.append(f"{u['kisten']} {UNIT_LABEL}")
         ueberfaellig.append({'station': u['station'], 'rep': u['rep'], 'tage': u['tage'],
                              'menge': ' · '.join(teile) if teile else '–'})
 
@@ -2555,6 +2555,7 @@ def bestellungen_uebersicht():
         JOIN mitarbeiter m ON m.id=a.mitarbeiter_id
         WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen'{t_sql}
         ORDER BY a.datum ASC
+        LIMIT 200
     ''', t_p)
     liste_offen = [{'id': r['id'], 'datum': r['datum'], 'station': r['station'],
                     'rep': r['rep'], 'tage': r['tage'],
@@ -2569,6 +2570,7 @@ def bestellungen_uebersicht():
         JOIN mitarbeiter m ON m.id=a.mitarbeiter_id
         WHERE a.aktionstyp='Bestellung' AND a.bestell_status='aufgebaut'{t_sql}
         ORDER BY a.realisiert_am DESC
+        LIMIT 200
     ''', t_p)
     liste_aufgebaut = [{'id': r['id'], 'datum': r['datum'], 'realisiert_am': r['realisiert_am'],
                         'station': r['station'], 'rep': r['rep'],
@@ -2583,6 +2585,7 @@ def bestellungen_uebersicht():
         JOIN mitarbeiter m ON m.id=a.mitarbeiter_id
         WHERE a.aktionstyp='Bestellung' AND a.bestell_status='storniert'{t_sql}
         ORDER BY a.datum DESC
+        LIMIT 200
     ''', t_p)
     liste_storniert = [{'id': r['id'], 'datum': r['datum'], 'station': r['station'],
                         'rep': r['rep'], 'storno_grund': r['storno_grund'],
@@ -2591,7 +2594,7 @@ def bestellungen_uebersicht():
     return render_template('bestellungen.html',
         offen=offen, aufgebaut=aufgebaut, storniert=storniert, gesamt=gesamt,
         quote=quote, durchlauf=durchlauf, gruende=gruende, storno_max=storno_max,
-        ueberfaellig=ueberfaellig,
+        ueberfaellig=ueberfaellig, ueberfaellig_gesamt=ueberfaellig_gesamt,
         liste_offen=liste_offen, liste_aufgebaut=liste_aufgebaut,
         liste_storniert=liste_storniert)
 

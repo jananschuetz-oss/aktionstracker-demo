@@ -73,6 +73,11 @@
     <!-- Offen-Liste -->
     <div id="tbl_offen" style="display:none">
       {% if liste_offen %}
+      {% if offen > liste_offen|length %}
+      <div class="alert alert-secondary mb-0 rounded-0 py-2 small">
+        Zeigt die {{ liste_offen|length }} ältesten von {{ offen }} offenen Bestellungen.
+      </div>
+      {% endif %}
       <div class="table-responsive">
       <table class="table table-hover mb-0">
         <thead class="table-light">
@@ -128,6 +133,11 @@
     <!-- Aufgebaut-Liste -->
     <div id="tbl_aufgebaut" style="display:none">
       {% if liste_aufgebaut %}
+      {% if aufgebaut > liste_aufgebaut|length %}
+      <div class="alert alert-secondary mb-0 rounded-0 py-2 small">
+        Zeigt die {{ liste_aufgebaut|length }} neuesten von {{ aufgebaut }} aufgebauten Bestellungen.
+      </div>
+      {% endif %}
       <div class="table-responsive">
       <table class="table table-hover mb-0">
         <thead class="table-light">
@@ -173,6 +183,11 @@
     <!-- Storniert-Liste -->
     <div id="tbl_storniert" style="display:none">
       {% if liste_storniert %}
+      {% if storniert > liste_storniert|length %}
+      <div class="alert alert-secondary mb-0 rounded-0 py-2 small">
+        Zeigt die {{ liste_storniert|length }} neuesten von {{ storniert }} stornierten Bestellungen.
+      </div>
+      {% endif %}
       <div class="table-responsive">
       <table class="table table-hover mb-0">
         <thead class="table-light">
@@ -252,6 +267,11 @@
       </div>
       <div class="card-body p-0">
         {% if ueberfaellig %}
+        {% if ueberfaellig_gesamt > ueberfaellig|length %}
+        <div class="alert alert-secondary mb-0 rounded-0 py-2 small">
+          Zeigt die {{ ueberfaellig|length }} längsten von {{ ueberfaellig_gesamt }} überfälligen Bestellungen.
+        </div>
+        {% endif %}
         <table class="table table-hover mb-0">
           <thead class="table-light">
             <tr>
