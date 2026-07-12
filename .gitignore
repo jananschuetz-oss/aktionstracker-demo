@@ -26,3 +26,7 @@ static/logoarco.png
 .claude/
 .vscode/
 .idea/
+
+# Pflichttest (Browser)
+_pflichttest_shots/
+_pflichttest_server.log

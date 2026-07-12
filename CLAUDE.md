@@ -123,6 +123,8 @@ curl -so /dev/null -w "Dashboard (rep):         %{http_code}\n" -b "$COOKIE_REP"
 
 Schlägt eine Route mit 500 fehl → erst fixen, dann pushen.
 
+**Erweiterte Variante (agent-browser):** `./pflichttest_browser.sh` rendert die Routen echt im Browser (Admin + Rep) statt nur den HTTP-Status zu prüfen — fängt damit auch JS-Fehler und kaputte Interaktionen (z.B. Karte, Formulare) die curl nicht sieht. Screenshots landen in `_pflichttest_shots/` (gitignored). Ergänzt den curl-Test, ersetzt ihn nicht (curl bleibt der schnelle erste Check).
+
 ## Background Jobs (APScheduler)
 
 All jobs run in Europe/Berlin timezone:
