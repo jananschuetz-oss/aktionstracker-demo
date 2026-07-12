@@ -1458,6 +1458,18 @@ def manifest():
     return resp
 
 
+# ─── Health Check (Railway Deploy-Gate, kein Login nötig) ────────────────────
+
+@app.route('/health')
+def health():
+    try:
+        query("SELECT 1")
+    except Exception as exc:
+        app.logger.error(f"Health-Check fehlgeschlagen: {exc}")
+        return {'ok': False, 'error': str(exc)}, 503
+    return {'ok': True}, 200
+
+
 # ─── Routes: Auth ─────────────────────────────────────────────────────────────
 
 @app.route('/', methods=['GET', 'POST'])
