@@ -5098,7 +5098,7 @@ def _do_send_wochenbericht(force=False):
                     FROM mitarbeiter m
                     LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
                     LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
-                    WHERE m.rolle = \'rep\'{tf}
+                    WHERE (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id))){tf}
                     GROUP BY m.id, m.name ORDER BY kisten DESC, m.name
                 ''', [montag_diese.isoformat(), sonntag_diese.isoformat()] + t_p)
 
@@ -5110,7 +5110,7 @@ def _do_send_wochenbericht(force=False):
                     FROM aktivitaet a
                     JOIN mitarbeiter m ON m.id=a.mitarbeiter_id
                     LEFT JOIN bestellposition bp ON bp.aktivitaet_id=a.id
-                    WHERE a.datum BETWEEN ? AND ? AND m.rolle=\'rep\'{tf}
+                    WHERE a.datum BETWEEN ? AND ? AND (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id))){tf}
                     GROUP BY m.id
                 ''', [montag_letzte.isoformat(), sonntag_letzte.isoformat()] + t_p) or []
                 letzte_map = {r['mitarbeiter_id']: dict(r) for r in _rs_vw}
@@ -5125,7 +5125,7 @@ def _do_send_wochenbericht(force=False):
                     "SELECT a.mitarbeiter_id, COUNT(*) AS n FROM aktivitaet a "
                     "JOIN mitarbeiter m ON m.id=a.mitarbeiter_id "
                     "WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen' "
-                    f"AND m.rolle='rep'{tf} GROUP BY a.mitarbeiter_id",
+                    f"AND (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id))){tf} GROUP BY a.mitarbeiter_id",
                     t_p
                 )}
 
@@ -5194,7 +5194,7 @@ def _do_send_wochenbericht(force=False):
                            COALESCE(SUM(tp.erledigt), 0) AS erledigt
                     FROM tagesplan tp JOIN mitarbeiter m ON m.id=tp.mitarbeiter_id
                     WHERE tp.datum BETWEEN ? AND ?
-                      AND COALESCE(tp.geloescht,0)=0 AND m.rolle=\'rep\'{tf}
+                      AND COALESCE(tp.geloescht,0)=0 AND (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id))){tf}
                 ''', [montag_diese.isoformat(), sonntag_diese.isoformat()] + t_p, one=True)
                 _tp_team = dict(_tp_team_row) if _tp_team_row else {}
                 _tp_reps = query(f'''
@@ -5202,7 +5202,7 @@ def _do_send_wochenbericht(force=False):
                            COALESCE(SUM(tp.erledigt),0) AS erledigt
                     FROM tagesplan tp JOIN mitarbeiter m ON m.id=tp.mitarbeiter_id
                     WHERE tp.datum BETWEEN ? AND ?
-                      AND COALESCE(tp.geloescht,0)=0 AND m.rolle=\'rep\'{tf}
+                      AND COALESCE(tp.geloescht,0)=0 AND (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id))){tf}
                     GROUP BY tp.mitarbeiter_id
                 ''', [montag_diese.isoformat(), sonntag_diese.isoformat()] + t_p) or []
                 tp_map = {r['mitarbeiter_id']: dict(r) for r in _tp_reps}
@@ -5484,7 +5484,7 @@ def _do_send_monatsbericht(force=False):
                 FROM mitarbeiter m
                 LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
                 LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
-                WHERE m.rolle = 'rep'{tf}
+                WHERE (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id))){tf}
                 GROUP BY m.id, m.name ORDER BY kisten DESC, m.name
             ''', [erster_vormonat.isoformat(), letzter_vormonat.isoformat()] + t_p)
 
@@ -5498,7 +5498,7 @@ def _do_send_monatsbericht(force=False):
                 FROM aktivitaet a
                 JOIN mitarbeiter m ON m.id=a.mitarbeiter_id
                 LEFT JOIN bestellposition bp ON bp.aktivitaet_id=a.id
-                WHERE a.datum BETWEEN ? AND ? AND m.rolle='rep'{tf}
+                WHERE a.datum BETWEEN ? AND ? AND (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id))){tf}
                 GROUP BY m.id
             ''', [erster_vorvorm.isoformat(), letzter_vorvorm.isoformat()] + t_p) or []
             vorvorm_map = {r['mitarbeiter_id']: dict(r) for r in _rs_vm}
@@ -5515,7 +5515,7 @@ def _do_send_monatsbericht(force=False):
                        COALESCE(SUM(tp.erledigt), 0) AS erledigt
                 FROM tagesplan tp JOIN mitarbeiter m ON m.id=tp.mitarbeiter_id
                 WHERE tp.datum BETWEEN ? AND ?
-                  AND COALESCE(tp.geloescht,0)=0 AND m.rolle=\'rep\'{tf}
+                  AND COALESCE(tp.geloescht,0)=0 AND (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id))){tf}
             ''', [erster_vormonat.isoformat(), letzter_vormonat.isoformat()] + t_p, one=True)
             _mtp_team = dict(_mtp_team_row) if _mtp_team_row else {}
             _mtp_reps = query(f'''
@@ -5523,7 +5523,7 @@ def _do_send_monatsbericht(force=False):
                        COALESCE(SUM(tp.erledigt),0) AS erledigt
                 FROM tagesplan tp JOIN mitarbeiter m ON m.id=tp.mitarbeiter_id
                 WHERE tp.datum BETWEEN ? AND ?
-                  AND COALESCE(tp.geloescht,0)=0 AND m.rolle=\'rep\'{tf}
+                  AND COALESCE(tp.geloescht,0)=0 AND (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id))){tf}
                 GROUP BY tp.mitarbeiter_id
             ''', [erster_vormonat.isoformat(), letzter_vormonat.isoformat()] + t_p) or []
             mtp_map = {r['mitarbeiter_id']: dict(r) for r in _mtp_reps}
@@ -6072,7 +6072,7 @@ def wochenbericht_vorschau():
         FROM mitarbeiter m
         LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
         LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
-        WHERE m.rolle = 'rep'
+        WHERE (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id)))
         GROUP BY m.id, m.name ORDER BY kisten DESC, m.name
     ''', (montag_diese.isoformat(), sonntag_diese.isoformat()))
 
@@ -6084,7 +6084,7 @@ def wochenbericht_vorschau():
         FROM aktivitaet a
         JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
         LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
-        WHERE a.datum BETWEEN ? AND ? AND m.rolle = 'rep'
+        WHERE a.datum BETWEEN ? AND ? AND (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id)))
         GROUP BY m.id
     ''', (montag_letzte.isoformat(), sonntag_letzte.isoformat()))
     letzte_map_w = {r['mitarbeiter_id']: r for r in rep_letzte_w}
@@ -6092,13 +6092,13 @@ def wochenbericht_vorschau():
     _tp_team_v_row = query(
         "SELECT COUNT(*) AS geplant, COALESCE(SUM(tp.erledigt),0) AS erledigt "
         "FROM tagesplan tp JOIN mitarbeiter m ON m.id=tp.mitarbeiter_id "
-        "WHERE tp.datum BETWEEN ? AND ? AND COALESCE(tp.geloescht,0)=0 AND m.rolle='rep'",
+        "WHERE tp.datum BETWEEN ? AND ? AND COALESCE(tp.geloescht,0)=0 AND (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id)))",
         (montag_diese.isoformat(), sonntag_diese.isoformat()), one=True)
     _tp_team_v = dict(_tp_team_v_row) if _tp_team_v_row else {}
     _tp_reps_v = query(
         "SELECT tp.mitarbeiter_id, COUNT(*) AS geplant, COALESCE(SUM(tp.erledigt),0) AS erledigt "
         "FROM tagesplan tp JOIN mitarbeiter m ON m.id=tp.mitarbeiter_id "
-        "WHERE tp.datum BETWEEN ? AND ? AND COALESCE(tp.geloescht,0)=0 AND m.rolle='rep' "
+        "WHERE tp.datum BETWEEN ? AND ? AND COALESCE(tp.geloescht,0)=0 AND (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id))) "
         "GROUP BY tp.mitarbeiter_id",
         (montag_diese.isoformat(), sonntag_diese.isoformat())) or []
     tp_map_v = {r['mitarbeiter_id']: dict(r) for r in _tp_reps_v}
@@ -6129,7 +6129,7 @@ def wochenbericht_vorschau():
         "SELECT a.mitarbeiter_id, COUNT(*) AS n FROM aktivitaet a "
         "JOIN mitarbeiter m ON m.id=a.mitarbeiter_id "
         "WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen' "
-        "AND m.rolle='rep' GROUP BY a.mitarbeiter_id"
+        "AND (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id))) GROUP BY a.mitarbeiter_id"
     )}
     pipeline = query(
         "SELECT COALESCE(SUM(CASE WHEN COALESCE(bestell_status,'offen')='offen' THEN 1 END),0) AS offen,"
@@ -6330,7 +6330,7 @@ def monatsbericht_vorschau():
         FROM mitarbeiter m
         LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
         LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
-        WHERE m.rolle = 'rep'
+        WHERE (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id)))
         GROUP BY m.id, m.name ORDER BY kisten DESC, m.name
     ''', (erster_dieses.isoformat(), heute.isoformat()))
 
@@ -6342,7 +6342,7 @@ def monatsbericht_vorschau():
         FROM aktivitaet a
         JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
         LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
-        WHERE a.datum BETWEEN ? AND ? AND m.rolle = 'rep'
+        WHERE a.datum BETWEEN ? AND ? AND (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id)))
         GROUP BY m.id
     ''', (erster_vorvorm.isoformat(), letzter_vorvorm.isoformat()))
     letzte_map_m = {r['mitarbeiter_id']: r for r in rep_letzte_m}
@@ -6350,13 +6350,13 @@ def monatsbericht_vorschau():
     _mtp_team_v_row = query(
         "SELECT COUNT(*) AS geplant, COALESCE(SUM(tp.erledigt),0) AS erledigt "
         "FROM tagesplan tp JOIN mitarbeiter m ON m.id=tp.mitarbeiter_id "
-        "WHERE tp.datum BETWEEN ? AND ? AND COALESCE(tp.geloescht,0)=0 AND m.rolle='rep'",
+        "WHERE tp.datum BETWEEN ? AND ? AND COALESCE(tp.geloescht,0)=0 AND (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id)))",
         (erster_dieses.isoformat(), heute.isoformat()), one=True)
     _mtp_team_v = dict(_mtp_team_v_row) if _mtp_team_v_row else {}
     _mtp_reps_v = query(
         "SELECT tp.mitarbeiter_id, COUNT(*) AS geplant, COALESCE(SUM(tp.erledigt),0) AS erledigt "
         "FROM tagesplan tp JOIN mitarbeiter m ON m.id=tp.mitarbeiter_id "
-        "WHERE tp.datum BETWEEN ? AND ? AND COALESCE(tp.geloescht,0)=0 AND m.rolle='rep' "
+        "WHERE tp.datum BETWEEN ? AND ? AND COALESCE(tp.geloescht,0)=0 AND (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id))) "
         "GROUP BY tp.mitarbeiter_id",
         (erster_dieses.isoformat(), heute.isoformat())) or []
     mtp_map_v = {r['mitarbeiter_id']: dict(r) for r in _mtp_reps_v}
