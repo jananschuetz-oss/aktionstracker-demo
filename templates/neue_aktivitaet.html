@@ -160,51 +160,55 @@
                   placeholder="z.B. Sonderaktion vereinbart, Rückgabe alter Displays, Kundengespräch..."></textarea>
       </div>
 
-      <!-- Foto-Upload -->
+      <!-- Foto-Upload (bis zu 3 Fotos) -->
       <div class="mt-3" id="fotoBlock">
         <label class="form-label"><i class="bi bi-camera me-1"></i>Foto <span class="text-danger" id="fotoPflichtStern">*</span> <small class="text-muted fw-normal" id="fotoPflichtHint">(Pflichtfeld)</small></label>
-        <div class="d-flex gap-3 align-items-start flex-wrap">
+
+        {% for i in [1, 2, 3] %}
+        <div class="d-flex gap-3 align-items-start flex-wrap mb-2" id="fotoSlot{{ i }}">
           <div class="flex-grow-1">
-            <!-- Zwei explizite Buttons: Kamera + Galerie -->
-            <div id="fotoBtns" class="d-flex gap-2 mb-2">
-              <label for="fotoKameraBtn"
+            <div id="fotoBtns{{ i }}" class="d-flex gap-2 mb-2">
+              <label for="fotoKameraBtn{{ i }}"
                      class="btn btn-primary flex-fill py-3 text-center"
                      style="min-height:80px;display:flex!important;flex-direction:column;align-items:center;justify-content:center">
                 <i class="bi bi-camera fs-3 mb-1"></i>
-                <span class="small fw-semibold">Kamera</span>
+                <span class="small fw-semibold">Kamera{% if i > 1 %} (Foto {{ i }}){% endif %}</span>
               </label>
-              <input type="file" id="fotoKameraBtn" accept="image/*" capture="environment"
-                     class="d-none" onchange="fotoGewaehlt(this)">
+              <input type="file" id="fotoKameraBtn{{ i }}" accept="image/*" capture="environment"
+                     class="d-none" onchange="fotoGewaehlt(this, {{ i }})">
 
-              <label for="fotoGalerieBtn"
+              <label for="fotoGalerieBtn{{ i }}"
                      class="btn btn-outline-primary flex-fill py-3 text-center"
                      style="min-height:80px;display:flex!important;flex-direction:column;align-items:center;justify-content:center">
                 <i class="bi bi-images fs-3 mb-1"></i>
-                <span class="small fw-semibold">Galerie</span>
+                <span class="small fw-semibold">Galerie{% if i > 1 %} (Foto {{ i }}){% endif %}</span>
               </label>
-              <input type="file" id="fotoGalerieBtn" accept="image/*"
-                     class="d-none" onchange="fotoGewaehlt(this)">
+              <input type="file" id="fotoGalerieBtn{{ i }}" accept="image/*"
+                     class="d-none" onchange="fotoGewaehlt(this, {{ i }})">
             </div>
             <!-- Verstecktes Master-Input für Form-Submission (KONZEPT-V2: kein 'required' auf hidden Input – würde Submit still blockieren; Prüfung per JS + Server) -->
-            <input type="file" name="foto" id="fotoInput" accept="image/*" class="d-none">
+            <input type="file" name="{% if i == 1 %}fotos{% endif %}" id="fotoInput{{ i }}" accept="image/*" class="d-none">
+            {% if i == 1 %}
             <div class="form-text">JPG, PNG, WebP, GIF – max. 16 MB &nbsp;·&nbsp;
               <i class="bi bi-clock-history"></i> Fotos werden nach <strong>8 Wochen</strong> automatisch gelöscht
             </div>
+            {% endif %}
           </div>
           <!-- Vorschau -->
-          <div id="fotoPreviewWrap" style="display:none">
-            <img id="fotoPreviewImg" src="" alt="Vorschau"
+          <div id="fotoPreviewWrap{{ i }}" style="display:none">
+            <img id="fotoPreviewImg{{ i }}" src="" alt="Vorschau"
                  style="height:120px;width:120px;object-fit:cover;border-radius:.5rem;
                         border:2px solid #2e6da4;cursor:pointer"
                  title="Klicken zum Vergrößern">
             <div class="text-center mt-1">
               <button type="button" class="btn btn-sm btn-outline-danger"
-                      onclick="fotoEntfernen()">
+                      onclick="fotoEntfernen({{ i }})">
                 <i class="bi bi-x"></i> Entfernen
               </button>
             </div>
           </div>
         </div>
+        {% endfor %}
       </div>
 
       <!-- Optionaler Hinweis an den Admin (z.B. Adress-/Namensänderung der Verkaufsstelle) -->
@@ -447,31 +451,66 @@ document.getElementById('btnAdminHinweisToggle').addEventListener('click', funct
   if (!box.classList.contains('d-none')) document.getElementById('adminHinweisText').focus();
 });
 
-function fotoGewaehlt(src) {
+function fotoGewaehlt(src, i) {
   if (!src.files || !src.files[0]) return;
-  // Datei per DataTransfer ins Master-Input kopieren (für form submit)
-  const master = document.getElementById('fotoInput');
+  const file = src.files[0];
+  const master = document.getElementById('fotoInput' + i);
+  let transferred = false;
   try {
     const dt = new DataTransfer();
-    dt.items.add(src.files[0]);
+    dt.items.add(file);
     master.files = dt.files;
-  } catch(e) { /* DataTransfer nicht verfügbar – ältere Browser */ }
+    transferred = master.files.length > 0;
+  } catch(e) {}
+  if (transferred) {
+    // Slots 2/3 starten ohne name-Attribut (nur Slot 1 hat es serverseitig
+    // vorgerendert) – ohne dieses Set würde das Feld beim Submit stillschweigend
+    // ignoriert, obwohl die Vorschau korrekt ein Foto zeigt.
+    master.name = 'fotos';
+  } else {
+    // iOS/Safari-Fallback: das gewählte Input direkt als 'fotos' benennen
+    master.removeAttribute('name');
+    document.getElementById('fotoKameraBtn' + i).removeAttribute('name');
+    document.getElementById('fotoGalerieBtn' + i).removeAttribute('name');
+    src.name = 'fotos';
+  }
   // Vorschau anzeigen
   const reader = new FileReader();
   reader.onload = function(e) {
-    document.getElementById('fotoPreviewImg').src = e.target.result;
-    document.getElementById('fotoPreviewWrap').style.display = 'block';
-    document.getElementById('fotoBtns').style.display = 'none';
+    document.getElementById('fotoPreviewImg' + i).src = e.target.result;
+    document.getElementById('fotoPreviewWrap' + i).style.display = 'block';
+    document.getElementById('fotoBtns' + i).style.display = 'none';
   };
-  reader.readAsDataURL(src.files[0]);
+  reader.readAsDataURL(file);
 }
 
-function fotoEntfernen() {
-  document.getElementById('fotoInput').value = '';
-  document.getElementById('fotoKameraBtn').value = '';
-  document.getElementById('fotoGalerieBtn').value = '';
-  document.getElementById('fotoPreviewWrap').style.display = 'none';
-  document.getElementById('fotoBtns').style.display = 'flex';
+function fotoEntfernen(i) {
+  const master = document.getElementById('fotoInput' + i);
+  master.name = 'fotos';
+  master.value = '';
+  const kamera  = document.getElementById('fotoKameraBtn' + i);
+  const galerie = document.getElementById('fotoGalerieBtn' + i);
+  kamera.removeAttribute('name');
+  galerie.removeAttribute('name');
+  kamera.value  = '';
+  galerie.value = '';
+  document.getElementById('fotoPreviewWrap' + i).style.display = 'none';
+  document.getElementById('fotoBtns' + i).style.display = 'flex';
+}
+
+function fotoSlotsBelegt() {
+  const result = [];
+  for (let i = 1; i <= 3; i++) {
+    const f = document.getElementById('fotoInput' + i).files[0] ||
+              document.getElementById('fotoKameraBtn' + i).files[0] ||
+              document.getElementById('fotoGalerieBtn' + i).files[0];
+    if (f) result.push(f);
+  }
+  return result;
+}
+
+function hatFoto() {
+  return fotoSlotsBelegt().length > 0;
 }
 
 // ── KONZEPT-V2: Aktivitätstyp steuert die sichtbaren Felder ────────────────────
@@ -482,7 +521,7 @@ function setTyp(t) {
     b.classList.toggle('btn-primary', active);
     b.classList.toggle('btn-outline-primary', !active);
   });
-  const foto       = document.getElementById('fotoInput');
+  const foto       = document.getElementById('fotoInput1');
   const fotoBlock  = document.getElementById('fotoBlock');
   const mengenBlock= document.getElementById('mengenBlock');
   const hint       = document.getElementById('typHint');
@@ -875,7 +914,7 @@ document.getElementById('aktivForm').addEventListener('submit', function(e) {
   }
   // KONZEPT-V2: Foto nur beim Aufbau Pflicht (sichtbar prüfen statt still blockieren)
   const typ = document.getElementById('aktionstyp').value;
-  if (typ === 'Aufbau' && !document.getElementById('fotoInput').files.length) {
+  if (typ === 'Aufbau' && !hatFoto()) {
     e.preventDefault();
     const block = document.getElementById('fotoBlock');
     let hint = document.getElementById('fotoPflichtFehler');
@@ -960,8 +999,8 @@ document.getElementById('aktivForm').addEventListener('submit', async function(e
   }
 
   const aktTyp = document.getElementById('aktionstyp').value;
-  const fotoFile = document.getElementById('fotoInput').files[0];
-  if (aktTyp === 'Aufbau' && !fotoFile) {
+  const fotoFiles = fotoSlotsBelegt();
+  if (aktTyp === 'Aufbau' && !fotoFiles.length) {
     const lbl = document.getElementById('fotoLabel');
     if (lbl) { lbl.style.borderColor = '#dc3545'; lbl.style.background = '#fff5f5'; }
     lbl.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -977,11 +1016,11 @@ document.getElementById('aktivForm').addEventListener('submit', async function(e
     return;
   }
 
-  // Foto komprimieren (Canvas, max 1600px, JPEG 80%)
+  // Fotos komprimieren (Canvas, max 1600px, JPEG 80%)
   const saveBtn = document.querySelector('#aktivForm button[type=submit]');
   if (saveBtn) { saveBtn.disabled = true; saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Wird gespeichert…'; }
 
-  const fotoB64 = fotoFile ? await window.OQ.compressImage(fotoFile) : null;
+  const fotosB64 = await Promise.all(fotoFiles.map(f => window.OQ.compressImage(f)));
 
   // Formular-Daten sammeln
   const datum       = document.querySelector('[name="datum"]').value;
@@ -1003,7 +1042,7 @@ document.getElementById('aktivForm').addEventListener('submit', async function(e
 
   // In IndexedDB speichern
   await window.OQ.save({
-    data: { datum, von_uhrzeit, bis_uhrzeit, verkaufsstelle_id: vsId, notizen, foto: fotoB64, displays, bier, aktionstyp: aktTyp },
+    data: { datum, von_uhrzeit, bis_uhrzeit, verkaufsstelle_id: vsId, notizen, fotos: fotosB64, displays, bier, aktionstyp: aktTyp },
     vs_label: vsLabel,
     saved_at: new Date().toISOString(),
   });
@@ -1024,6 +1063,7 @@ document.getElementById('aktivForm').addEventListener('submit', async function(e
     </div>`;
   document.getElementById('aktivForm').insertAdjacentElement('beforebegin', successDiv);
   document.getElementById('aktivForm').reset();
+  for (let i = 1; i <= 3; i++) fotoEntfernen(i);
   // VS-Auswahl manuell zurücksetzen
   vsClearSelection();
   document.getElementById('dispGesamt').textContent = '0';

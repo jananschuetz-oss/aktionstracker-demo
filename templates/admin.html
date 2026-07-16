@@ -321,14 +321,36 @@
       <div class="card-body p-0">
         <table class="table table-sm table-striped mb-0">
           <thead>
-            <tr><th>Bezeichnung</th><th class="text-center">Status</th><th></th></tr>
+            <tr><th>Bezeichnung</th><th class="text-center">Zielerreichung</th><th class="text-center">Status</th><th></th></tr>
           </thead>
           <tbody>
             {% for d in displaysorte %}
             <tr>
               <td>
-                <i class="bi bi-display me-1" style="color:#2e6da4"></i>
+                {% if d.zaehlt_zur_zielerreichung %}
+                  <i class="bi bi-display me-1" style="color:#2e6da4"></i>
+                {% else %}
+                  <i class="bi bi-arrow-repeat me-1" style="color:#6c757d"></i>
+                {% endif %}
                 {{ d.name }}
+              </td>
+              <td class="text-center">
+                <form method="POST" action="{{ url_for('admin_display_tier_umschalten', ds_id=d.id) }}"
+                      style="display:inline">
+                  {% if d.zaehlt_zur_zielerreichung %}
+                    <button type="submit" class="btn btn-success btn-sm py-0 px-2"
+                            title="Klicken um auf ‚Auffüllen' umzustellen"
+                            style="font-size:.7rem">
+                      <i class="bi bi-trophy me-1"></i>Ja
+                    </button>
+                  {% else %}
+                    <button type="submit" class="btn btn-secondary btn-sm py-0 px-2"
+                            title="Klicken um auf ‚Zielerreichung' umzustellen"
+                            style="font-size:.7rem">
+                      <i class="bi bi-arrow-repeat me-1"></i>Auffüllen
+                    </button>
+                  {% endif %}
+                </form>
               </td>
               <td class="text-center">
                 {% if d.aktiv %}
@@ -365,7 +387,7 @@
               </td>
             </tr>
             {% else %}
-            <tr><td colspan="3" class="text-center text-muted py-3">Noch keine Typen angelegt</td></tr>
+            <tr><td colspan="4" class="text-center text-muted py-3">Noch keine Typen angelegt</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -708,6 +730,32 @@
         <div class="form-text mt-2">
           <i class="bi bi-shield-check me-1"></i>
           Datei: <code>brewery_backup_[datum].db</code> &middot; SQLite-Format
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Monatsexport manuell -->
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header" style="background:linear-gradient(135deg,#1a5276,#2980b9)">
+        <i class="bi bi-file-earmark-excel me-2"></i>Monatsexport
+      </div>
+      <div class="card-body">
+        <p class="small text-muted mb-3">
+          <i class="bi bi-info-circle me-1"></i>
+          Automatisch am 1. jeden Monats um 08:00 Uhr an
+          <code>{{ export_email or 'nicht konfiguriert' }}</code>.
+          Hier können Sie den Export jederzeit manuell auslösen.
+        </p>
+        <form method="post" action="{{ url_for('admin_export_jetzt_senden') }}">
+          <button type="submit" class="btn btn-primary w-100" {% if not export_email %}disabled{% endif %}>
+            <i class="bi bi-send me-2"></i>Export jetzt senden
+          </button>
+        </form>
+        <div class="form-text mt-2">
+          <i class="bi bi-shield-check me-1"></i>
+          Enthält Excel-Jahresübersicht + Foto-ZIP des Vormonats.
         </div>
       </div>
     </div>
@@ -1264,6 +1312,16 @@ function vsAdminSucheAusfuehren(q) {
               Beispiele: Kühlschrank-Display, Regal-Aufsteller, Eingangs-Display, Counter-Display, Außenwerbung
             </div>
           </div>
+          <div class="mb-3">
+            <label class="form-label">Bereich</label>
+            <select name="zaehlt_zur_zielerreichung" class="form-select">
+              <option value="1" selected>Aufbau – zählt zur Zielerreichung</option>
+              <option value="0">Auffüllen/Bestücken – zählt nicht zur Zielerreichung</option>
+            </select>
+            <div class="form-text">
+              Typen im oberen Bereich fließen in die Zielkurve ein. Typen im unteren Bereich werden nur erfasst.
+            </div>
+          </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
@@ -1324,6 +1382,13 @@ function vsAdminSucheAusfuehren(q) {
           <div class="mb-3">
             <label class="form-label">Bezeichnung <span class="text-danger">*</span></label>
             <input type="text" name="name" class="form-control" value="{{ d.name }}" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Bereich</label>
+            <select name="zaehlt_zur_zielerreichung" class="form-select">
+              <option value="1" {% if d.zaehlt_zur_zielerreichung %}selected{% endif %}>Aufbau – zählt zur Zielerreichung</option>
+              <option value="0" {% if not d.zaehlt_zur_zielerreichung %}selected{% endif %}>Auffüllen/Bestücken – zählt nicht zur Zielerreichung</option>
+            </select>
           </div>
         </div>
         <div class="modal-footer">

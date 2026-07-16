@@ -369,16 +369,23 @@ def cleanup_alte_fotos():
     grenzwert = (date.today() - timedelta(weeks=FOTO_AUFBEWAHRUNG_WOCHEN)).isoformat()
     db = get_db()
     alte_akte = db.execute(
-        "SELECT id, foto_pfad FROM aktivitaet WHERE foto_pfad IS NOT NULL AND foto_pfad != '' AND datum < ?",
+        "SELECT id, foto_pfad, foto_pfad_2, foto_pfad_3 FROM aktivitaet "
+        "WHERE ((foto_pfad IS NOT NULL AND foto_pfad != '') "
+        "    OR (foto_pfad_2 IS NOT NULL AND foto_pfad_2 != '') "
+        "    OR (foto_pfad_3 IS NOT NULL AND foto_pfad_3 != '')) "
+        "AND datum < ?",
         (grenzwert,)
     ).fetchall()
     count = 0
     for akt in alte_akte:
-        pfad = os.path.join(UPLOAD_FOLDER, akt['foto_pfad'])
-        if os.path.exists(pfad):
-            os.remove(pfad)
-            count += 1
-        db.execute("UPDATE aktivitaet SET foto_pfad = NULL WHERE id = ?", (akt['id'],))
+        for spalte in ('foto_pfad', 'foto_pfad_2', 'foto_pfad_3'):
+            if not akt[spalte]:
+                continue
+            pfad = os.path.join(UPLOAD_FOLDER, akt[spalte])
+            if os.path.exists(pfad):
+                os.remove(pfad)
+                count += 1
+        db.execute("UPDATE aktivitaet SET foto_pfad = NULL, foto_pfad_2 = NULL, foto_pfad_3 = NULL WHERE id = ?", (akt['id'],))
     if alte_akte:
         db.commit()
     return count
@@ -1785,6 +1792,24 @@ def admin_backup_herunterladen():
                      mimetype='application/x-sqlite3')
 
 
+@app.route('/admin/export/jetzt-senden', methods=['POST'])
+@login_required
+def admin_export_jetzt_senden():
+    if session.get('rolle') != 'admin':
+        flash('Keine Berechtigung.', 'danger')
+        return redirect(url_for('dashboard'))
+    if not EXPORT_EMAIL:
+        flash('EXPORT_EMAIL ist nicht gesetzt – Export kann nicht versendet werden.', 'danger')
+        return redirect(url_for('admin'))
+    try:
+        auto_export_job()
+        flash(f'Export wurde ausgelöst und an {EXPORT_EMAIL} gesendet.', 'success')
+    except Exception as e:
+        app.logger.error(f"Manueller Export Fehler: {e}", exc_info=True)
+        flash('Export fehlgeschlagen – siehe Logs.', 'danger')
+    return redirect(url_for('admin'))
+
+
 # ─── Routes: Dashboard ────────────────────────────────────────────────────────
 
 @app.route('/dashboard')
@@ -2649,7 +2674,8 @@ def api_tagesplan_stopp_details(tp_id):
     if not is_manager and row['mitarbeiter_id'] != session['user_id']:
         return jsonify({'ok': False, 'error': 'Kein Zugriff'}), 403
     akt = query(
-        "SELECT id, COALESCE(aktionstyp,'Aufbau') AS aktionstyp, notizen, anzahl_displays, foto_pfad FROM aktivitaet "
+        "SELECT id, COALESCE(aktionstyp,'Aufbau') AS aktionstyp, notizen, anzahl_displays, "
+        "foto_pfad, foto_pfad_2, foto_pfad_3 FROM aktivitaet "
         "WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? ORDER BY erstellt_am DESC LIMIT 1",
         (row['mitarbeiter_id'], row['verkaufsstelle_id'], row['datum']), one=True
     )
@@ -2673,6 +2699,7 @@ def api_tagesplan_stopp_details(tp_id):
         'bestellungen': [{'name': b['name'], 'kisten': b['kisten_anzahl']} for b in bestellungen],
         'displays':     [{'name': d['name'], 'anzahl': d['anzahl']}        for d in displays],
         'foto_pfad':    akt['foto_pfad'] or '',
+        'fotos':        [p for p in (akt['foto_pfad'], akt['foto_pfad_2'], akt['foto_pfad_3']) if p],
     })
 
 
@@ -3056,7 +3083,8 @@ def api_aktivitaet_offline_sync():
     datum   = data.get('datum', '').strip()
     vs_id   = data.get('verkaufsstelle_id', '')
     notizen = data.get('notizen', '')
-    foto_b64    = data.get('foto', '')   # 'data:image/jpeg;base64,...'
+    fotos_b64   = data.get('fotos') or ([data['foto']] if data.get('foto') else [])  # ['data:image/jpeg;base64,...']
+    fotos_b64   = fotos_b64[:3]
     displays    = data.get('displays', {})  # {ds_id: menge}
     bier_map    = data.get('bier', {})      # {bier_id: kisten}
     von_uhrzeit = data.get('von_uhrzeit', '') or None
@@ -3065,26 +3093,29 @@ def api_aktivitaet_offline_sync():
     if not datum or not vs_id:
         return jsonify({'ok': False, 'error': 'Datum und Verkaufsstelle fehlen'}), 400
 
-    # Foto dekodieren, komprimieren und speichern
-    foto_pfad = None
-    if foto_b64 and ',' in foto_b64:
+    # Fotos dekodieren, komprimieren und speichern (max. 3)
+    foto_pfade = [None, None, None]
+    for i, foto_b64 in enumerate(fotos_b64):
+        if not (foto_b64 and ',' in foto_b64):
+            continue
         try:
             _, b64data = foto_b64.split(',', 1)
             foto_bytes = base64.b64decode(b64data)
             dateiname  = f"akt_{uuid.uuid4().hex}.jpg"
             ziel       = os.path.join(UPLOAD_FOLDER, dateiname)
             komprimiere_foto(io.BytesIO(foto_bytes), ziel)
-            foto_pfad = dateiname
+            foto_pfade[i] = dateiname
         except Exception as exc:
             app.logger.warning(f"Offline-Sync Foto-Fehler: {exc}")
+    foto_pfad, foto_pfad_2, foto_pfad_3 = foto_pfade
 
     anzahl_displays = sum(int(v) for v in displays.values()
                           if str(v).lstrip('-').isdigit() and int(v) > 0)
 
     akt_id = execute(
         "INSERT INTO aktivitaet (datum, mitarbeiter_id, verkaufsstelle_id, "
-        "anzahl_displays, notizen, foto_pfad, von_uhrzeit, bis_uhrzeit) VALUES (?,?,?,?,?,?,?,?)",
-        (datum, session['user_id'], vs_id, anzahl_displays, notizen, foto_pfad, von_uhrzeit, bis_uhrzeit)
+        "anzahl_displays, notizen, foto_pfad, foto_pfad_2, foto_pfad_3, von_uhrzeit, bis_uhrzeit) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (datum, session['user_id'], vs_id, anzahl_displays, notizen, foto_pfad, foto_pfad_2, foto_pfad_3, von_uhrzeit, bis_uhrzeit)
     )
 
     for ds_id, menge in displays.items():
@@ -3178,9 +3209,9 @@ def neue_aktivitaet():
 
         von_uhrzeit = request.form.get('von_uhrzeit', '').strip()
         bis_uhrzeit = request.form.get('bis_uhrzeit', '').strip()
-        foto_file = request.files.get('foto')
+        foto_files = [f for f in request.files.getlist('fotos') if f and f.filename][:3]
         # KONZEPT-V2: Foto ist nur beim Aufbau Pflicht
-        if aktionstyp == 'Aufbau' and (not foto_file or not foto_file.filename):
+        if aktionstyp == 'Aufbau' and not foto_files:
             flash('Bitte ein Foto hochladen – beim Aufbau ist das Foto Pflicht.', 'danger')
             return render_template('neue_aktivitaet.html',
                 verkaufsstellen=verkaufsstellen, biersorten=biersorten,
@@ -3202,23 +3233,27 @@ def neue_aktivitaet():
                 min_datum=min_datum)
 
         # Displaypositionen sammeln + Gesamtzahl berechnen
+        # Nur Tier-1-Typen (zaehlt_zur_zielerreichung=1) fließen in anzahl_displays ein
         anzahl_displays  = 0
         disp_positionen  = []
         for ds in displaysorte:
             menge_str = request.form.get(f'disp_{ds["id"]}', '').strip()
             if menge_str and menge_str.isdigit() and int(menge_str) > 0:
                 menge = int(menge_str)
-                anzahl_displays += menge
+                if ds['zaehlt_zur_zielerreichung']:
+                    anzahl_displays += menge
                 disp_positionen.append((ds['id'], menge))
 
-        # Foto verarbeiten + komprimieren
-        foto_pfad = None
-        if foto_file and foto_file.filename and allowed_file(foto_file.filename):
+        # Fotos verarbeiten + komprimieren (max. 3)
+        foto_pfade = [None, None, None]
+        for i, foto_file in enumerate(foto_files):
+            if not (foto_file and foto_file.filename and allowed_file(foto_file.filename)):
+                continue
             dateiname = f"akt_{uuid.uuid4().hex}.jpg"
             ziel = os.path.join(UPLOAD_FOLDER, dateiname)
             try:
                 komprimiere_foto(foto_file, ziel)
-                foto_pfad = dateiname
+                foto_pfade[i] = dateiname
             except Exception as exc:
                 app.logger.warning(f"Foto-Komprimierung fehlgeschlagen: {exc}")
                 # Fallback: unkomprimiert speichern
@@ -3227,12 +3262,13 @@ def neue_aktivitaet():
                 ziel = os.path.join(UPLOAD_FOLDER, dateiname)
                 foto_file.seek(0)
                 foto_file.save(ziel)
-                foto_pfad = dateiname
+                foto_pfade[i] = dateiname
+        foto_pfad, foto_pfad_2, foto_pfad_3 = foto_pfade
 
         bestell_status = 'offen' if aktionstyp == 'Bestellung' else None
         akt_id = execute(
-            "INSERT INTO aktivitaet (datum, mitarbeiter_id, verkaufsstelle_id, anzahl_displays, notizen, foto_pfad, aktionstyp, bestell_status, von_uhrzeit, bis_uhrzeit) VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (datum, session['user_id'], vs_id, anzahl_displays, notizen, foto_pfad, aktionstyp, bestell_status, von_uhrzeit or None, bis_uhrzeit or None)
+            "INSERT INTO aktivitaet (datum, mitarbeiter_id, verkaufsstelle_id, anzahl_displays, notizen, foto_pfad, foto_pfad_2, foto_pfad_3, aktionstyp, bestell_status, von_uhrzeit, bis_uhrzeit) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (datum, session['user_id'], vs_id, anzahl_displays, notizen, foto_pfad, foto_pfad_2, foto_pfad_3, aktionstyp, bestell_status, von_uhrzeit or None, bis_uhrzeit or None)
         )
 
         # Displaypositionen speichern
@@ -3359,7 +3395,7 @@ def aktivitaeten_liste():
         SELECT a.id, a.datum, m.name AS mitarbeiter, m.id AS mitarbeiter_id,
                v.name AS verkaufsstelle, v.id AS verkaufsstelle_id,
                v.ort, v.strasse, v.typ, a.anzahl_displays, a.notizen, a.erstellt_am,
-               a.foto_pfad,
+               a.foto_pfad, a.foto_pfad_2, a.foto_pfad_3,
                COALESCE(a.aktionstyp, 'Aufbau') AS aktionstyp,
                COALESCE(SUM(b.kisten_anzahl), 0) AS kisten_gesamt
         FROM aktivitaet a
@@ -3907,7 +3943,8 @@ def admin():
         teams=teams,
         mail_konfiguriert=mail_konfiguriert,
         urlaubsmail_empfaenger=urlaubsmail_empfaenger,
-        neue_vs_empfaenger=neue_vs_empfaenger)
+        neue_vs_empfaenger=neue_vs_empfaenger,
+        export_email=EXPORT_EMAIL)
 
 
 @app.route('/admin/mitarbeiter/neu', methods=['POST'])
@@ -4714,8 +4751,9 @@ def admin_bier_bearbeiten(b_id):
 @admin_required
 def admin_display_neu():
     name = request.form.get('name', '').strip()
+    zaehlt = 1 if request.form.get('zaehlt_zur_zielerreichung') == '1' else 0
     if name:
-        execute("INSERT OR IGNORE INTO displaysorte (name) VALUES (?)", (name,))
+        execute("INSERT OR IGNORE INTO displaysorte (name, zaehlt_zur_zielerreichung) VALUES (?,?)", (name, zaehlt))
         flash(f'Displaysorte "{name}" angelegt.', 'success')
     return redirect(url_for('admin'))
 
@@ -4744,9 +4782,22 @@ def admin_display_reaktivieren(ds_id):
 @admin_required
 def admin_display_bearbeiten(ds_id):
     name = request.form.get('name', '').strip()
+    zaehlt = 1 if request.form.get('zaehlt_zur_zielerreichung') == '1' else 0
     if name:
-        execute("UPDATE displaysorte SET name=? WHERE id=?", (name, ds_id))
+        execute("UPDATE displaysorte SET name=?, zaehlt_zur_zielerreichung=? WHERE id=?", (name, zaehlt, ds_id))
         flash(f'Display-Typ „{name}" aktualisiert.', 'success')
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/displaysorte/<int:ds_id>/tier-umschalten', methods=['POST'])
+@admin_required
+def admin_display_tier_umschalten(ds_id):
+    d = query("SELECT * FROM displaysorte WHERE id=?", (ds_id,), one=True)
+    if d:
+        neu = 0 if d['zaehlt_zur_zielerreichung'] else 1
+        execute("UPDATE displaysorte SET zaehlt_zur_zielerreichung=? WHERE id=?", (neu, ds_id))
+        label = 'zählt zur Zielerreichung' if neu else 'zählt nicht zur Zielerreichung'
+        flash(f'Aufbautyp „{d["name"]}" {label}.', 'info')
     return redirect(url_for('admin'))
 
 
@@ -5381,19 +5432,22 @@ def erstelle_fotos_zip_bytes(wochen: int = None, von: str = None, bis: str = Non
     """Erstellt ZIP-Archiv aller Fotos in einem Zeitraum.
     Entweder von/bis (YYYY-MM-DD) oder wochen (Anzahl Wochen zurück). Gibt (zip_bytes, anzahl) zurück."""
     _sql_basis = (
-        "SELECT a.datum, m.kuerzel, a.foto_pfad, "
+        "SELECT a.datum, m.kuerzel, a.foto_pfad, a.foto_pfad_2, a.foto_pfad_3, "
         "       COALESCE(a.aktionstyp, 'Aufbau') AS aktionstyp, "
         "       COALESCE(v.name, '') AS vs_name "
         "FROM aktivitaet a "
         "JOIN mitarbeiter m ON m.id = a.mitarbeiter_id "
         "LEFT JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id "
     )
+    _foto_bedingung = ("((a.foto_pfad IS NOT NULL AND a.foto_pfad != '') "
+                        " OR (a.foto_pfad_2 IS NOT NULL AND a.foto_pfad_2 != '') "
+                        " OR (a.foto_pfad_3 IS NOT NULL AND a.foto_pfad_3 != ''))")
     if von and bis:
-        fotos = query(_sql_basis + "WHERE a.foto_pfad IS NOT NULL AND a.foto_pfad != '' AND a.datum BETWEEN ? AND ? ORDER BY a.datum", (von, bis))
+        fotos = query(_sql_basis + f"WHERE {_foto_bedingung} AND a.datum BETWEEN ? AND ? ORDER BY a.datum", (von, bis))
     else:
         w = wochen or 4
         grenzwert = (date.today() - timedelta(weeks=w)).isoformat()
-        fotos = query(_sql_basis + "WHERE a.foto_pfad IS NOT NULL AND a.foto_pfad != '' AND a.datum >= ? ORDER BY a.datum", (grenzwert,))
+        fotos = query(_sql_basis + f"WHERE {_foto_bedingung} AND a.datum >= ? ORDER BY a.datum", (grenzwert,))
 
     def _safe(s):
         import re
@@ -5403,12 +5457,15 @@ def erstelle_fotos_zip_bytes(wochen: int = None, von: str = None, bis: str = Non
     count = 0
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
         for f in fotos:
-            pfad = os.path.join(UPLOAD_FOLDER, f['foto_pfad'])
-            if os.path.exists(pfad):
-                ext     = os.path.splitext(f['foto_pfad'])[1]
-                arcname = f"{f['datum']}_{f['kuerzel']}_{_safe(f['vs_name'])}_{_safe(f['aktionstyp'])}_{count+1:03d}{ext}"
-                zf.write(pfad, arcname)
-                count += 1
+            for foto_pfad in (f['foto_pfad'], f['foto_pfad_2'], f['foto_pfad_3']):
+                if not foto_pfad:
+                    continue
+                pfad = os.path.join(UPLOAD_FOLDER, foto_pfad)
+                if os.path.exists(pfad):
+                    ext     = os.path.splitext(foto_pfad)[1]
+                    arcname = f"{f['datum']}_{f['kuerzel']}_{_safe(f['vs_name'])}_{_safe(f['aktionstyp'])}_{count+1:03d}{ext}"
+                    zf.write(pfad, arcname)
+                    count += 1
     buf.seek(0)
     return buf.read(), count
 

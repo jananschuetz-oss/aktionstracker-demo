@@ -263,17 +263,20 @@
             <small class="text-muted">{{ unit_label }}</small>
           </div>
 
-          <!-- Foto-Vorschau -->
+          <!-- Foto-Vorschau (bis zu 3) -->
           {% if a.foto_pfad %}
-          <div class="col-auto">
-            <a href="#" class="akt-foto-oeffnen" data-foto="/uploads/{{ a.foto_pfad }}" title="Foto vergrößern">
-              <img src="/uploads/{{ a.foto_pfad }}"
+          {% set _fotos = [a.foto_pfad, a.foto_pfad_2, a.foto_pfad_3] | select | list %}
+          <div class="col-auto d-flex gap-1">
+            {% for fp in _fotos %}
+            <a href="#" class="akt-foto-oeffnen" data-fotos='{{ _fotos | tojson }}' data-index="{{ loop.index0 }}" title="Foto vergrößern">
+              <img src="/uploads/{{ fp }}"
                    alt="Foto"
                    style="width:56px;height:56px;object-fit:cover;border-radius:.5rem;
                           border:2px solid #2e6da4;transition:transform .15s"
                    onmouseover="this.style.transform='scale(1.08)'"
                    onmouseout="this.style.transform='scale(1)'">
             </a>
+            {% endfor %}
           </div>
           {% else %}
           {# Hinweis wenn Eintrag älter als 8 Wochen – Foto könnte automatisch gelöscht worden sein #}
@@ -389,15 +392,22 @@
 </div>
 {% endif %}
 
-<!-- Foto-Vorschau Modal -->
+<!-- Foto-Vorschau Modal (Galerie, bis zu 3 Fotos) -->
 <div class="modal fade" id="modalAktFoto" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered modal-lg">
     <div class="modal-content" style="background:transparent;border:none">
-      <div class="modal-header border-0">
+      <div class="modal-header border-0 pb-0">
+        <span id="aktFotoZaehler" class="text-white small"></span>
         <button type="button" class="btn-close btn-close-white ms-auto" data-bs-dismiss="modal"></button>
       </div>
-      <div class="modal-body text-center p-0">
+      <div class="modal-body text-center p-0 position-relative">
+        <button type="button" id="aktFotoPrev" class="btn btn-light position-absolute top-50 start-0 translate-middle-y ms-2" style="display:none;z-index:2">
+          <i class="bi bi-chevron-left"></i>
+        </button>
         <img id="aktFotoGross" src="" alt="Foto" style="max-width:100%;max-height:80vh;border-radius:.5rem">
+        <button type="button" id="aktFotoNext" class="btn btn-light position-absolute top-50 end-0 translate-middle-y me-2" style="display:none;z-index:2">
+          <i class="bi bi-chevron-right"></i>
+        </button>
       </div>
     </div>
   </div>
@@ -546,12 +556,34 @@ function toggleEditFields() {
 </script>
 {% endif %}
 <script>
+let aktFotoListe = [];
+let aktFotoIndex = 0;
+function aktFotoZeigen() {
+  document.getElementById('aktFotoGross').src = '/uploads/' + aktFotoListe[aktFotoIndex];
+  const mehrere = aktFotoListe.length > 1;
+  document.getElementById('aktFotoPrev').style.display = mehrere ? '' : 'none';
+  document.getElementById('aktFotoNext').style.display = mehrere ? '' : 'none';
+  document.getElementById('aktFotoZaehler').textContent = mehrere ? (aktFotoIndex + 1) + ' / ' + aktFotoListe.length : '';
+}
 document.addEventListener('click', function(e) {
   const link = e.target.closest('.akt-foto-oeffnen');
-  if (!link) return;
-  e.preventDefault();
-  document.getElementById('aktFotoGross').src = link.dataset.foto;
-  new bootstrap.Modal(document.getElementById('modalAktFoto')).show();
+  if (link) {
+    e.preventDefault();
+    aktFotoListe = JSON.parse(link.dataset.fotos);
+    aktFotoIndex = parseInt(link.dataset.index, 10) || 0;
+    aktFotoZeigen();
+    new bootstrap.Modal(document.getElementById('modalAktFoto')).show();
+    return;
+  }
+  if (e.target.closest('#aktFotoPrev')) {
+    aktFotoIndex = (aktFotoIndex - 1 + aktFotoListe.length) % aktFotoListe.length;
+    aktFotoZeigen();
+    return;
+  }
+  if (e.target.closest('#aktFotoNext')) {
+    aktFotoIndex = (aktFotoIndex + 1) % aktFotoListe.length;
+    aktFotoZeigen();
+  }
 });
 </script>
 {% endblock %}
