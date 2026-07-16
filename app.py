@@ -726,6 +726,25 @@ def init_db():
         except Exception:
             pass
 
+        # Idempotent (läuft bei jedem Start, aber nach der ersten Korrektur ohne
+        # Effekt): Pflichtpause rückwirkend auf bestehende Arbeitszeit-Einträge
+        # anwenden, bei denen sie noch nicht korrekt gespeichert war (z.B. durch
+        # das Race zwischen zwei schnellen Feld-Speicherungen Beginn→Ende). Die
+        # Anzeige (_az_netto_minuten) setzt die Pflichtpause zwar selbst schon
+        # immer an, aber die gespeicherte Pause-Spalte soll denselben Wert
+        # zeigen statt "0", damit sie nicht wie ein Fehler aussieht.
+        try:
+            _az_rows = db.execute(
+                "SELECT id, beginn, ende, pause_minuten FROM arbeitszeit WHERE beginn IS NOT NULL AND ende IS NOT NULL"
+            ).fetchall()
+            for _r in _az_rows:
+                _pflicht = _az_pflichtpause_minuten(_az_brutto_minuten(_r['beginn'], _r['ende']))
+                if _pflicht > (_r['pause_minuten'] or 0):
+                    db.execute("UPDATE arbeitszeit SET pause_minuten=? WHERE id=?", (_pflicht, _r['id']))
+            db.commit()
+        except Exception:
+            pass
+
         # Admin + Verkaufsleiter (Passwort via ENV ADMIN_PASSWORD konfigurierbar)
         db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Administrator', 'ADMIN', 'admin', ?)", (ADMIN_PASSWORD,))
         db.execute("UPDATE mitarbeiter SET passwort=? WHERE kuerzel='ADMIN'", (ADMIN_PASSWORD,))
