@@ -7285,9 +7285,15 @@ def api_karte_daten():
             'zuordnungen': zuordnung_list,
         })
 
+    # Für die Farb-/Legenden-Zuordnung im Frontend (repFarbe()) muss "reps" auch für
+    # Nicht-Manager mindestens den eigenen Account enthalten, sonst findet die Karte
+    # keinen Eintrag für die eigene Zuordnung und färbt alle Stationen grau ("nicht
+    # zugeordnet"), obwohl sie korrekt zugewiesen sind.
     reps = query(
         "SELECT id, name, kuerzel FROM mitarbeiter WHERE rolle IN ('rep','verkaufsleiter') ORDER BY name"
-    ) if is_manager else []
+    ) if is_manager else query(
+        "SELECT id, name, kuerzel FROM mitarbeiter WHERE id=?", (session['user_id'],)
+    )
 
     return jsonify({
         'stellen': result,
