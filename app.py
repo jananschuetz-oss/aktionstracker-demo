@@ -393,7 +393,14 @@ def cleanup_alte_fotos():
 
 def _az_netto_minuten(beginn, ende, pause_minuten=0):
     """Berechnet die Netto-Arbeitszeit in Minuten aus Beginn/Ende (HH:MM) minus Pause.
-    Gibt None zurück, wenn Beginn/Ende fehlen oder Ende vor Beginn liegt."""
+    Gibt None zurück, wenn Beginn/Ende fehlen oder Ende vor Beginn liegt.
+    Setzt IMMER mindestens die gesetzliche Pflichtpause an (>6 Std → 30 Min,
+    >9 Std → 45 Min) – unabhängig davon, was in pause_minuten gespeichert ist.
+    Die Speicher-Routen korrigieren pause_minuten zwar schon beim Sichern nach
+    oben, aber bei einem Race zwischen zwei schnellen Feld-Speicherungen
+    (Beginn→Ende kurz hintereinander) oder bei Altdaten von vor dieser Regel
+    kann der gespeicherte Wert trotzdem 0 bleiben – die Anzeige muss sich
+    daher selbst absichern, statt dem gespeicherten Wert blind zu vertrauen."""
     if not beginn or not ende:
         return None
     try:
@@ -404,7 +411,8 @@ def _az_netto_minuten(beginn, ende, pause_minuten=0):
     minuten = (h2 * 60 + m2) - (h1 * 60 + m1)
     if minuten < 0:
         return None
-    return max(0, minuten - (pause_minuten or 0))
+    effektive_pause = max(pause_minuten or 0, _az_pflichtpause_minuten(minuten))
+    return max(0, minuten - effektive_pause)
 
 
 def _az_brutto_minuten(beginn, ende):
