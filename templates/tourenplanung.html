@@ -149,6 +149,8 @@
           {% else %}
           <span class="badge" style="background:#d4edda;color:#155724;font-size:.75rem"><i class="bi bi-check2-all me-1"></i>Alle erledigt</span>
           {% endif %}
+        {% elif (rep.id, datum) in urlaub_tag %}
+          <span class="badge" style="background:#fff3cd;color:#856404;font-size:.75rem"><i class="bi bi-sun me-1"></i>Urlaub</span>
         {% else %}
           <span class="badge" style="background:#e2e8f0;color:#adb5bd;font-size:.75rem">Kein Plan</span>
         {% endif %}
@@ -217,7 +219,11 @@
       {% endfor %}
       {% if not rep_stops %}
       <div class="list-group-item py-3 text-center" style="color:#adb5bd;font-size:.85rem">
-        Noch kein Besuchsplan eingetragen
+        {% if (rep.id, datum) in urlaub_tag %}
+          <i class="bi bi-sun me-1"></i>Urlaub
+        {% else %}
+          Noch kein Besuchsplan eingetragen
+        {% endif %}
       </div>
       {% endif %}
       {% if del_stops %}
@@ -293,6 +299,8 @@
           {% if offen_n %}
           <span class="badge" style="background:#fff3cd;color:#856404;font-size:.75rem">{{ offen_n }} offen</span>
           {% endif %}
+        {% elif rep.id in urlaub_ganze_woche %}
+          <span class="badge" style="background:#fff3cd;color:#856404;font-size:.75rem"><i class="bi bi-sun me-1"></i>Urlaub</span>
         {% else %}
           <span class="badge" style="background:#e2e8f0;color:#adb5bd;font-size:.75rem">Kein Plan</span>
         {% endif %}
@@ -323,6 +331,8 @@
                 {% if tag_offen %}<span class="badge" style="background:#fff3cd;color:#856404;font-size:.7rem">{{ tag_offen }} offen</span>{% endif %}
                 {% if tag_del %}<span class="badge" style="background:#f8d7da;color:#721c24;font-size:.7rem"><i class="bi bi-trash me-1"></i>{{ tag_del|length }}</span>{% endif %}
               </span>
+              {% elif (rep.id, tag_datum) in urlaub_woche %}
+              <span class="ms-2 text-muted" style="font-size:.8rem"><i class="bi bi-sun me-1"></i>Urlaub</span>
               {% else %}
               <span class="ms-2 text-muted" style="font-size:.8rem">— kein Plan</span>
               {% endif %}

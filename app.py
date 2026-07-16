@@ -1514,6 +1514,30 @@ def _team_m_clause(alias='m'):
     return '', ()
 
 
+def _urlaub_daten(ma_ids, start_iso, end_iso):
+    """Menge von (mitarbeiter_id, datum)-Paaren für alle Tage im Bereich [start_iso, end_iso],
+    an denen der jeweilige Mitarbeiter laut bestätigter Abwesenheit (vertretung) im Urlaub ist.
+    Wird genutzt, um in der Besuchsplanung „Urlaub" statt „Kein Plan" anzuzeigen."""
+    if not ma_ids:
+        return set()
+    ph = ','.join('?' * len(ma_ids))
+    rows = query(
+        f"SELECT abwesender_id, von, bis FROM vertretung "
+        f"WHERE status='bestätigt' AND abwesender_id IN ({ph}) AND von <= ? AND bis >= ?",
+        tuple(ma_ids) + (end_iso, start_iso)
+    )
+    start_d = date.fromisoformat(start_iso)
+    end_d   = date.fromisoformat(end_iso)
+    ergebnis = set()
+    for r in rows:
+        d = max(date.fromisoformat(r['von']), start_d)
+        bis = min(date.fromisoformat(r['bis']), end_d)
+        while d <= bis:
+            ergebnis.add((r['abwesender_id'], d.isoformat()))
+            d += timedelta(days=1)
+    return ergebnis
+
+
 # ─── PWA Manifest (dynamisch mit COMPANY_NAME aus ENV) ───────────────────────
 
 @app.route('/manifest.json')
@@ -2050,6 +2074,9 @@ def dashboard():
     tp_prev_woche    = (tp_woche_montag - timedelta(days=7)).isoformat()
     tp_next_woche    = (tp_woche_montag + timedelta(days=7)).isoformat()
     datum_woche_rep  = [(tp_woche_montag + timedelta(days=i)).isoformat() for i in range(7)]
+    urlaub_woche_rep = {
+        d for (_mid, d) in _urlaub_daten([session['user_id']], tp_woche_montag.isoformat(), tp_woche_sonntag.isoformat())
+    }
     # Eigener Besuchsplan: eigene Ansicht (Rep, oder VKL ohne ma_filter)
     if zeige_eigene_ansicht:
         tagesplan_rep = query('''
@@ -2112,6 +2139,7 @@ def dashboard():
         tagesplan_rep=tagesplan_rep,
         alle_verkaufsstellen_rep=alle_verkaufsstellen_rep,
         datum_woche_rep=datum_woche_rep,
+        urlaub_woche_rep=urlaub_woche_rep,
         tp_kw=tp_kw,
         tp_prev_kw=tp_prev_kw,
         tp_next_kw=tp_next_kw,
@@ -2464,6 +2492,7 @@ def tourenplanung():
         f"SELECT id, name, kuerzel FROM mitarbeiter m WHERE rolle='rep' AND aktiv=1 {_tm_sql} ORDER BY name",
         _tm_p
     )
+    rep_ids = [r['id'] for r in reps]
 
     # Tag-Modus
     datum = request.args.get('datum', today.isoformat())
@@ -2478,6 +2507,7 @@ def tourenplanung():
     tag_next_kw    = tag_kw + 1 if tag_kw < 52 else 1
     tag_prev_datum = (_datum_d - timedelta(days=7)).isoformat()
     tag_next_datum = (_datum_d + timedelta(days=7)).isoformat()
+    urlaub_tag = _urlaub_daten(rep_ids, datum, datum)
     plan_tag = query(f'''
         SELECT tp.id, tp.datum, tp.reihenfolge, tp.notiz, tp.erledigt,
                COALESCE(tp.geloescht, 0) AS geloescht, tp.geloescht_am,
@@ -2515,6 +2545,11 @@ def tourenplanung():
         WHERE tp.datum >= ? AND tp.datum <= ? {_tm_sql}
         ORDER BY m.name, tp.datum, tp.reihenfolge, tp.id
     ''', (woche_start.isoformat(), woche_ende.isoformat()) + _tm_p) if modus == 'woche' else []
+    urlaub_woche = _urlaub_daten(rep_ids, woche_start.isoformat(), woche_ende.isoformat()) if modus == 'woche' else set()
+    urlaub_ganze_woche = {
+        ma_id for ma_id in rep_ids
+        if all((ma_id, tag) in urlaub_woche for tag in woche_tage)
+    } if modus == 'woche' else set()
 
     return render_template('tourenplanung.html',
         reps=reps,
@@ -2528,6 +2563,7 @@ def tourenplanung():
         tag_prev_datum=tag_prev_datum,
         tag_next_datum=tag_next_datum,
         plan_tag=plan_tag,
+        urlaub_tag=urlaub_tag,
         today_str=today.isoformat(),
         tomorrow_str=(today + timedelta(days=1)).isoformat(),
         # Woche
@@ -2535,6 +2571,8 @@ def tourenplanung():
         woche_ende=woche_ende.isoformat(),
         woche_tage=woche_tage,
         plan_woche=plan_woche,
+        urlaub_woche=urlaub_woche,
+        urlaub_ganze_woche=urlaub_ganze_woche,
         prev_woche=(woche_start - timedelta(days=7)).isoformat(),
         next_woche=(woche_start + timedelta(days=7)).isoformat(),
     )
@@ -7117,7 +7155,24 @@ def karte():
         f"SELECT id, name, kuerzel FROM mitarbeiter m WHERE rolle IN ('rep','verkaufsleiter'){_km_sql} ORDER BY name",
         _km_p
     )
-    return render_template('karte.html', reps=reps, is_manager=is_manager, karte_modus=KARTE_MODUS)
+    _today = date.today()
+    _km_woche_str = request.args.get('km_woche', None)
+    if _km_woche_str:
+        try:
+            _km_w = date.fromisoformat(_km_woche_str)
+        except ValueError:
+            _km_w = _today
+        _woche_montag = _km_w - timedelta(days=_km_w.weekday())
+    else:
+        _woche_montag = _today - timedelta(days=_today.weekday())
+    datum_woche_karte = [(_woche_montag + timedelta(days=i)).isoformat() for i in range(7)]
+    km_kw          = _woche_montag.isocalendar()[1]
+    km_prev_woche  = (_woche_montag - timedelta(days=7)).isoformat()
+    km_next_woche  = (_woche_montag + timedelta(days=7)).isoformat()
+    return render_template('karte.html', reps=reps, is_manager=is_manager, karte_modus=KARTE_MODUS,
+        datum_woche_karte=datum_woche_karte, today_str=_today.isoformat(),
+        tomorrow_str=(_today + timedelta(days=1)).isoformat(),
+        km_kw=km_kw, km_prev_woche=km_prev_woche, km_next_woche=km_next_woche)
 
 
 @app.route('/api/karte/daten')
@@ -7129,7 +7184,7 @@ def api_karte_daten():
 
     if is_manager:
         stellen = query("""
-            SELECT v.id, v.name, v.ort, v.typ, v.strasse, v.ansprechpartner, v.lat, v.lng,
+            SELECT v.id, v.name, v.ort, v.plz, v.typ, v.strasse, v.ansprechpartner, v.landkreis, v.lat, v.lng,
                    GROUP_CONCAT(m.id || ':' || m.name || ':' || m.kuerzel, '|') AS zuordnungen
             FROM verkaufsstelle v
             LEFT JOIN mitarbeiter_verkaufsstelle mv ON mv.verkaufsstelle_id = v.id
@@ -7140,7 +7195,7 @@ def api_karte_daten():
         """)
     else:
         stellen = query("""
-            SELECT v.id, v.name, v.ort, v.typ, v.strasse, v.ansprechpartner, v.lat, v.lng,
+            SELECT v.id, v.name, v.ort, v.plz, v.typ, v.strasse, v.ansprechpartner, v.landkreis, v.lat, v.lng,
                    m.id || ':' || m.name || ':' || m.kuerzel AS zuordnungen
             FROM verkaufsstelle v
             JOIN mitarbeiter_verkaufsstelle mv ON mv.verkaufsstelle_id = v.id
@@ -7163,9 +7218,11 @@ def api_karte_daten():
             'id': s['id'],
             'name': s['name'],
             'ort':  s['ort'] or '',
+            'plz':  s['plz'] or '',
             'typ':  s['typ'] or '',
             'strasse': s['strasse'] or '',
             'ansprechpartner': s['ansprechpartner'] or '',
+            'landkreis': s['landkreis'] or '',
             'lat': s['lat'],
             'lng': s['lng'],
             'zuordnungen': zuordnung_list,
@@ -7233,6 +7290,77 @@ def api_karte_zuordnung_aendern():
 
     db.commit()
     return jsonify({'ok': True, 'stelle_name': stelle_name})
+
+
+@app.route('/api/karte/zuordnung-bulk-aendern', methods=['POST'])
+@manager_required
+def api_karte_zuordnung_bulk_aendern():
+    """Überträgt mehrere Verkaufsstellen auf einen Mitarbeiter (oder entfernt Zuordnung).
+    Für den Fall, dass ein ganzer Landkreis von einem Mitarbeiter zu einem anderen wechselt."""
+    if KARTE_MODUS == 'aus':
+        return jsonify({'error': 'Nicht verfügbar'}), 403
+    data       = request.get_json() or {}
+    stelle_ids = [int(i) for i in data.get('stelle_ids', []) if str(i).isdigit()]
+    rep_id_raw = data.get('rep_id')
+    rep_id     = int(rep_id_raw) if rep_id_raw not in (None, '', 'none') else None
+
+    if not stelle_ids:
+        return jsonify({'error': 'Keine Stationen ausgewählt'}), 400
+
+    db = get_db()
+    if rep_id is not None:
+        gueltig = db.execute(
+            "SELECT 1 FROM mitarbeiter WHERE id=? AND rolle IN ('rep','verkaufsleiter')",
+            (rep_id,)
+        ).fetchone()
+        if not gueltig:
+            return jsonify({'error': 'Ungültiger Mitarbeiter'}), 400
+
+    heute   = date.today().strftime('%d.%m.%Y')
+    ph      = ','.join('?' * len(stelle_ids))
+    stellen = db.execute(f"SELECT id, name FROM verkaufsstelle WHERE id IN ({ph})", stelle_ids).fetchall()
+    namen_map = {s['id']: s['name'] for s in stellen}
+
+    for stelle_id in stelle_ids:
+        if stelle_id not in namen_map:
+            continue
+        alte_rows = db.execute(
+            "SELECT mitarbeiter_id FROM mitarbeiter_verkaufsstelle WHERE verkaufsstelle_id=?",
+            (stelle_id,)
+        ).fetchall()
+        alte_ids = {r['mitarbeiter_id'] for r in alte_rows}
+        neue_ids = {rep_id} if rep_id else set()
+
+        entfernt     = alte_ids - neue_ids
+        hinzugefuegt = neue_ids - alte_ids
+        if not entfernt and not hinzugefuegt:
+            continue
+
+        db.execute("DELETE FROM mitarbeiter_verkaufsstelle WHERE verkaufsstelle_id=?", (stelle_id,))
+        for rid in neue_ids:
+            db.execute(
+                "INSERT OR IGNORE INTO mitarbeiter_verkaufsstelle (mitarbeiter_id, verkaufsstelle_id) VALUES (?,?)",
+                (rid, stelle_id)
+            )
+
+        stelle_name = namen_map[stelle_id]
+        for rid in entfernt | hinzugefuegt:
+            ma_rolle = db.execute("SELECT rolle FROM mitarbeiter WHERE id=?", (rid,)).fetchone()
+            if not ma_rolle or ma_rolle['rolle'] != 'rep':
+                continue
+            if rid in entfernt:
+                msg = f'{heute}: Station "{stelle_name}" wurde aus Ihrem Gebiet entfernt.'
+            else:
+                msg = f'{heute}: Station "{stelle_name}" wurde Ihrem Gebiet hinzugefügt.'
+            bestehend = db.execute(
+                "SELECT karte_benachrichtigung FROM mitarbeiter WHERE id=?", (rid,)
+            ).fetchone()
+            alt = bestehend['karte_benachrichtigung'] if bestehend and bestehend['karte_benachrichtigung'] else ''
+            neu = (alt + '\n' + msg).strip()
+            db.execute("UPDATE mitarbeiter SET karte_benachrichtigung=? WHERE id=?", (neu, rid))
+
+    db.commit()
+    return jsonify({'ok': True, 'anzahl': len(stelle_ids), 'rep_id': rep_id})
 
 
 _DACH_BBOX = {'lat_min': 45.8, 'lat_max': 55.2, 'lon_min': 5.8, 'lon_max': 17.2}
@@ -7442,7 +7570,7 @@ def api_karte_heatmap():
             extra_join = ""
 
     stellen = query(
-        f"SELECT v.id, v.name, v.ort, v.lat, v.lng, {metric}, "
+        f"SELECT v.id, v.name, v.ort, v.plz, v.strasse, v.lat, v.lng, {metric}, "
         f"(SELECT COUNT(*) FROM mitarbeiter_verkaufsstelle WHERE verkaufsstelle_id = v.id) > 0 AS zugeordnet "
         f"FROM verkaufsstelle v "
         f"LEFT JOIN aktivitaet a ON {' AND '.join(join_conds)} "
@@ -7454,6 +7582,7 @@ def api_karte_heatmap():
     jahre_raw = query("SELECT DISTINCT strftime('%Y', datum) AS jahr FROM aktivitaet ORDER BY jahr DESC")
     return jsonify({
         'stellen': [{'id': s['id'], 'name': s['name'], 'ort': s['ort'] or '',
+                     'plz': s['plz'] or '', 'strasse': s['strasse'] or '',
                      'lat': s['lat'], 'lng': s['lng'], 'anzahl': s['anzahl'],
                      'zugeordnet': bool(s['zugeordnet'])} for s in stellen],
         'jahre':   [j['jahr'] for j in jahre_raw],

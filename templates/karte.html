@@ -17,6 +17,51 @@
   </p>
 </div>
 
+{% set besuchsplanung_erlaubt = session.rolle in ('rep', 'verkaufsleiter') and touren_modus != 'aus' %}
+{% if besuchsplanung_erlaubt %}
+<!-- Besuchsplanung: Tag wählen, dann Verkaufsstellen per Klick als Stopp einplanen -->
+<div class="card mb-3" style="border-color:#2c7a7b">
+  <div class="card-body py-2" style="background:#f0fafa">
+    <div class="fw-semibold mb-1" style="color:#1a3a5c;font-size:.9rem">
+      <i class="bi bi-calendar-check me-1" style="color:#2c7a7b"></i>Besuchsplanung
+      <span class="text-muted fw-normal" style="font-size:.8rem">– Tag wählen, dann Verkaufsstelle anklicken und einplanen</span>
+    </div>
+    {% set start_auswahl = today_str if today_str in datum_woche_karte else datum_woche_karte[0] %}
+    <input type="hidden" id="planungsDatum" value="{{ start_auswahl }}">
+    <div class="d-flex flex-wrap gap-1 align-items-center">
+      {% for d in datum_woche_karte %}
+      {% set is_past = d < today_str %}
+      {% set is_today = d == today_str %}
+      <button type="button"
+              class="btn btn-sm planungs-datum-tile {% if d == start_auswahl %}btn-primary{% else %}btn-outline-secondary{% endif %}{% if is_past %} opacity-50{% endif %}"
+              data-datum="{{ d }}"
+              style="font-size:.8rem;padding:4px 10px;min-width:64px;text-align:center">
+        <span class="d-block fw-semibold">
+          {% if is_today %}Heute
+          {% elif d == tomorrow_str %}Morgen
+          {% else %}{{ d | weekday_de }}{% endif %}
+        </span>
+        <span style="font-size:.7rem;opacity:.75">{{ d[8:10] }}.{{ d[5:7] }}</span>
+      </button>
+      {% endfor %}
+      <input type="date" id="planungsDatumCustom"
+             min="{{ today_str }}"
+             title="Eigenes Datum wählen"
+             style="font-size:.78rem;padding:4px 8px;height:36px;border:1px solid #dee2e6;border-radius:.375rem;min-width:130px;cursor:pointer;color:#555">
+      <span class="d-flex align-items-center gap-2 ms-2">
+        <a href="{{ url_for('karte', km_woche=km_prev_woche) }}" class="btn btn-sm btn-outline-secondary py-0 px-2" title="Vorherige Woche">
+          <i class="bi bi-chevron-left"></i>
+        </a>
+        <span class="text-muted fw-normal" style="font-size:.8rem;white-space:nowrap">KW {{ km_kw }}</span>
+        <a href="{{ url_for('karte', km_woche=km_next_woche) }}" class="btn btn-sm btn-outline-secondary py-0 px-2" title="Nächste Woche">
+          <i class="bi bi-chevron-right"></i>
+        </a>
+      </span>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <!-- Filter & Steuerung -->
 <div class="card mb-3">
   <div class="card-body py-2 d-flex flex-wrap gap-2 align-items-center">
@@ -96,6 +141,9 @@
         {% endfor %}
       </div>
     </div>
+    <button id="btnMehrfachauswahl" class="btn btn-sm btn-outline-primary">
+      <i class="bi bi-check2-square me-1"></i>Mehrfachauswahl
+    </button>
     <button id="btnGeocode" class="btn btn-sm btn-outline-secondary">
       <i class="bi bi-geo-alt me-1"></i>Koordinaten ermitteln
     </button>
@@ -108,6 +156,36 @@
     </span>
   </div>
 </div>
+
+{% if is_manager %}
+<!-- Mehrfachauswahl-Panel: Stationen auswählen und gebündelt umhängen -->
+<div id="panelAuswahl" class="card mb-3 d-none">
+  <div class="card-header d-flex justify-content-between align-items-center py-2">
+    <span><i class="bi bi-check2-square me-1"></i>Stationen auswählen</span>
+    <div class="form-check mb-0">
+      <input class="form-check-input" type="checkbox" id="auswahl_alle">
+      <label class="form-check-label small" for="auswahl_alle">Alle auswählen</label>
+    </div>
+  </div>
+  <div class="card-body py-2" style="max-height:320px;overflow-y:auto" id="auswahlListe"></div>
+  <div class="card-footer d-flex flex-wrap gap-2 align-items-center bg-light">
+    <span id="bulkCount" class="small fw-semibold">0 Stationen ausgewählt</span>
+    <select id="bulkRepSelect" class="form-select form-select-sm" style="width:auto;min-width:180px">
+      <option value="" selected disabled>Neuer Mitarbeiter…</option>
+      {% for rep in reps %}
+      <option value="{{ rep.id }}">{{ rep.name }}</option>
+      {% endfor %}
+      <option value="none">— keinem zuordnen —</option>
+    </select>
+    <button id="btnBulkUebertragen" class="btn btn-sm btn-primary" disabled>
+      <i class="bi bi-arrow-left-right me-1"></i>Zuordnung übertragen
+    </button>
+    <span id="bulkStatus" class="small text-success d-none">
+      <i class="bi bi-check-circle me-1"></i>Übertragen
+    </span>
+  </div>
+</div>
+{% endif %}
 
 <!-- Karten-Container -->
 <div class="card mb-3">
@@ -141,6 +219,18 @@
           <span id="ms-typ" class="badge bg-secondary"></span>
           <span id="ms-ansprechpartner" class="small text-muted ms-2"></span>
         </div>
+
+        {% if besuchsplanung_erlaubt %}
+        <!-- Stopp für den gewählten Tag einplanen -->
+        <div class="mb-3">
+          <button type="button" class="btn btn-sm w-100" id="btnMsStoppHinzufuegen"
+                  style="background:#e6f4f4;border:1px solid #2c7a7b;color:#1a3a5c">
+            <i class="bi bi-calendar-plus me-1" style="color:#2c7a7b"></i>
+            <span id="btnMsStoppText">Als Stopp einplanen</span>
+          </button>
+          <div id="msStoppStatus" class="small mt-1 d-none"></div>
+        </div>
+        {% endif %}
 
         <!-- Aktuelle Zuordnung (Leseanzeige) -->
         <div class="mb-3">
@@ -263,8 +353,9 @@ function renderMarkers() {
     const namenListe = s.zuordnungen.map(r => r.name).join(', ') || '–';
     const keinBesuch = (monateFilter.length && !hatBesuche)
       ? '<br><small style="color:#adb5bd">Kein Besuch im Zeitraum</small>' : '';
+    const tipAdresse = [s.strasse, [s.plz, s.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ') || s.ort;
     m.bindTooltip(
-      `<strong>${s.name}</strong><br><small>${s.ort} · ${s.typ}</small><br><small>${namenListe}</small>${keinBesuch}`,
+      `<strong>${s.name}</strong><br><small>${tipAdresse} · ${s.typ}</small><br><small>${namenListe}</small>${keinBesuch}`,
       { direction: 'top', offset: [0, -8] });
 
     m.on('click', () => openStationModal(s.id));
@@ -326,7 +417,7 @@ function openStationModal(stelleId) {
 
   document.getElementById('ms-name').textContent = s.name;
 
-  const adresse = [s.strasse, s.ort].filter(Boolean).join(', ');
+  const adresse = [s.strasse, [s.plz, s.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ');
   document.getElementById('ms-adresse').textContent = adresse || '–';
   document.getElementById('ms-typ').textContent      = s.typ  || '';
   const ansp = document.getElementById('ms-ansprechpartner');
@@ -353,8 +444,85 @@ function openStationModal(stelleId) {
     if (status) status.classList.add('d-none');
   }
 
+  // Stopp-einplanen-Button zurücksetzen (Text mit gewähltem Datum)
+  aktualisiereStoppButton();
+  const stoppStatus = document.getElementById('msStoppStatus');
+  if (stoppStatus) { stoppStatus.classList.add('d-none'); stoppStatus.textContent = ''; }
+  const stoppBtn = document.getElementById('btnMsStoppHinzufuegen');
+  if (stoppBtn) stoppBtn.disabled = false;
+
   new bootstrap.Modal(document.getElementById('modalStation')).show();
 }
+
+/* ── Besuchsplanung: Verkaufsstelle für gewählten Tag als Stopp einplanen ────── */
+function formatDatumDE(iso) {
+  if (!iso) return '';
+  const [j, m, t] = iso.split('-');
+  return `${t}.${m}.${j}`;
+}
+function aktualisiereStoppButton() {
+  const textEl = document.getElementById('btnMsStoppText');
+  const dateEl = document.getElementById('planungsDatum');
+  if (!textEl || !dateEl) return;
+  textEl.textContent = 'Für ' + formatDatumDE(dateEl.value) + ' einplanen';
+}
+const planungsDatumInput = document.getElementById('planungsDatum');
+function waehleDatumTile(tile) {
+  document.querySelectorAll('.planungs-datum-tile').forEach(function(t) {
+    t.classList.remove('btn-primary');
+    t.classList.add('btn-outline-secondary');
+  });
+  tile.classList.remove('btn-outline-secondary');
+  tile.classList.add('btn-primary');
+  planungsDatumInput.value = tile.dataset.datum;
+  document.getElementById('planungsDatumCustom').value = '';
+  aktualisiereStoppButton();
+}
+document.querySelectorAll('.planungs-datum-tile').forEach(function(tile) {
+  tile.addEventListener('click', function() { waehleDatumTile(tile); });
+});
+const planungsDatumCustom = document.getElementById('planungsDatumCustom');
+if (planungsDatumCustom) {
+  planungsDatumCustom.addEventListener('change', function() {
+    if (!this.value) return;
+    document.querySelectorAll('.planungs-datum-tile').forEach(function(t) {
+      t.classList.remove('btn-primary');
+      t.classList.add('btn-outline-secondary');
+    });
+    planungsDatumInput.value = this.value;
+    aktualisiereStoppButton();
+  });
+}
+document.getElementById('btnMsStoppHinzufuegen')?.addEventListener('click', function() {
+  if (!aktiverStelleId) return;
+  const btn = this;
+  const status = document.getElementById('msStoppStatus');
+  const datum = document.getElementById('planungsDatum').value;
+  btn.disabled = true;
+  status.classList.remove('d-none', 'text-danger', 'text-success');
+  status.textContent = 'Wird eingeplant…';
+  fetch('/api/tagesplan/stopp/neu', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ vs_id: aktiverStelleId, datum: datum })
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        status.classList.add('text-success');
+        status.innerHTML = '<i class="bi bi-check-circle me-1"></i>Für ' + formatDatumDE(datum) + ' eingeplant.';
+      } else {
+        btn.disabled = false;
+        status.classList.add('text-danger');
+        status.textContent = data.error || 'Einplanen fehlgeschlagen.';
+      }
+    })
+    .catch(() => {
+      btn.disabled = false;
+      status.classList.add('text-danger');
+      status.textContent = 'Einplanen fehlgeschlagen.';
+    });
+});
 
 /* ── Zuordnung speichern ────────────────────────────────────────────────────────── */
 {% if is_manager %}
@@ -461,6 +629,180 @@ document.getElementById('btnSaveZuordnung').addEventListener('click', async func
     applyFilter();
   }));
 })();
+{% endif %}
+
+/* ── Mehrfachauswahl & Bulk-Umhängen ───────────────────────────────────────────── */
+{% if is_manager %}
+let mehrfachAuswahlAktiv = false;
+let ausgewaehlteStellen  = new Set();
+
+function sichtbareStellenFuerAuswahl() {
+  return alleStellen.filter(s =>
+    stelleIstSichtbar(s) && s.lat != null && s.lng != null && !(s.lat === 0 && s.lng === 0)
+  );
+}
+
+function renderAuswahlListe() {
+  const liste = document.getElementById('auswahlListe');
+  if (!liste) return;
+  const stellen = sichtbareStellenFuerAuswahl();
+
+  const gruppen = {};
+  stellen.forEach(s => {
+    const key = s.landkreis || 'Ohne Landkreis';
+    (gruppen[key] = gruppen[key] || []).push(s);
+  });
+  const gruppenNamen = Object.keys(gruppen).sort((a, b) => a.localeCompare(b, 'de'));
+
+  liste.innerHTML = gruppenNamen.map(lk => {
+    const items = gruppen[lk];
+    const alleAusgewaehlt = items.every(s => ausgewaehlteStellen.has(s.id));
+    const safeId = 'ag_' + lk.replace(/\W/g, '_');
+    return `
+      <div class="mb-2">
+        <div class="form-check border-bottom pb-1 mb-1">
+          <input class="form-check-input auswahl-lk-group" type="checkbox"
+                 data-lk="${lk.replace(/"/g, '&quot;')}" id="${safeId}" ${alleAusgewaehlt ? 'checked' : ''}>
+          <label class="form-check-label fw-semibold small" for="${safeId}">
+            ${lk} <span class="text-muted">(${items.length})</span>
+          </label>
+        </div>
+        ${items.map(s => `
+          <div class="form-check ms-3">
+            <input class="form-check-input auswahl-stelle-cb" type="checkbox"
+                   value="${s.id}" id="as_${s.id}" ${ausgewaehlteStellen.has(s.id) ? 'checked' : ''}>
+            <label class="form-check-label small" for="as_${s.id}">
+              ${s.name} <span class="text-muted">(${s.ort || '–'})</span>
+            </label>
+          </div>`).join('')}
+      </div>`;
+  }).join('') || '<span class="text-muted small">Keine Stationen im aktuellen Filter.</span>';
+
+  liste.querySelectorAll('.auswahl-stelle-cb').forEach(cb => {
+    cb.onchange = function () {
+      const id = parseInt(this.value);
+      if (this.checked) ausgewaehlteStellen.add(id); else ausgewaehlteStellen.delete(id);
+      syncAuswahlAlle();
+      updateAuswahlHighlight();
+      updateBulkBar();
+    };
+  });
+  liste.querySelectorAll('.auswahl-lk-group').forEach(cb => {
+    cb.onchange = function () {
+      const lk = this.dataset.lk;
+      (gruppen[lk] || []).forEach(s => {
+        if (this.checked) ausgewaehlteStellen.add(s.id); else ausgewaehlteStellen.delete(s.id);
+      });
+      renderAuswahlListe();
+      updateAuswahlHighlight();
+      updateBulkBar();
+    };
+  });
+
+  syncAuswahlAlle();
+}
+
+function syncAuswahlAlle() {
+  const allesCb = document.getElementById('auswahl_alle');
+  if (!allesCb) return;
+  const stellen = sichtbareStellenFuerAuswahl();
+  const n = stellen.filter(s => ausgewaehlteStellen.has(s.id)).length;
+  allesCb.checked       = stellen.length > 0 && n === stellen.length;
+  allesCb.indeterminate = n > 0 && n < stellen.length;
+}
+
+function updateAuswahlHighlight() {
+  Object.entries(markers).forEach(([id, m]) => {
+    const nId = parseInt(id);
+    if (ausgewaehlteStellen.has(nId)) {
+      m.setStyle({ color: '#00c2ff', weight: 4 });
+    } else {
+      const s = alleStellen.find(x => x.id === nId);
+      const mehrfach = s && s.zuordnungen.length > 1;
+      m.setStyle({ color: mehrfach ? '#fff' : 'white', weight: mehrfach ? 3 : 2 });
+    }
+  });
+}
+
+function updateBulkBar() {
+  const count = ausgewaehlteStellen.size;
+  document.getElementById('bulkCount').textContent =
+    count + ' Station' + (count === 1 ? '' : 'en') + ' ausgewählt';
+  const repSel = document.getElementById('bulkRepSelect');
+  document.getElementById('btnBulkUebertragen').disabled = count === 0 || !repSel.value;
+}
+
+document.getElementById('auswahl_alle').addEventListener('change', function () {
+  const stellen = sichtbareStellenFuerAuswahl();
+  stellen.forEach(s => { if (this.checked) ausgewaehlteStellen.add(s.id); else ausgewaehlteStellen.delete(s.id); });
+  renderAuswahlListe();
+  updateAuswahlHighlight();
+  updateBulkBar();
+});
+
+document.getElementById('bulkRepSelect').addEventListener('change', updateBulkBar);
+
+document.getElementById('btnMehrfachauswahl').addEventListener('click', function () {
+  mehrfachAuswahlAktiv = !mehrfachAuswahlAktiv;
+  const panel = document.getElementById('panelAuswahl');
+  if (mehrfachAuswahlAktiv) {
+    panel.classList.remove('d-none');
+    this.classList.replace('btn-outline-primary', 'btn-primary');
+    renderAuswahlListe();
+    updateAuswahlHighlight();
+  } else {
+    panel.classList.add('d-none');
+    this.classList.replace('btn-primary', 'btn-outline-primary');
+    ausgewaehlteStellen.clear();
+    updateAuswahlHighlight();
+    updateBulkBar();
+  }
+});
+
+document.getElementById('btnBulkUebertragen').addEventListener('click', async function () {
+  const btn    = this;
+  const repSel = document.getElementById('bulkRepSelect');
+  const repVal = repSel.value;
+  if (!repVal || ausgewaehlteStellen.size === 0) return;
+  const repId = repVal === 'none' ? null : parseInt(repVal);
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Übertrage…';
+
+  try {
+    const resp = await fetch('/api/karte/zuordnung-bulk-aendern', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ stelle_ids: Array.from(ausgewaehlteStellen), rep_id: repId }),
+    });
+    const result = await resp.json();
+    if (result.ok) {
+      const neueZuordnung = repId
+        ? [alleReps.find(r => r.id === repId)].filter(Boolean).map(r => ({ id: r.id, name: r.name, kuerzel: r.kuerzel }))
+        : [];
+      ausgewaehlteStellen.forEach(id => {
+        const stelle = alleStellen.find(x => x.id === id);
+        if (stelle) stelle.zuordnungen = neueZuordnung.slice();
+      });
+      ausgewaehlteStellen.clear();
+      repSel.value = '';
+      renderMarkers();
+      buildLegende();
+      renderAuswahlListe();
+      updateBulkBar();
+      const status = document.getElementById('bulkStatus');
+      status.classList.remove('d-none');
+      setTimeout(() => status.classList.add('d-none'), 3000);
+    } else {
+      alert('Fehler: ' + (result.error || 'Unbekannter Fehler'));
+    }
+  } catch (e) {
+    console.error('Bulk-Umhängen fehlgeschlagen:', e);
+    alert('Fehler beim Übertragen der Zuordnung.');
+  }
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-arrow-left-right me-1"></i>Zuordnung übertragen';
+});
 {% endif %}
 
 /* ── Besuche-Daten & Monats-Filter ───────────────────────────────────────────── */
@@ -665,7 +1007,10 @@ async function ladeHeatmap(jahr) {
       radius, fillColor, color: borderColor, weight: 1, opacity: 0.7, fillOpacity: opac, pane: 'shadowPane',
     })
     .bindTooltip(
-      `<strong>${s.name}</strong><br><small>${s.ort}</small><br>${s.anzahl === 0 ? tipLeer : tipWert}`,
+      (() => {
+        const tipAdresse = [s.strasse, [s.plz, s.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ') || s.ort;
+        return `<strong>${s.name}</strong><br><small>${tipAdresse}</small><br>${s.anzahl === 0 ? tipLeer : tipWert}`;
+      })(),
       { direction: 'top', offset: [0, -6] }
     )
     .addTo(heatmapLayer);
