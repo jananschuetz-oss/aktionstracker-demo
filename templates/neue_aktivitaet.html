@@ -521,30 +521,31 @@ function setTyp(t) {
     b.classList.toggle('btn-primary', active);
     b.classList.toggle('btn-outline-primary', !active);
   });
-  const foto       = document.getElementById('fotoInput1');
   const fotoBlock  = document.getElementById('fotoBlock');
   const mengenBlock= document.getElementById('mengenBlock');
   const hint       = document.getElementById('typHint');
   const stern      = document.getElementById('fotoPflichtStern');
   const pHint      = document.getElementById('fotoPflichtHint');
+  // Kein natives HTML5 "required" auf fotoInput1 – mit 3 Foto-Slots kann ein Foto
+  // auch nur in Slot 2/3 gewählt sein, während Slot 1 leer bleibt; ein "required"
+  // auf dem versteckten Slot-1-Input würde den Submit dann still blockieren (keine
+  // Validierungs-Bubble auf einem display:none-Feld). Die Pflicht wird ausschließlich
+  // per JS beim Submit geprüft (siehe hatFoto()).
   if (t === 'Aufbau') {
     mengenBlock.style.display = '';
     fotoBlock.style.display   = '';
-    foto.required = true;
     stern.style.display = '';
     pHint.textContent = '(Pflichtfeld)';
     hint.innerHTML = '<i class="bi bi-info-circle me-1"></i>Aufbau realisiert — Mengen zählen sofort, Foto ist Pflicht.';
   } else if (t === 'Bestellung') {
     mengenBlock.style.display = '';
     fotoBlock.style.display   = '';
-    foto.required = false;
     stern.style.display = 'none';
     pHint.textContent = '(optional)';
     hint.innerHTML = '<i class="bi bi-info-circle me-1"></i>Für später bestellt — zählt als „Vorgemerkt“, noch nicht im IST. Foto optional.';
   } else { // Besuch
     mengenBlock.style.display = 'none';
     fotoBlock.style.display   = 'none';
-    foto.required = false;
     hint.innerHTML = '<i class="bi bi-info-circle me-1"></i>War da, kein Geschäft — nur Notiz. Kein Foto, keine Mengen.';
   }
 }

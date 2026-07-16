@@ -303,6 +303,11 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 map.setView([48.14, 11.58], 9);   // Bayern-Mitte (München)
 
 /* ── Hilfsfunktionen ────────────────────────────────────────────────────────── */
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s == null ? '' : String(s);
+  return d.innerHTML;
+}
 function repFarbe(repId) {
   const idx = alleReps.findIndex(r => r.id === repId);
   return idx >= 0 ? FARBEN[idx % FARBEN.length] : '#888';
@@ -662,9 +667,9 @@ function renderAuswahlListe() {
       <div class="mb-2">
         <div class="form-check border-bottom pb-1 mb-1">
           <input class="form-check-input auswahl-lk-group" type="checkbox"
-                 data-lk="${lk.replace(/"/g, '&quot;')}" id="${safeId}" ${alleAusgewaehlt ? 'checked' : ''}>
+                 data-lk="${escapeHtml(lk)}" id="${safeId}" ${alleAusgewaehlt ? 'checked' : ''}>
           <label class="form-check-label fw-semibold small" for="${safeId}">
-            ${lk} <span class="text-muted">(${items.length})</span>
+            ${escapeHtml(lk)} <span class="text-muted">(${items.length})</span>
           </label>
         </div>
         ${items.map(s => `
@@ -672,7 +677,7 @@ function renderAuswahlListe() {
             <input class="form-check-input auswahl-stelle-cb" type="checkbox"
                    value="${s.id}" id="as_${s.id}" ${ausgewaehlteStellen.has(s.id) ? 'checked' : ''}>
             <label class="form-check-label small" for="as_${s.id}">
-              ${s.name} <span class="text-muted">(${s.ort || '–'})</span>
+              ${escapeHtml(s.name)} <span class="text-muted">(${escapeHtml(s.ort) || '–'})</span>
             </label>
           </div>`).join('')}
       </div>`;

@@ -654,10 +654,14 @@ def init_db():
             "CREATE INDEX IF NOT EXISTS idx_aktivitaet_datum ON aktivitaet(datum)",
             "CREATE INDEX IF NOT EXISTS idx_aktivitaet_mitarbeiter ON aktivitaet(mitarbeiter_id)",
             "CREATE INDEX IF NOT EXISTS idx_aktivitaet_verkaufsstelle ON aktivitaet(verkaufsstelle_id)",
-            "CREATE INDEX IF NOT EXISTS idx_bestellposition_aktivitaet ON bestellposition(aktivitaet_id)",
             # Covering-Index für die BP-Subquery im Dashboard (SUM(kisten_anzahl)
             # GROUP BY aktivitaet_id, über die gesamte Historie, bei jedem Aufruf).
+            # Ersetzt den schmaleren idx_bestellposition_aktivitaet(aktivitaet_id) –
+            # jede Abfrage, die der schmale Index bedienen konnte, kann genauso gut
+            # das führende Präfix dieses Composite-Index nutzen, ohne den doppelten
+            # Schreib-Overhead bei jedem INSERT auf bestellposition.
             "CREATE INDEX IF NOT EXISTS idx_bestellposition_akt_kisten ON bestellposition(aktivitaet_id, kisten_anzahl)",
+            "DROP INDEX IF EXISTS idx_bestellposition_aktivitaet",
             "CREATE INDEX IF NOT EXISTS idx_displayposition_aktivitaet ON displayposition(aktivitaet_id)",
             "CREATE INDEX IF NOT EXISTS idx_mitarbeiter_team ON mitarbeiter(team_id)",
             "CREATE INDEX IF NOT EXISTS idx_mitarbeiter_verkaufsstelle_ma ON mitarbeiter_verkaufsstelle(mitarbeiter_id)",
@@ -2556,7 +2560,7 @@ def tourenplanung():
     tag_next_kw    = tag_kw + 1 if tag_kw < 52 else 1
     tag_prev_datum = (_datum_d - timedelta(days=7)).isoformat()
     tag_next_datum = (_datum_d + timedelta(days=7)).isoformat()
-    urlaub_tag = _urlaub_daten(rep_ids, datum, datum)
+    urlaub_tag = _urlaub_daten(rep_ids, datum, datum) if modus == 'tag' else set()
     plan_tag = query(f'''
         SELECT tp.id, tp.datum, tp.reihenfolge, tp.notiz, tp.erledigt,
                COALESCE(tp.geloescht, 0) AS geloescht, tp.geloescht_am,
@@ -3133,8 +3137,14 @@ def api_aktivitaet_offline_sync():
             app.logger.warning(f"Offline-Sync Foto-Fehler: {exc}")
     foto_pfad, foto_pfad_2, foto_pfad_3 = foto_pfade
 
-    anzahl_displays = sum(int(v) for v in displays.values()
-                          if str(v).lstrip('-').isdigit() and int(v) > 0)
+    # Nur Tier-1-Typen (zaehlt_zur_zielerreichung=1) fließen in anzahl_displays ein –
+    # muss identisch zur Zählung im Online-Pfad (neue_aktivitaet) sein, sonst
+    # unterscheidet sich die Zielerreichung je nachdem ob online oder offline erfasst.
+    _tier1_ids = {str(r['id']) for r in query(
+        "SELECT id FROM displaysorte WHERE zaehlt_zur_zielerreichung=1"
+    )}
+    anzahl_displays = sum(int(v) for ds_id, v in displays.items()
+                          if str(v).lstrip('-').isdigit() and int(v) > 0 and ds_id in _tier1_ids)
 
     akt_id = execute(
         "INSERT INTO aktivitaet (datum, mitarbeiter_id, verkaufsstelle_id, "
@@ -3558,11 +3568,12 @@ def aktivitaet_loeschen(akt_id):
         flash('Keine Berechtigung. Aktivitäten können nur vom Admin gelöscht werden.', 'danger')
         return redirect(url_for('aktivitaeten_liste'))
 
-    # Foto-Datei mitlöschen
-    if a['foto_pfad']:
-        foto_path = os.path.join(UPLOAD_FOLDER, a['foto_pfad'])
-        if os.path.exists(foto_path):
-            os.remove(foto_path)
+    # Foto-Dateien mitlöschen (bis zu 3)
+    for spalte in ('foto_pfad', 'foto_pfad_2', 'foto_pfad_3'):
+        if a[spalte]:
+            foto_path = os.path.join(UPLOAD_FOLDER, a[spalte])
+            if os.path.exists(foto_path):
+                os.remove(foto_path)
 
     execute("DELETE FROM bestellposition  WHERE aktivitaet_id=?", (akt_id,))
     execute("DELETE FROM displayposition  WHERE aktivitaet_id=?", (akt_id,))
@@ -5502,7 +5513,11 @@ def auto_export_job():
     with app.app_context():
         try:
             heute             = date.today()
-            letzter_vormonat  = heute - timedelta(days=1)
+            # Von "heute" aus über den 1. des laufenden Monats rechnen statt einfach
+            # "gestern" zu nehmen – sonst liefert ein manueller Trigger (Button
+            # "Export jetzt senden") an einem beliebigen Tag nur den bisherigen,
+            # unvollständigen laufenden Monat statt des kompletten Vormonats.
+            letzter_vormonat  = heute.replace(day=1) - timedelta(days=1)
             erster_vormonat   = letzter_vormonat.replace(day=1)
             _monat_namen = ['Januar','Februar','März','April','Mai','Juni',
                             'Juli','August','September','Oktober','November','Dezember']
