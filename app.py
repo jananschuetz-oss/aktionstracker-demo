@@ -648,6 +648,30 @@ def init_db():
                 FOREIGN KEY (mitarbeiter_id)    REFERENCES mitarbeiter(id),
                 FOREIGN KEY (aktivitaet_id)     REFERENCES aktivitaet(id) ON DELETE SET NULL
             )""",
+            # Performance: Indizes für die häufigsten Filter/Joins (v.a. Dashboard,
+            # Aktivitäten-Liste, context_processor bei JEDEM Request) – ohne diese
+            # macht SQLite bei wachsender Datenmenge Full-Table-Scans auf jeder Seite.
+            "CREATE INDEX IF NOT EXISTS idx_aktivitaet_datum ON aktivitaet(datum)",
+            "CREATE INDEX IF NOT EXISTS idx_aktivitaet_mitarbeiter ON aktivitaet(mitarbeiter_id)",
+            "CREATE INDEX IF NOT EXISTS idx_aktivitaet_verkaufsstelle ON aktivitaet(verkaufsstelle_id)",
+            "CREATE INDEX IF NOT EXISTS idx_bestellposition_aktivitaet ON bestellposition(aktivitaet_id)",
+            # Covering-Index für die BP-Subquery im Dashboard (SUM(kisten_anzahl)
+            # GROUP BY aktivitaet_id, über die gesamte Historie, bei jedem Aufruf).
+            "CREATE INDEX IF NOT EXISTS idx_bestellposition_akt_kisten ON bestellposition(aktivitaet_id, kisten_anzahl)",
+            "CREATE INDEX IF NOT EXISTS idx_displayposition_aktivitaet ON displayposition(aktivitaet_id)",
+            "CREATE INDEX IF NOT EXISTS idx_mitarbeiter_team ON mitarbeiter(team_id)",
+            "CREATE INDEX IF NOT EXISTS idx_mitarbeiter_verkaufsstelle_ma ON mitarbeiter_verkaufsstelle(mitarbeiter_id)",
+            "CREATE INDEX IF NOT EXISTS idx_mitarbeiter_verkaufsstelle_vs ON mitarbeiter_verkaufsstelle(verkaufsstelle_id)",
+            "CREATE INDEX IF NOT EXISTS idx_tagesplan_ma_datum ON tagesplan(mitarbeiter_id, datum)",
+            "CREATE INDEX IF NOT EXISTS idx_arbeitszeit_ma_datum ON arbeitszeit(mitarbeiter_id, datum)",
+            # Expression-Index: deckt alle Stellen ab, die per strftime('%Y', datum) = ?
+            # nach Jahr filtern (Dashboard, Aktivitäten, Exporte, ...).
+            "CREATE INDEX IF NOT EXISTS idx_aktivitaet_jahr ON aktivitaet(strftime('%Y', datum))",
+            # vertretung wird bei JEDEM Request im context_processor abgefragt
+            # (Urlaubsantrag-Badge, meine_vertretungen) – ohne Index bisher ein
+            # Full-Table-Scan auf jeder einzelnen Seite.
+            "CREATE INDEX IF NOT EXISTS idx_vertretung_abwesender ON vertretung(abwesender_id)",
+            "CREATE INDEX IF NOT EXISTS idx_vertretung_status ON vertretung(status)",
         ]:
             try:
                 db.execute(migration)
