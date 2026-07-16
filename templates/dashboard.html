@@ -810,13 +810,12 @@ document.addEventListener('DOMContentLoaded', function(){
     );
   }
 
-  function buildListe(q) {
-    const opts = getVisibleOpts(q || '');
-    if (!opts.length) {
+  function renderRows(entries) {
+    if (!entries.length) {
       liste.innerHTML = '<div class="py-3 text-center text-muted" style="font-size:.82rem">Keine Stationen gefunden</div>';
       return;
     }
-    liste.innerHTML = opts.map(o => `
+    liste.innerHTML = entries.map(o => `
       <div class="d-flex align-items-center px-3 py-2 border-bottom vs-drop-item"
            style="gap:8px" data-value="${o.value}" data-label="${o.text.replace(/"/g,'&quot;')}">
         <span class="vs-drop-name"
@@ -873,7 +872,46 @@ document.addEventListener('DOMContentLoaded', function(){
     });
   }
 
+  let vsSucheTimer = null;
+  function buildListe(q) {
+    const opts = getVisibleOpts(q || '');
+    const localEntries = opts.map(o => ({ value: o.value, text: o.text }));
+    renderRows(localEntries);
+
+    // Die lokal eingebettete Liste ist auf VS_DASHBOARD_SEITENGROESSE gedeckelt
+    // (Performance) – bei einer Suche zusätzlich serverseitig nachfragen, damit
+    // auch Stationen außerhalb dieser ersten Seite gefunden werden.
+    clearTimeout(vsSucheTimer);
+    if (!q || q.trim().length < 2) return;
+    vsSucheTimer = setTimeout(function() {
+      fetch('/api/verkaufsstellen?q=' + encodeURIComponent(q))
+        .then(function(r) { return r.json(); })
+        .then(function(list) {
+          const seen = new Set(localEntries.map(function(e) { return e.value; }));
+          const serverEntries = list
+            .filter(function(v) { return !seen.has(String(v.id)); })
+            .map(function(v) {
+              const plzort = (v.plz ? v.plz + ' ' : '') + (v.ort || '');
+              const text = v.name + (v.strasse ? ' – ' + v.strasse + (plzort ? ', ' + plzort : '') : (plzort ? ' – ' + plzort : '')) + (v.typ ? ' (' + v.typ + ')' : '');
+              return { value: String(v.id), text: text };
+            });
+          if (serverEntries.length) renderRows(localEntries.concat(serverEntries));
+        })
+        .catch(function() {});
+    }, 250);
+  }
+
   function selectVs(value, text) {
+    // Bei einem Treffer aus der Server-Suche (außerhalb der lokal eingebetteten
+    // Seite) existiert noch keine <option> im nativen Select – ohne diese würde
+    // "nativeSel.value = value" stillschweigend auf "" zurückfallen und der Stopp
+    // ließe sich nicht abschicken.
+    if (!nativeSel.querySelector(`option[value="${value}"]`)) {
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.text  = text;
+      nativeSel.appendChild(opt);
+    }
     nativeSel.value = value;
     label.textContent = text || '– Bitte wählen –';
     label.classList.toggle('text-muted', !value);

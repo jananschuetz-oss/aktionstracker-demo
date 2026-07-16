@@ -2144,7 +2144,11 @@ def dashboard():
               AND COALESCE(tp.geloescht, 0) = 0
             ORDER BY tp.datum, tp.reihenfolge, tp.id
         ''', (session['user_id'], tp_woche_montag.isoformat(), tp_woche_sonntag.isoformat()))
-        # Stationsliste für Self-Service-Formular
+        # Stationsliste für Self-Service-Formular. Gedeckelt (Performance) – bei
+        # sehr vielen aktiven Stationen würde das feste Einbetten ALLER Stationen
+        # als <option> die Seite massiv aufblähen (siehe VS_DASHBOARD_SEITENGROESSE);
+        # die freie Suche im Dropdown (JS) fragt für Treffer außerhalb dieser ersten
+        # Seite zusätzlich /api/verkaufsstellen nach.
         assigned = query(
             "SELECT verkaufsstelle_id FROM mitarbeiter_verkaufsstelle WHERE mitarbeiter_id=?",
             (session['user_id'],)
@@ -2158,7 +2162,8 @@ def dashboard():
             )
         else:
             alle_verkaufsstellen_rep = query(
-                "SELECT id, name, plz, ort, strasse, typ, landkreis FROM verkaufsstelle WHERE aktiv=1 ORDER BY name"
+                "SELECT id, name, plz, ort, strasse, typ, landkreis FROM verkaufsstelle WHERE aktiv=1 ORDER BY name LIMIT ?",
+                (VS_DASHBOARD_SEITENGROESSE,)
             )
 
     return render_template('dashboard.html',
@@ -3503,9 +3508,12 @@ def aktivitaeten_liste():
         f"SELECT id, name FROM mitarbeiter m WHERE rolle IN ('rep','verkaufsleiter'){_tm_sql} ORDER BY name",
         _tm_p
     ) if is_manager else []
-    # Alle VS für Dropdown (inkl. inaktive – für historische Suche)
+    # Alle VS für Dropdown (inkl. inaktive – für historische Suche). Gedeckelt wie
+    # die Besuchsplanung im Dashboard – bei vielen VS würde das feste Einbetten
+    # ALLER Checkboxen die Seite massiv aufblähen.
     alle_vs = query(
-        "SELECT id, name, ort, aktiv FROM verkaufsstelle ORDER BY aktiv DESC, name"
+        "SELECT id, name, ort, aktiv FROM verkaufsstelle ORDER BY aktiv DESC, name LIMIT ?",
+        (VS_DASHBOARD_SEITENGROESSE,)
     ) if is_manager else []
     alle_typen = [r[0] for r in query(
         "SELECT DISTINCT typ FROM verkaufsstelle WHERE typ IS NOT NULL AND typ != '' ORDER BY typ"
@@ -7078,6 +7086,7 @@ def monatsbericht_vorschau():
 VS_FELDER = "v.id, v.name, v.strasse, v.plz, v.ort, v.typ, v.landkreis, v.lieferant, v.ansprechpartner, v.hinweis, v.kundennummer"
 VS_LISTE_SEITENGROESSE = 150
 VS_ADMIN_SEITENGROESSE = 150
+VS_DASHBOARD_SEITENGROESSE = 1000
 
 
 def _verkaufsstellen_liste_sql(suche=None):
