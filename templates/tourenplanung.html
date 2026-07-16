@@ -173,8 +173,22 @@
             <div class="fw-semibold {{ 'text-decoration-line-through text-muted' if stop.erledigt else '' }}"
                  style="font-size:.9rem;color:#1a3a5c">{{ stop.station }}</div>
             {% if stop.plz or stop.ort %}<div style="font-size:.76rem;color:#6c757d">{% if stop.plz %}{{ stop.plz }} {% endif %}{{ stop.ort or '' }}</div>{% endif %}
+            {% if stop.ansprechpartner or stop.hinweis %}
+            <div style="font-size:.76rem;color:#555">
+              {% if stop.ansprechpartner %}<i class="bi bi-person me-1"></i>{{ stop.ansprechpartner }}{% endif %}
+              {% if stop.ansprechpartner and stop.hinweis %}&nbsp;·&nbsp;{% endif %}
+              {% if stop.hinweis %}<i class="bi bi-exclamation-circle me-1" style="color:#c8860a"></i>{{ stop.hinweis }}{% endif %}
+            </div>
+            {% endif %}
             {% if stop.notiz %}<div style="font-size:.76rem;color:#2c7a7b"><i class="bi bi-chat-left-text me-1"></i>{{ stop.notiz }}</div>{% endif %}
           </div>
+          <button type="button" class="btn btn-sm btn-outline-secondary vs-stamm-edit-btn flex-shrink-0"
+                  data-vs-id="{{ stop.vs_id }}" data-vs-name="{{ stop.station }}"
+                  data-lieferant="{{ stop.lieferant or '' }}" data-ansprechpartner="{{ stop.ansprechpartner or '' }}"
+                  data-hinweis="{{ stop.hinweis or '' }}"
+                  style="font-size:.75rem;padding:3px 8px" title="Stammdaten bearbeiten">
+            <i class="bi bi-pencil"></i>
+          </button>
           {% if stop.erledigt %}
           <button type="button" class="tp-detail-btn btn btn-sm d-inline-flex align-items-center gap-1 flex-shrink-0"
                   data-tp-id="{{ stop.id }}"
@@ -327,8 +341,22 @@
                   <span class="fw-semibold {{ 'text-decoration-line-through text-muted' if stop.erledigt else '' }}"
                         style="font-size:.88rem;color:#1a3a5c">{{ stop.station }}</span>
                   {% if stop.plz or stop.ort %}<span class="ms-2" style="font-size:.76rem;color:#6c757d">{% if stop.plz %}{{ stop.plz }} {% endif %}{{ stop.ort or '' }}</span>{% endif %}
+                  {% if stop.ansprechpartner or stop.hinweis %}
+                  <div style="font-size:.74rem;color:#555">
+                    {% if stop.ansprechpartner %}<i class="bi bi-person me-1"></i>{{ stop.ansprechpartner }}{% endif %}
+                    {% if stop.ansprechpartner and stop.hinweis %}&nbsp;·&nbsp;{% endif %}
+                    {% if stop.hinweis %}<i class="bi bi-exclamation-circle me-1" style="color:#c8860a"></i>{{ stop.hinweis }}{% endif %}
+                  </div>
+                  {% endif %}
                   {% if stop.notiz %}<div style="font-size:.76rem;color:#2c7a7b"><i class="bi bi-chat-left-text me-1"></i>{{ stop.notiz }}</div>{% endif %}
                 </div>
+                <button type="button" class="btn btn-sm btn-outline-secondary vs-stamm-edit-btn flex-shrink-0"
+                        data-vs-id="{{ stop.vs_id }}" data-vs-name="{{ stop.station }}"
+                        data-lieferant="{{ stop.lieferant or '' }}" data-ansprechpartner="{{ stop.ansprechpartner or '' }}"
+                        data-hinweis="{{ stop.hinweis or '' }}"
+                        style="font-size:.75rem;padding:3px 7px" title="Stammdaten bearbeiten">
+                  <i class="bi bi-pencil"></i>
+                </button>
                 {% if stop.erledigt %}
                 <button type="button" class="tp-detail-btn btn btn-sm d-inline-flex align-items-center gap-1 flex-shrink-0"
                         data-tp-id="{{ stop.id }}"

@@ -143,27 +143,42 @@
   </div>
 
   <!-- Verkaufsstellen -->
-  <div class="col-lg-5">
+  <div class="col-lg-5" id="verkaufsstellen">
     <div class="card h-100">
       <div class="card-header secondary"><i class="bi bi-shop me-2"></i>Verkaufsstellen</div>
       <div class="card-body p-0">
+        <div class="p-2 border-bottom">
+          <input type="text" id="vsSucheInput" class="form-control form-control-sm"
+                 placeholder="Suchen nach Name, Ort, Landkreis…">
+          <div id="vsSucheTreffer" class="form-text mt-1">
+            {% if vs_admin_gesamt > vs_admin_seitengroesse %}
+              Zeige die ersten {{ vs_admin_seitengroesse }} von {{ vs_admin_gesamt }} Verkaufsstellen – bitte suchen, um weitere zu finden.
+            {% endif %}
+          </div>
+        </div>
         <div style="max-height:400px;overflow-y:auto" class="table-responsive">
           <table class="table table-sm table-striped mb-0">
             <thead>
               <tr><th>Name</th><th>Ort</th><th>Typ</th><th></th></tr>
             </thead>
-            <tbody>
+            <tbody id="vsHauptTbody">
               {% for vs in verkaufsstellen %}
-              <tr {% if not vs.aktiv %}style="opacity:.45"{% endif %}>
+              <tr class="vs-haupt-row" {% if not vs.aktiv %}style="opacity:.45"{% endif %}>
                 <td>
                   {{ vs.name }}
                   {% if not vs.aktiv %}
                     <span class="badge bg-secondary ms-1" style="font-size:.65rem">Inaktiv</span>
                   {% endif %}
+                  {% if vs.kundennummer %}
+                    <br><small class="text-muted" style="font-size:.72rem;opacity:.75">Kd-Nr. {{ vs.kundennummer }}</small>
+                  {% endif %}
                 </td>
                 <td>
                   <small class="text-muted">
                     {% if vs.strasse %}{{ vs.strasse }}, {% endif %}{% if vs.plz %}{{ vs.plz }} {% endif %}{{ vs.ort or '–' }}
+                    {% if vs.lieferant %}
+                    <br><i class="bi bi-truck me-1"></i>{{ vs.lieferant }}
+                    {% endif %}
                     {% if vs.ansprechpartner %}
                     <br><i class="bi bi-person me-1"></i>{{ vs.ansprechpartner }}
                     {% endif %}
@@ -192,7 +207,10 @@
                           data-typ="{{ vs.typ or '' }}"
                           data-plz="{{ vs.plz or '' }}"
                           data-landkreis="{{ vs.landkreis or '' }}"
-                          data-ansprechpartner="{{ vs.ansprechpartner or '' }}">
+                          data-ansprechpartner="{{ vs.ansprechpartner or '' }}"
+                          data-lieferant="{{ vs.lieferant or '' }}"
+                          data-kundennummer="{{ vs.kundennummer or '' }}"
+                          data-hinweis="{{ vs.hinweis or '' }}">
                     <i class="bi bi-pencil"></i>
                   </button>
                   <form method="POST"
@@ -573,6 +591,51 @@
             {% endif %}
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Verkaufsstellen-Hinweise (aus "Neue Aktivität" gemeldet, z.B. Adress-/Namensänderung) -->
+<div class="row g-4 mt-2" id="vs-hinweise">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header" style="background:linear-gradient(135deg,#c0392b,#e74c3c);color:white">
+        <i class="bi bi-flag me-2"></i>Verkaufsstellen-Hinweise
+        <span class="fw-normal opacity-75 small">– von Mitarbeitern gemeldete Stammdaten-Änderungen (z.B. Adresse, Name)</span>
+      </div>
+      <div class="card-body">
+        {% if vs_hinweise_offen %}
+        <table class="table table-sm table-striped mb-0">
+          <thead>
+            <tr><th>Verkaufsstelle</th><th>Gemeldet von</th><th>Hinweis</th><th>Datum</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for h in vs_hinweise_offen %}
+            <tr>
+              <td class="fw-semibold">{{ h.verkaufsstelle }}</td>
+              <td><small>{{ h.mitarbeiter }}</small></td>
+              <td style="max-width:320px">{{ h.text }}</td>
+              <td><small class="text-muted">{{ h.erstellt_am[:10] }}</small></td>
+              <td class="text-end" style="white-space:nowrap">
+                <a href="{{ url_for('admin') }}#verkaufsstellen" class="btn btn-outline-secondary btn-sm py-0 px-1" title="Zu den Verkaufsstellen">
+                  <i class="bi bi-pencil"></i>
+                </a>
+                <form method="POST" action="{{ url_for('admin_vs_hinweis_erledigt', hinweis_id=h.id) }}" style="display:inline">
+                  <button type="submit" class="btn btn-success btn-sm py-0 px-1" title="Erledigt">
+                    <i class="bi bi-check-lg"></i>
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted small text-center py-4 mb-0">
+          <i class="bi bi-check-circle me-1"></i>Keine offenen Hinweise
+        </p>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -1004,8 +1067,20 @@ document.getElementById('modalRolle').addEventListener('show.bs.modal', function
             </select>
           </div>
           <div class="mb-3">
+            <label class="form-label">Lieferant <span class="text-muted fw-normal">(optional)</span></label>
+            <input type="text" name="lieferant" class="form-control" placeholder="z.B. Großhändler XY">
+          </div>
+          <div class="mb-3">
             <label class="form-label">Ansprechpartner <span class="text-muted fw-normal">(optional)</span></label>
             <input type="text" name="ansprechpartner" class="form-control" placeholder="z.B. Maria Müller">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Hinweis <span class="text-muted fw-normal">(optional)</span></label>
+            <input type="text" name="hinweis" class="form-control" placeholder="z.B. Eingang hinten, vorher anrufen">
+          </div>
+          <div class="mb-3">
+            <label class="form-label small text-muted">Kundennummer <span class="text-muted fw-normal">(optional)</span></label>
+            <input type="text" name="kundennummer" class="form-control form-control-sm" style="max-width:200px">
           </div>
         </div>
         <div class="modal-footer">
@@ -1062,9 +1137,21 @@ document.getElementById('modalRolle').addEventListener('show.bs.modal', function
               <option value="Sonstiges">Sonstiges</option>
             </select>
           </div>
-          <div class="mb-3 mb-0">
+          <div class="mb-3">
+            <label class="form-label">Lieferant <span class="text-muted fw-normal">(optional)</span></label>
+            <input type="text" name="lieferant" id="editVsLieferant" class="form-control" placeholder="z.B. Großhändler XY">
+          </div>
+          <div class="mb-3">
             <label class="form-label">Ansprechpartner <span class="text-muted fw-normal">(optional)</span></label>
             <input type="text" name="ansprechpartner" id="editVsAnsprechpartner" class="form-control" placeholder="z.B. Maria Müller">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Hinweis <span class="text-muted fw-normal">(optional)</span></label>
+            <input type="text" name="hinweis" id="editVsHinweis" class="form-control" placeholder="z.B. Eingang hinten, vorher anrufen">
+          </div>
+          <div class="mb-3 mb-0">
+            <label class="form-label small text-muted">Kundennummer <span class="text-muted fw-normal">(optional)</span></label>
+            <input type="text" name="kundennummer" id="editVsKundennummer" class="form-control form-control-sm" style="max-width:200px">
           </div>
         </div>
         <div class="modal-footer">
@@ -1086,7 +1173,77 @@ document.getElementById('modalVSEdit').addEventListener('show.bs.modal', functio
   document.getElementById('editVsLandkreis').value = btn.dataset.landkreis;
   document.getElementById('editVsTyp').value = btn.dataset.typ;
   document.getElementById('editVsAnsprechpartner').value = btn.dataset.ansprechpartner;
+  document.getElementById('editVsLieferant').value = btn.dataset.lieferant;
+  document.getElementById('editVsHinweis').value = btn.dataset.hinweis;
+  document.getElementById('editVsKundennummer').value = btn.dataset.kundennummer;
 });
+
+// Suche in der Haupt-Verkaufsstellen-Tabelle (Name, Ort, Landkreis, Typ, Lieferant) –
+// serverseitig statt Client-Filter (siehe api_admin_verkaufsstellen_suche).
+const VS_ADMIN_SEITENGROESSE = {{ vs_admin_seitengroesse }};
+
+function vsAdminEscapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+function vsAdminTypBadge(typ) {
+  if (typ === 'Gastronomie') return '<span class="badge" style="background:#145a32">' + vsAdminEscapeHtml(typ) + '</span>';
+  if (typ === 'Einzelhandel') return '<span class="badge" style="background:#4a235a">' + vsAdminEscapeHtml(typ) + '</span>';
+  if (typ === 'Getränkehandel') return '<span class="badge" style="background:#c8860a">' + vsAdminEscapeHtml(typ) + '</span>';
+  return '<span class="badge bg-secondary">' + vsAdminEscapeHtml(typ || '–') + '</span>';
+}
+
+function vsAdminZeileHtml(vs) {
+  const e = vsAdminEscapeHtml;
+  const adresse = (vs.strasse ? e(vs.strasse) + ', ' : '') + (vs.plz ? e(vs.plz) + ' ' : '') + e(vs.ort || '–');
+  const aktionen = vs.aktiv
+    ? '<button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1" title="Bearbeiten" '
+      + 'data-bs-toggle="modal" data-bs-target="#modalVSEdit" data-id="' + vs.id + '" data-name="' + e(vs.name)
+      + '" data-strasse="' + e(vs.strasse) + '" data-ort="' + e(vs.ort) + '" data-typ="' + e(vs.typ)
+      + '" data-plz="' + e(vs.plz) + '" data-landkreis="' + e(vs.landkreis) + '" data-ansprechpartner="' + e(vs.ansprechpartner)
+      + '" data-lieferant="' + e(vs.lieferant) + '" data-hinweis="' + e(vs.hinweis) + '" data-kundennummer="' + e(vs.kundennummer) + '">'
+      + '<i class="bi bi-pencil"></i></button>'
+      + '<form method="POST" action="/admin/verkaufsstelle/' + vs.id + '/loeschen" style="display:inline" '
+      + 'onsubmit="return confirm(\'Verkaufsstelle „' + e(vs.name).replace(/'/g, "&#39;") + '\\u201c löschen?\\n\\nHat sie Aktivitäten, wird sie nur deaktiviert.\')">'
+      + '<button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1" title="Löschen / Deaktivieren"><i class="bi bi-trash"></i></button></form>'
+    : '<form method="POST" action="/admin/verkaufsstelle/' + vs.id + '/reaktivieren" style="display:inline">'
+      + '<button type="submit" class="btn btn-outline-success btn-sm py-0 px-1" title="Reaktivieren"><i class="bi bi-arrow-counterclockwise"></i></button></form>';
+  return '<tr class="vs-haupt-row"' + (vs.aktiv ? '' : ' style="opacity:.45"') + '>'
+    + '<td>' + e(vs.name) + (vs.aktiv ? '' : ' <span class="badge bg-secondary ms-1" style="font-size:.65rem">Inaktiv</span>')
+      + (vs.kundennummer ? '<br><small class="text-muted" style="font-size:.72rem;opacity:.75">Kd-Nr. ' + e(vs.kundennummer) + '</small>' : '') + '</td>'
+    + '<td><small class="text-muted">' + adresse
+      + (vs.lieferant ? '<br><i class="bi bi-truck me-1"></i>' + e(vs.lieferant) : '')
+      + (vs.ansprechpartner ? '<br><i class="bi bi-person me-1"></i>' + e(vs.ansprechpartner) : '')
+      + '</small></td>'
+    + '<td>' + vsAdminTypBadge(vs.typ) + '</td>'
+    + '<td class="text-center" style="white-space:nowrap">' + aktionen + '</td>'
+    + '</tr>';
+}
+
+let vsAdminSucheTimer = null;
+document.getElementById('vsSucheInput').addEventListener('input', function() {
+  const q = this.value.trim();
+  clearTimeout(vsAdminSucheTimer);
+  vsAdminSucheTimer = setTimeout(function() { vsAdminSucheAusfuehren(q); }, 250);
+});
+
+function vsAdminSucheAusfuehren(q) {
+  const tbody = document.getElementById('vsHauptTbody');
+  const hinweis = document.getElementById('vsSucheTreffer');
+  fetch('/api/admin/verkaufsstellen-suche?q=' + encodeURIComponent(q))
+    .then(function(r) { return r.json(); })
+    .then(function(list) {
+      tbody.innerHTML = list.length ? list.map(vsAdminZeileHtml).join('') : '<tr><td colspan="4" class="text-center text-muted py-3">Keine Verkaufsstellen gefunden.</td></tr>';
+      hinweis.textContent = list.length >= VS_ADMIN_SEITENGROESSE
+        ? 'Zeige die ersten ' + VS_ADMIN_SEITENGROESSE + ' Treffer – bitte Suche weiter eingrenzen, falls nicht dabei.'
+        : (q ? list.length + ' Verkaufsstelle' + (list.length !== 1 ? 'n' : '') + ' gefunden' : '');
+    })
+    .catch(function() {
+      tbody.innerHTML = '<tr><td colspan="4" class="text-center text-danger py-3">Suche fehlgeschlagen.</td></tr>';
+    });
+}
 </script>
 
 <!-- Modal: Display-Typ -->

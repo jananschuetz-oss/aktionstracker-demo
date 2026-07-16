@@ -206,6 +206,18 @@
           </div>
         </div>
       </div>
+
+      <!-- Optionaler Hinweis an den Admin (z.B. Adress-/Namensänderung der Verkaufsstelle) -->
+      <div class="mt-3">
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="btnAdminHinweisToggle">
+          <i class="bi bi-flag me-1"></i>Hinweis an Admin <span class="text-muted fw-normal">(optional)</span>
+        </button>
+        <div class="mt-2 d-none" id="adminHinweisBox">
+          <label class="form-label small text-muted mb-1">z.B. Adressänderung, Namensänderung der Verkaufsstelle</label>
+          <textarea name="admin_hinweis" id="adminHinweisText" class="form-control form-control-sm" rows="2"
+                    placeholder="z.B. Verkaufsstelle ist umgezogen, neue Adresse: ..."></textarea>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -428,6 +440,13 @@
 
 {% block scripts %}
 <script>
+// ── Optionaler Hinweis an den Admin ────────────────────────────────────────────
+document.getElementById('btnAdminHinweisToggle').addEventListener('click', function() {
+  const box = document.getElementById('adminHinweisBox');
+  box.classList.toggle('d-none');
+  if (!box.classList.contains('d-none')) document.getElementById('adminHinweisText').focus();
+});
+
 function fotoGewaehlt(src) {
   if (!src.files || !src.files[0]) return;
   // Datei per DataTransfer ins Master-Input kopieren (für form submit)

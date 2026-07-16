@@ -1,0 +1,228 @@
+{% extends 'base.html' %}
+{% block title %}Verkaufsstellen – {{ company_short }} – Aktions Tracker{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1><i class="bi bi-shop me-2"></i>Verkaufsstellen</h1>
+  <p class="mb-0">
+    {% if session.rolle == 'rep' %}Ihre zugeordneten Verkaufsstellen{% elif session.rolle == 'admin' %}Alle Verkaufsstellen{% else %}Verkaufsstellen im Team-Gebiet{% endif %}
+    &nbsp;·&nbsp;
+    {% if session.rolle == 'admin' %}Alle Stammdaten können hier direkt bearbeitet werden.{% else %}Lieferant, Ansprechpartner und Hinweis können hier direkt korrigiert werden.{% endif %}
+  </p>
+</div>
+
+<div class="mb-2">
+  <input type="text" id="vsSuche" class="form-control form-control-sm" style="max-width:360px"
+         placeholder="Suchen nach Name, Ort, Landkreis…">
+</div>
+<div class="mb-3">
+  <small class="text-muted" id="vsHinweisZeile">
+    {% if vs_gesamt > vs_seitengroesse %}
+      Zeige die ersten {{ vs_seitengroesse }} von {{ vs_gesamt }} Verkaufsstellen – bitte suchen, um weitere zu finden.
+    {% else %}
+      {{ vs_gesamt }} Verkaufsstelle{{ 'n' if vs_gesamt != 1 else '' }}
+    {% endif %}
+  </small>
+</div>
+
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-sm table-striped mb-0 align-middle" id="vsTabelle">
+      <thead style="background:#f4f6fa">
+        <tr>
+          <th style="min-width:160px">Name</th>
+          <th style="min-width:200px">Adresse</th>
+          <th style="min-width:140px">Typ</th>
+          <th style="min-width:180px">Lieferant</th>
+          <th style="min-width:180px">Ansprechpartner</th>
+          <th style="min-width:200px">Hinweis</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="vsTbody">
+        {% for vs in verkaufsstellen %}
+        <tr class="vs-row">
+          {% if session.rolle == 'admin' %}
+          <td>
+            <input type="text" class="form-control form-control-sm vs-name mb-1" value="{{ vs.name }}" placeholder="Name">
+            <input type="text" class="form-control form-control-sm vs-kundennummer" value="{{ vs.kundennummer or '' }}" placeholder="Kd-Nr.">
+          </td>
+          <td>
+            <input type="text" class="form-control form-control-sm vs-strasse mb-1" value="{{ vs.strasse or '' }}" placeholder="Straße & Hausnummer">
+            <div class="d-flex gap-1 mb-1">
+              <input type="text" class="form-control form-control-sm vs-plz" value="{{ vs.plz or '' }}" placeholder="PLZ" style="max-width:80px">
+              <input type="text" class="form-control form-control-sm vs-ort" value="{{ vs.ort or '' }}" placeholder="Ort">
+            </div>
+            <input type="text" class="form-control form-control-sm vs-landkreis" value="{{ vs.landkreis or '' }}" placeholder="Landkreis">
+          </td>
+          <td>
+            <select class="form-select form-select-sm vs-typ">
+              {% for t in ('Einzelhandel', 'Gastronomie', 'Getränkehandel', 'Hotel', 'Verein', 'Sonstiges') %}
+              <option value="{{ t }}" {% if vs.typ == t %}selected{% endif %}>{{ t }}</option>
+              {% endfor %}
+            </select>
+          </td>
+          {% else %}
+          <td>
+            <div class="fw-semibold" style="color:#1a3a5c">{{ vs.name }}</div>
+            {% if vs.kundennummer %}<small class="text-muted">Kd-Nr. {{ vs.kundennummer }}</small>{% endif %}
+          </td>
+          <td>
+            <small class="text-muted">
+              {% if vs.strasse %}{{ vs.strasse }}, {% endif %}{% if vs.plz %}{{ vs.plz }} {% endif %}{{ vs.ort or '–' }}
+              {% if vs.landkreis %}<br>{{ vs.landkreis }}{% endif %}
+            </small>
+          </td>
+          <td><small class="text-muted">{{ vs.typ or '–' }}</small></td>
+          {% endif %}
+          <td>
+            <input type="text" class="form-control form-control-sm vs-lieferant" value="{{ vs.lieferant or '' }}" placeholder="z.B. EDEKA Südwest">
+          </td>
+          <td>
+            <input type="text" class="form-control form-control-sm vs-ansprechpartner" value="{{ vs.ansprechpartner or '' }}" placeholder="z.B. Hr. Müller">
+          </td>
+          <td>
+            <input type="text" class="form-control form-control-sm vs-hinweis" value="{{ vs.hinweis or '' }}" placeholder="z.B. Eingang hinten, vorher anrufen">
+          </td>
+          <td class="text-center" style="width:78px">
+            <button type="button" class="btn btn-sm btn-outline-secondary btn-verlauf" data-vs-id="{{ vs.id }}" data-vs-name="{{ vs.name }}" title="Historie">
+              <i class="bi bi-clock-history"></i>
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-primary vs-speichern-btn" data-id="{{ vs.id }}" title="Speichern">
+              <i class="bi bi-check2"></i>
+            </button>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-4">Keine Verkaufsstellen gefunden.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var vsSeitengroesse = {{ vs_seitengroesse }};
+var vsIstAdmin = {{ 'true' if session.rolle == 'admin' else 'false' }};
+
+function escapeHtml(s) {
+  var d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+function vsZeileHtml(vs) {
+  var kopfZellen;
+  if (vsIstAdmin) {
+    kopfZellen =
+      '<td><input type="text" class="form-control form-control-sm vs-name mb-1" value="' + escapeHtml(vs.name) + '" placeholder="Name">' +
+        '<input type="text" class="form-control form-control-sm vs-kundennummer" value="' + escapeHtml(vs.kundennummer) + '" placeholder="Kd-Nr."></td>' +
+      '<td><input type="text" class="form-control form-control-sm vs-strasse mb-1" value="' + escapeHtml(vs.strasse) + '" placeholder="Straße & Hausnummer">' +
+        '<div class="d-flex gap-1 mb-1">' +
+          '<input type="text" class="form-control form-control-sm vs-plz" value="' + escapeHtml(vs.plz) + '" placeholder="PLZ" style="max-width:80px">' +
+          '<input type="text" class="form-control form-control-sm vs-ort" value="' + escapeHtml(vs.ort) + '" placeholder="Ort">' +
+        '</div>' +
+        '<input type="text" class="form-control form-control-sm vs-landkreis" value="' + escapeHtml(vs.landkreis) + '" placeholder="Landkreis"></td>' +
+      '<td><select class="form-select form-select-sm vs-typ">' +
+        ['Einzelhandel', 'Gastronomie', 'Getränkehandel', 'Hotel', 'Verein', 'Sonstiges'].map(function(t) {
+          return '<option value="' + t + '"' + (vs.typ === t ? ' selected' : '') + '>' + t + '</option>';
+        }).join('') +
+      '</select></td>';
+  } else {
+    var adresse = (vs.strasse ? escapeHtml(vs.strasse) + ', ' : '') + (vs.plz ? escapeHtml(vs.plz) + ' ' : '') + escapeHtml(vs.ort || '–');
+    kopfZellen =
+      '<td><div class="fw-semibold" style="color:#1a3a5c">' + escapeHtml(vs.name) + '</div>' +
+        (vs.kundennummer ? '<small class="text-muted">Kd-Nr. ' + escapeHtml(vs.kundennummer) + '</small>' : '') + '</td>' +
+      '<td><small class="text-muted">' + adresse + (vs.landkreis ? '<br>' + escapeHtml(vs.landkreis) : '') + '</small></td>' +
+      '<td><small class="text-muted">' + escapeHtml(vs.typ || '–') + '</small></td>';
+  }
+  return '<tr class="vs-row">' + kopfZellen +
+    '<td><input type="text" class="form-control form-control-sm vs-lieferant" value="' + escapeHtml(vs.lieferant) + '" placeholder="z.B. EDEKA Südwest"></td>' +
+    '<td><input type="text" class="form-control form-control-sm vs-ansprechpartner" value="' + escapeHtml(vs.ansprechpartner) + '" placeholder="z.B. Hr. Müller"></td>' +
+    '<td><input type="text" class="form-control form-control-sm vs-hinweis" value="' + escapeHtml(vs.hinweis) + '" placeholder="z.B. Eingang hinten, vorher anrufen"></td>' +
+    '<td class="text-center" style="width:78px">' +
+      '<button type="button" class="btn btn-sm btn-outline-secondary btn-verlauf" data-vs-id="' + vs.id + '" data-vs-name="' + escapeHtml(vs.name) + '" title="Historie"><i class="bi bi-clock-history"></i></button> ' +
+      '<button type="button" class="btn btn-sm btn-outline-primary vs-speichern-btn" data-id="' + vs.id + '" title="Speichern"><i class="bi bi-check2"></i></button>' +
+    '</td></tr>';
+}
+
+var vsSucheTimer = null;
+document.getElementById('vsSuche').addEventListener('input', function() {
+  var q = this.value.trim();
+  clearTimeout(vsSucheTimer);
+  vsSucheTimer = setTimeout(function() { vsSucheAusfuehren(q); }, 250);
+});
+
+function vsSucheAusfuehren(q) {
+  var tbody = document.getElementById('vsTbody');
+  var hinweis = document.getElementById('vsHinweisZeile');
+  tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3"><i class="bi bi-hourglass-split me-1"></i>Lade…</td></tr>';
+  fetch('/api/verkaufsstellen-mein-gebiet?q=' + encodeURIComponent(q))
+    .then(function(r) { return r.json(); })
+    .then(function(list) {
+      if (!list.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">Keine Verkaufsstellen gefunden.</td></tr>';
+      } else {
+        tbody.innerHTML = list.map(vsZeileHtml).join('');
+      }
+      hinweis.textContent = list.length >= vsSeitengroesse
+        ? 'Zeige die ersten ' + vsSeitengroesse + ' Treffer – bitte Suche weiter eingrenzen, falls nicht dabei.'
+        : list.length + ' Verkaufsstelle' + (list.length !== 1 ? 'n' : '') + (q ? ' gefunden' : '');
+    })
+    .catch(function() {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-danger py-4">Suche fehlgeschlagen.</td></tr>';
+    });
+}
+
+document.addEventListener('click', function(e) {
+  var btn = e.target.closest('.vs-speichern-btn');
+  if (!btn) return;
+  var row = btn.closest('tr');
+  var payload = {
+    lieferant: row.querySelector('.vs-lieferant').value,
+    ansprechpartner: row.querySelector('.vs-ansprechpartner').value,
+    hinweis: row.querySelector('.vs-hinweis').value
+  };
+  if (vsIstAdmin) {
+    payload.name = row.querySelector('.vs-name').value;
+    payload.kundennummer = row.querySelector('.vs-kundennummer').value;
+    payload.strasse = row.querySelector('.vs-strasse').value;
+    payload.plz = row.querySelector('.vs-plz').value;
+    payload.ort = row.querySelector('.vs-ort').value;
+    payload.landkreis = row.querySelector('.vs-landkreis').value;
+    payload.typ = row.querySelector('.vs-typ').value;
+  }
+  var icon = btn.querySelector('i');
+  icon.className = 'bi bi-hourglass-split';
+  btn.disabled = true;
+  fetch('/verkaufsstelle/' + btn.dataset.id + '/kontakt-aktualisieren', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.ok) {
+        icon.className = 'bi bi-check-lg';
+        btn.classList.replace('btn-outline-primary', 'btn-outline-success');
+        setTimeout(function() {
+          icon.className = 'bi bi-check2';
+          btn.classList.replace('btn-outline-success', 'btn-outline-primary');
+          btn.disabled = false;
+        }, 1800);
+      } else {
+        icon.className = 'bi bi-check2';
+        btn.disabled = false;
+        alert(data.error || 'Speichern fehlgeschlagen');
+      }
+    })
+    .catch(function() {
+      icon.className = 'bi bi-check2';
+      btn.disabled = false;
+      alert('Speichern fehlgeschlagen');
+    });
+});
+</script>
+{% endblock %}

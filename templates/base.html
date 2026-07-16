@@ -282,10 +282,18 @@
         <li class="nav-item">
           <a class="nav-link" href="{{ url_for('aktivitaeten_liste') }}"><i class="bi bi-list-ul"></i>Aktivitäten</a>
         </li>
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'arbeitszeit_uebersicht' %}active{% endif %}"
+             href="{{ url_for('arbeitszeit_uebersicht') }}"><i class="bi bi-clock-history"></i>Arbeitszeit</a>
+        </li>
         {% if session.rolle == 'rep' %}
         <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'vergleich' %}active{% endif %}"
              href="{{ url_for('vergleich') }}"><i class="bi bi-bullseye"></i>Mein Zielkurs</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'verkaufsstellen_liste' %}active{% endif %}"
+             href="{{ url_for('verkaufsstellen_liste') }}"><i class="bi bi-shop"></i>Verkaufsstellen</a>
         </li>
         {% endif %}
         {% if session.rolle == 'admin' %}
@@ -337,6 +345,12 @@
              style="font-size:.85rem"><i class="bi bi-person-lines-fill me-1"></i>Urlaub / Vertretung{% if offene_urlaubsantraege and offene_urlaubsantraege > 0 %} <span class="badge bg-danger">{{ offene_urlaubsantraege }}</span>{% endif %}</a>
           {% endif %}
         </li>
+        {% if session.rolle == 'admin' %}
+        <li class="nav-item">
+          <a class="nav-link" href="{{ url_for('admin') }}#vs-hinweise"
+             style="font-size:.85rem"><i class="bi bi-flag me-1"></i>VS-Hinweise{% if offene_vs_hinweise and offene_vs_hinweise > 0 %} <span class="badge bg-danger">{{ offene_vs_hinweise }}</span>{% endif %}</a>
+        </li>
+        {% endif %}
         <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'faq' %}active{% endif %}"
              href="{{ url_for('faq') }}" style="font-size:.85rem">
@@ -352,7 +366,7 @@
 </nav>
 {% endif %}
 
-{% set _vkl_seiten = ('vergleich','tourenplanung','karte','einstellungen_wochenbericht','bestellungen_uebersicht','team_verwaltung','zielzahlen','bestellung_detail') %}
+{% set _vkl_seiten = ('vergleich','tourenplanung','karte','einstellungen_wochenbericht','bestellungen_uebersicht','team_verwaltung','zielzahlen','bestellung_detail','verkaufsstellen_liste') %}
 {% if session.user_id and (session.rolle == 'verkaufsleiter' or (session.rolle == 'admin' and request.endpoint in _vkl_seiten)) %}
 <nav id="vkl-subnav">
   <a href="{{ url_for('vergleich') }}"
@@ -375,6 +389,10 @@
     <i class="bi bi-map"></i>Karte
   </a>
   {% endif %}
+  <a href="{{ url_for('verkaufsstellen_liste') }}"
+     class="vkl-tab {% if request.endpoint == 'verkaufsstellen_liste' %}active{% endif %}">
+    <i class="bi bi-shop"></i>Verkaufsstellen
+  </a>
   <a href="{{ url_for('team_verwaltung') }}"
      class="vkl-tab {% if request.endpoint in ('team_verwaltung', 'zielzahlen') %}active{% endif %}">
     <i class="bi bi-people-fill"></i>Team-Verwaltung
@@ -581,6 +599,12 @@
     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Schließen"></button>
   </div>
   <div style="overflow-y:auto">
+    <a href="{{ url_for('arbeitszeit_uebersicht') }}" class="mobile-menu-item {% if request.endpoint == 'arbeitszeit_uebersicht' %}active{% endif %}">
+      <i class="bi bi-clock-history"></i>Arbeitszeit
+    </a>
+    <a href="{{ url_for('verkaufsstellen_liste') }}" class="mobile-menu-item {% if request.endpoint == 'verkaufsstellen_liste' %}active{% endif %}">
+      <i class="bi bi-shop"></i>Verkaufsstellen
+    </a>
     <a href="#" class="mobile-menu-item" onclick="closeMenuAndOpen('modalVertretung');return false;">
       <i class="bi bi-calendar-plus"></i>
       {% if session.rolle in ['admin','verkaufsleiter'] %}Urlaub eintragen{% else %}Urlaub anfragen{% endif %}
@@ -682,6 +706,162 @@
     </div>
   </div>
 </div>
+
+<!-- Verkaufsstelle: Stammdaten-Schnellbearbeitung (Lieferant/Ansprechpartner/Hinweis) -->
+<div class="modal fade" id="modalVsStammdaten" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header" style="background:#1a3a5c;color:white">
+        <h6 class="modal-title"><i class="bi bi-pencil me-2"></i>Stammdaten – <span id="vsStammName"></span></h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label small fw-bold">Lieferant</label>
+          <input type="text" id="vsStammLieferant" class="form-control" placeholder="z.B. Großhändler XY">
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-bold">Ansprechpartner <span class="text-muted fw-normal">(optional)</span></label>
+          <input type="text" id="vsStammAnsprechpartner" class="form-control" placeholder="z.B. Hr. Müller">
+        </div>
+        <div class="mb-1">
+          <label class="form-label small fw-bold">Hinweis <span class="text-muted fw-normal">(optional)</span></label>
+          <input type="text" id="vsStammHinweis" class="form-control" placeholder="z.B. Eingang hinten, vorher anrufen">
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+        <button type="button" class="btn btn-sm btn-primary" id="vsStammSpeichernBtn">
+          <i class="bi bi-check me-1"></i>Speichern
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function() {
+  var modalEl = document.getElementById('modalVsStammdaten');
+  if (!modalEl) return;
+  var currentId = null;
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('.vs-stamm-edit-btn');
+    if (!btn) return;
+    currentId = btn.dataset.vsId;
+    document.getElementById('vsStammName').textContent = btn.dataset.vsName || '';
+    document.getElementById('vsStammLieferant').value = btn.dataset.lieferant || '';
+    document.getElementById('vsStammAnsprechpartner').value = btn.dataset.ansprechpartner || '';
+    document.getElementById('vsStammHinweis').value = btn.dataset.hinweis || '';
+    new bootstrap.Modal(modalEl).show();
+  });
+  document.getElementById('vsStammSpeichernBtn').addEventListener('click', function() {
+    if (!currentId) return;
+    var btn = this;
+    var orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Speichern…';
+    fetch('/verkaufsstelle/' + currentId + '/kontakt-aktualisieren', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        lieferant: document.getElementById('vsStammLieferant').value,
+        ansprechpartner: document.getElementById('vsStammAnsprechpartner').value,
+        hinweis: document.getElementById('vsStammHinweis').value
+      })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.ok) {
+          window.location.reload();
+        } else {
+          btn.disabled = false;
+          btn.innerHTML = orig;
+          alert(data.error || 'Speichern fehlgeschlagen');
+        }
+      })
+      .catch(function() {
+        btn.disabled = false;
+        btn.innerHTML = orig;
+        alert('Speichern fehlgeschlagen');
+      });
+  });
+})();
+</script>
+
+<!-- Verkaufsstelle: Kundenhistorie -->
+<div class="modal fade" id="historieModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header py-2 px-3" style="border-bottom:2px solid #e9ecef">
+        <div>
+          <h6 class="modal-title mb-0 fw-bold" style="color:#1a3a5c">
+            <i class="bi bi-clock-history me-2"></i><span id="historieModalName">Verlauf</span>
+          </h6>
+          <div class="text-muted" id="historieModalOrt" style="font-size:.8rem"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0" id="historieModalBody" style="min-height:120px">
+        <div class="text-center py-5">
+          <div class="spinner-border text-primary" style="width:1.5rem;height:1.5rem"></div>
+          <p class="mt-2 small text-muted mb-0">Lade Verlauf…</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+function openHistorie(vsId, vsName) {
+  if (!vsId) return;
+  const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('historieModal'));
+  document.getElementById('historieModalName').textContent = vsName || 'Verlauf';
+  document.getElementById('historieModalOrt').textContent  = '';
+  document.getElementById('historieModalBody').innerHTML   =
+    '<div class="text-center py-5"><div class="spinner-border text-primary" style="width:1.5rem;height:1.5rem"></div>' +
+    '<p class="mt-2 small text-muted mb-0">Lade Verlauf…</p></div>';
+  modal.show();
+
+  fetch(`/api/verkaufsstelle/${vsId}/aktivitaeten`)
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('historieModalOrt').textContent = data.ort || '';
+      if (!data.ok || !data.data || !data.data.length) {
+        document.getElementById('historieModalBody').innerHTML =
+          '<div class="text-center py-5 text-muted">' +
+          '<i class="bi bi-calendar-x" style="font-size:2rem"></i>' +
+          '<p class="mt-2 mb-0 small">Noch keine Aktivitäten erfasst.</p></div>';
+        return;
+      }
+      const rows = data.data.map(a => {
+        const disp  = a.anzahl_displays ? `<span style="font-size:.78rem;color:#6c757d"><i class="bi bi-display me-1"></i>${a.anzahl_displays} Display${a.anzahl_displays != 1 ? 's' : ''}</span>` : '';
+        const best  = a.bestellungen   ? `<span style="font-size:.78rem;color:#2c7a7b"><i class="bi bi-box-seam me-1"></i>${a.bestellungen} {{ unit_label }}</span>` : '';
+        const note  = a.notizen        ? `<div style="font-size:.78rem;color:#6c757d;font-style:italic;margin-top:3px"><i class="bi bi-chat-left-text me-1"></i>${a.notizen}</div>` : '';
+        return `<div style="padding:11px 16px;border-bottom:1px solid #f0f4f8">
+          <div class="d-flex align-items-start gap-2">
+            <span class="badge flex-shrink-0" style="background:#e8edf3;color:#4a5568;font-size:.74rem;margin-top:2px;white-space:nowrap">${a.datum}</span>
+            <div style="flex:1;min-width:0">
+              <div class="fw-semibold" style="font-size:.88rem;color:#1a3a5c">
+                ${a.aktionstyp} <span style="color:#888;font-weight:400">· ${a.mitarbeiter}</span>
+              </div>
+              <div class="d-flex gap-3 flex-wrap mt-1">${disp}${best}</div>
+              ${note}
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+      document.getElementById('historieModalBody').innerHTML =
+        `<div style="max-height:420px;overflow-y:auto">${rows}</div>`;
+    })
+    .catch(() => {
+      document.getElementById('historieModalBody').innerHTML =
+        '<div class="text-center py-4 text-danger small">Fehler beim Laden.</div>';
+    });
+}
+document.addEventListener('click', function (e) {
+  const btn = e.target.closest('.btn-verlauf');
+  if (!btn) return;
+  openHistorie(btn.dataset.vsId, btn.dataset.vsName);
+});
+</script>
 {% endif %}
 
 <footer>

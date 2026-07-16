@@ -1,4 +1,4 @@
-﻿from flask import Flask, render_template, request, redirect, url_for, session, send_file, g, flash, jsonify, abort
+from flask import Flask, render_template, request, redirect, url_for, session, send_file, g, flash, jsonify, abort
 import sqlite3
 import os
 try:
@@ -139,6 +139,7 @@ def inject_now():
         'meine_vertretungen': [],
         'alle_kollegen':      [],
         'offene_urlaubsantraege': 0,
+        'offene_vs_hinweise': 0,
         'mein_email': '',
         'karte_benachrichtigung': None,
     }
@@ -169,6 +170,10 @@ def inject_now():
                         WHERE v.status = 'angefragt'{_tc}''',
                     _tp, one=True)
                 ctx['offene_urlaubsantraege'] = _cnt['n'] if _cnt else 0
+            # Zähler offener Verkaufsstellen-Hinweise (nur Admin – nur der pflegt Stammdaten)
+            if session.get('rolle') == 'admin':
+                _hcnt = query("SELECT COUNT(*) AS n FROM vs_hinweis_meldung WHERE status = 'offen'", one=True)
+                ctx['offene_vs_hinweise'] = _hcnt['n'] if _hcnt else 0
         except Exception:
             pass
     return ctx
@@ -379,6 +384,54 @@ def cleanup_alte_fotos():
     return count
 
 
+def _az_netto_minuten(beginn, ende, pause_minuten=0):
+    """Berechnet die Netto-Arbeitszeit in Minuten aus Beginn/Ende (HH:MM) minus Pause.
+    Gibt None zurück, wenn Beginn/Ende fehlen oder Ende vor Beginn liegt."""
+    if not beginn or not ende:
+        return None
+    try:
+        h1, m1 = (int(x) for x in beginn.split(':'))
+        h2, m2 = (int(x) for x in ende.split(':'))
+    except (ValueError, AttributeError):
+        return None
+    minuten = (h2 * 60 + m2) - (h1 * 60 + m1)
+    if minuten < 0:
+        return None
+    return max(0, minuten - (pause_minuten or 0))
+
+
+def _az_brutto_minuten(beginn, ende):
+    """Bruttoarbeitszeit in Minuten aus Beginn/Ende (HH:MM), ohne Pausenabzug.
+    Gibt None zurück, wenn Beginn/Ende fehlen oder Ende vor Beginn liegt."""
+    if not beginn or not ende:
+        return None
+    try:
+        h1, m1 = (int(x) for x in beginn.split(':'))
+        h2, m2 = (int(x) for x in ende.split(':'))
+    except (ValueError, AttributeError):
+        return None
+    minuten = (h2 * 60 + m2) - (h1 * 60 + m1)
+    return minuten if minuten >= 0 else None
+
+
+def _az_pflichtpause_minuten(brutto_minuten):
+    """Gesetzliche Mindestpause: >9 Std → 45 Min, >6 Std → 30 Min, sonst 0."""
+    if brutto_minuten is None:
+        return 0
+    if brutto_minuten > 9 * 60:
+        return 45
+    if brutto_minuten > 6 * 60:
+        return 30
+    return 0
+
+
+def _az_fmt_std(minuten):
+    """Formatiert Minuten als 'Hh MMmin', z.B. 7h 30min."""
+    if minuten is None:
+        return '–'
+    return f"{minuten // 60}h {minuten % 60:02d}min"
+
+
 def komprimiere_foto(quelle, ziel_pfad: str, max_px: int = 1200, qualitaet: int = 75):
     """Öffnet Foto aus Datei-Objekt oder bytes-Puffer, skaliert auf max_px (längste Seite)
     und speichert als JPEG mit gegebener Qualität. Gibt Dateipfad zurück."""
@@ -557,6 +610,36 @@ def init_db():
                 plz  TEXT PRIMARY KEY,
                 lat  REAL NOT NULL,
                 lng  REAL NOT NULL
+            )""",
+            "ALTER TABLE aktivitaet    ADD COLUMN foto_pfad_2        TEXT",
+            "ALTER TABLE aktivitaet    ADD COLUMN foto_pfad_3        TEXT",
+            "ALTER TABLE verkaufsstelle ADD COLUMN hinweis             TEXT",
+            "ALTER TABLE verkaufsstelle ADD COLUMN lieferant           TEXT",
+            "ALTER TABLE verkaufsstelle ADD COLUMN kundennummer        TEXT",
+            "ALTER TABLE displaysorte ADD COLUMN zaehlt_zur_zielerreichung INTEGER DEFAULT 1",
+            """CREATE TABLE IF NOT EXISTS arbeitszeit (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                mitarbeiter_id INTEGER NOT NULL REFERENCES mitarbeiter(id) ON DELETE CASCADE,
+                datum          TEXT NOT NULL,
+                beginn         TEXT,
+                ende           TEXT,
+                erstellt_am    TEXT DEFAULT (datetime('now','localtime')),
+                pause_minuten  INTEGER DEFAULT 0,
+                UNIQUE(mitarbeiter_id, datum)
+            )""",
+            """CREATE TABLE IF NOT EXISTS vs_hinweis_meldung (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                verkaufsstelle_id INTEGER NOT NULL,
+                mitarbeiter_id    INTEGER NOT NULL,
+                aktivitaet_id     INTEGER,
+                text              TEXT NOT NULL,
+                status            TEXT DEFAULT 'offen',
+                erstellt_am       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                erledigt_am       TIMESTAMP,
+                erledigt_von_id   INTEGER,
+                FOREIGN KEY (verkaufsstelle_id) REFERENCES verkaufsstelle(id) ON DELETE CASCADE,
+                FOREIGN KEY (mitarbeiter_id)    REFERENCES mitarbeiter(id),
+                FOREIGN KEY (aktivitaet_id)     REFERENCES aktivitaet(id) ON DELETE SET NULL
             )""",
         ]:
             try:
@@ -1971,7 +2054,8 @@ def dashboard():
     if zeige_eigene_ansicht:
         tagesplan_rep = query('''
             SELECT tp.id, tp.datum, tp.reihenfolge, tp.notiz, tp.erledigt,
-                   v.name AS station, v.strasse, v.plz, v.ort, v.id AS vs_id
+                   v.name AS station, v.strasse, v.plz, v.ort, v.id AS vs_id,
+                   v.lieferant, v.ansprechpartner, v.hinweis
             FROM tagesplan tp
             JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
             WHERE tp.mitarbeiter_id = ?
@@ -2058,6 +2142,316 @@ def api_tourenplanung_mitarbeiter_verkaufsstellen(ma_id):
     return jsonify([{'id': v['id'], 'name': v['name'], 'plz': v['plz'], 'ort': v['ort']} for v in vs_rows])
 
 
+@app.route('/api/arbeitszeit/heute', methods=['GET'])
+@login_required
+def api_arbeitszeit_heute():
+    row = query(
+        "SELECT beginn, ende, pause_minuten FROM arbeitszeit WHERE mitarbeiter_id=? AND datum=?",
+        (session['user_id'], date.today().isoformat()), one=True
+    )
+    return jsonify({
+        'ok': True,
+        'beginn': row['beginn'] if row else None,
+        'ende': row['ende'] if row else None,
+        'pause_minuten': (row['pause_minuten'] or 0) if row else 0,
+    })
+
+
+@app.route('/api/arbeitszeit/speichern', methods=['POST'])
+@login_required
+def api_arbeitszeit_speichern():
+    data = request.get_json(force=True, silent=True) or {}
+    feld = data.get('feld')
+    if feld in ('beginn', 'ende'):
+        wert = (data.get('uhrzeit') or '').strip()
+        if not wert:
+            return jsonify({'ok': False, 'error': 'Ungültige Eingabe'}), 400
+    elif feld == 'pause':
+        try:
+            wert = max(0, int(data.get('minuten', 0)))
+        except (TypeError, ValueError):
+            return jsonify({'ok': False, 'error': 'Ungültige Eingabe'}), 400
+        feld = 'pause_minuten'
+    else:
+        return jsonify({'ok': False, 'error': 'Ungültige Eingabe'}), 400
+
+    heute = date.today().isoformat()
+    row = query(
+        "SELECT id, beginn, ende, pause_minuten FROM arbeitszeit WHERE mitarbeiter_id=? AND datum=?",
+        (session['user_id'], heute), one=True
+    )
+
+    # Bei Beginn/Ende-Änderung: gesetzliche Mindestpause automatisch nach oben korrigieren
+    # (>6 Std → mind. 30 Min, >9 Std → mind. 45 Min). Manuelle Pausen-Eingabe bleibt unangetastet.
+    pause_bump = None
+    if feld in ('beginn', 'ende'):
+        neu_beginn = wert if feld == 'beginn' else (row['beginn'] if row else None)
+        neu_ende   = wert if feld == 'ende'   else (row['ende'] if row else None)
+        pflicht = _az_pflichtpause_minuten(_az_brutto_minuten(neu_beginn, neu_ende))
+        vorhandene_pause = (row['pause_minuten'] or 0) if row else 0
+        if pflicht > vorhandene_pause:
+            pause_bump = pflicht
+
+    if row:
+        execute(f"UPDATE arbeitszeit SET {feld}=? WHERE id=?", (wert, row['id']))
+        if pause_bump is not None:
+            execute("UPDATE arbeitszeit SET pause_minuten=? WHERE id=?", (pause_bump, row['id']))
+    else:
+        execute(f"INSERT INTO arbeitszeit (mitarbeiter_id, datum, {feld}) VALUES (?,?,?)",
+                (session['user_id'], heute, wert))
+        if pause_bump is not None:
+            execute(
+                "UPDATE arbeitszeit SET pause_minuten=? WHERE mitarbeiter_id=? AND datum=?",
+                (pause_bump, session['user_id'], heute)
+            )
+    return jsonify({'ok': True, 'pause_minuten': pause_bump if pause_bump is not None else ((row['pause_minuten'] or 0) if row else 0)})
+
+
+@app.route('/api/arbeitszeit/admin-speichern', methods=['POST'])
+@manager_required
+def api_arbeitszeit_admin_speichern():
+    """Admin kann Arbeitszeit für jeden Mitarbeiter und jedes Datum – auch in der
+    Vergangenheit – korrigieren. VKL genauso, aber nur für die eigenen Teammitglieder."""
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        ma_id = int(data.get('mitarbeiter_id'))
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'Ungültiger Mitarbeiter'}), 400
+    datum = (data.get('datum') or '').strip()
+    try:
+        date.fromisoformat(datum)
+    except ValueError:
+        return jsonify({'ok': False, 'error': 'Ungültiges Datum'}), 400
+
+    beginn = (data.get('beginn') or '').strip() or None
+    ende   = (data.get('ende') or '').strip() or None
+    try:
+        pause_minuten = max(0, int(data.get('pause_minuten') or 0))
+    except (TypeError, ValueError):
+        pause_minuten = 0
+
+    # Gesetzliche Mindestpause auch hier nur nach oben korrigieren, nie nach unten
+    pflicht = _az_pflichtpause_minuten(_az_brutto_minuten(beginn, ende))
+    if pflicht > pause_minuten:
+        pause_minuten = pflicht
+
+    ma = query("SELECT id, team_id FROM mitarbeiter WHERE id=?", (ma_id,), one=True)
+    if not ma:
+        return jsonify({'ok': False, 'error': 'Mitarbeiter nicht gefunden'}), 404
+    if session.get('rolle') == 'verkaufsleiter' and ma['team_id'] != session.get('team_id'):
+        return jsonify({'ok': False, 'error': 'Kein Zugriff'}), 403
+
+    row = query(
+        "SELECT id FROM arbeitszeit WHERE mitarbeiter_id=? AND datum=?",
+        (ma_id, datum), one=True
+    )
+    if row:
+        execute(
+            "UPDATE arbeitszeit SET beginn=?, ende=?, pause_minuten=? WHERE id=?",
+            (beginn, ende, pause_minuten, row['id'])
+        )
+    else:
+        execute(
+            "INSERT INTO arbeitszeit (mitarbeiter_id, datum, beginn, ende, pause_minuten) VALUES (?,?,?,?,?)",
+            (ma_id, datum, beginn, ende, pause_minuten)
+        )
+    return jsonify({'ok': True})
+
+
+@app.route('/arbeitszeit')
+@login_required
+def arbeitszeit_uebersicht():
+    is_admin   = session.get('rolle') == 'admin'
+    is_manager = session.get('rolle') in ('admin', 'verkaufsleiter')
+    modus = request.args.get('modus', 'woche')
+    if modus not in ('tag', 'woche', 'monat'):
+        modus = 'woche'
+    today = date.today()
+    today_str = today.isoformat()
+
+    mitarbeiter_liste = []
+    ma_id = session['user_id']
+    if is_manager:
+        _tm_sql, _tm_p = _team_m_clause('m')
+        mitarbeiter_liste = query(
+            f"SELECT id, name, kuerzel FROM mitarbeiter m WHERE rolle IN ('rep','verkaufsleiter') AND aktiv=1 {_tm_sql} ORDER BY name",
+            _tm_p
+        )
+        ma_param = request.args.get('ma', '')
+        ma_id = int(ma_param) if ma_param.isdigit() else None
+
+    # Eigene Ansicht (Mitarbeiter/VKL auf ihre eigenen Daten geschaut) darf für
+    # den heutigen Tag selbst bearbeitet werden; Admin darf immer & überall.
+    eigene_ansicht = (ma_id == session['user_id'])
+
+    # ── Tag ──
+    tag_datum_str = request.args.get('datum', today_str)
+    try:
+        tag_d = date.fromisoformat(tag_datum_str)
+    except ValueError:
+        tag_d = today
+    tag_datum_str = tag_d.isoformat()
+    tag_prev = (tag_d - timedelta(days=1)).isoformat()
+    tag_next = (tag_d + timedelta(days=1)).isoformat()
+
+    tag_eintrag = None
+    tag_team = []
+    if modus == 'tag':
+        if ma_id:
+            row = query(
+                "SELECT beginn, ende, pause_minuten FROM arbeitszeit WHERE mitarbeiter_id=? AND datum=?",
+                (ma_id, tag_datum_str), one=True
+            )
+            netto = _az_netto_minuten(row['beginn'], row['ende'], row['pause_minuten']) if row else None
+            tag_eintrag = {
+                'beginn': row['beginn'] if row else None,
+                'ende': row['ende'] if row else None,
+                'pause_minuten': (row['pause_minuten'] or 0) if row else 0,
+                'netto_fmt': _az_fmt_std(netto),
+            }
+        elif is_manager:
+            _tm_sql, _tm_p = _team_m_clause('m')
+            rows = query(f'''
+                SELECT m.id, m.name, m.kuerzel, az.beginn, az.ende, az.pause_minuten
+                FROM mitarbeiter m
+                LEFT JOIN arbeitszeit az ON az.mitarbeiter_id = m.id AND az.datum = ?
+                WHERE m.rolle IN ('rep','verkaufsleiter') AND m.aktiv=1 {_tm_sql}
+                ORDER BY m.name
+            ''', (tag_datum_str,) + _tm_p)
+            tag_team = [{
+                'id': r['id'], 'name': r['name'], 'kuerzel': r['kuerzel'],
+                'beginn': r['beginn'], 'ende': r['ende'], 'pause_minuten': r['pause_minuten'] or 0,
+                'netto_fmt': _az_fmt_std(_az_netto_minuten(r['beginn'], r['ende'], r['pause_minuten'])),
+            } for r in rows]
+
+    # ── Woche ──
+    woche_start_str = request.args.get('woche')
+    try:
+        woche_start = date.fromisoformat(woche_start_str) if woche_start_str else today
+    except ValueError:
+        woche_start = today
+    woche_start = woche_start - timedelta(days=woche_start.weekday())
+    woche_ende  = woche_start + timedelta(days=6)
+    woche_kw    = woche_start.isocalendar()[1]
+
+    # ── Monat ──
+    monat_str = request.args.get('monat')
+    try:
+        monat_start = date.fromisoformat(monat_str + '-01') if monat_str else today.replace(day=1)
+    except ValueError:
+        monat_start = today.replace(day=1)
+    if monat_start.month == 12:
+        monat_ende = date(monat_start.year, 12, 31)
+    else:
+        monat_ende = date(monat_start.year, monat_start.month + 1, 1) - timedelta(days=1)
+    prev_monat = (monat_start - timedelta(days=1)).replace(day=1)
+    next_monat = (monat_ende + timedelta(days=1)).replace(day=1)
+    _monat_namen = ['Januar','Februar','März','April','Mai','Juni',
+                    'Juli','August','September','Oktober','November','Dezember']
+    monat_label = f"{_monat_namen[monat_start.month - 1]} {monat_start.year}"
+
+    zeitraum_start = woche_start if modus == 'woche' else monat_start
+    zeitraum_ende  = woche_ende  if modus == 'woche' else monat_ende
+
+    tage_de = ['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag','Sonntag']
+    eigene_tage = []
+    eigene_summe = 0
+    team_summary = []
+
+    if modus in ('woche', 'monat'):
+        if ma_id:
+            rows = query(
+                "SELECT datum, beginn, ende, pause_minuten FROM arbeitszeit "
+                "WHERE mitarbeiter_id=? AND datum BETWEEN ? AND ? ORDER BY datum",
+                (ma_id, zeitraum_start.isoformat(), zeitraum_ende.isoformat())
+            )
+            by_datum = {r['datum']: r for r in rows}
+            if modus == 'woche':
+                for i in range(7):
+                    d = woche_start + timedelta(days=i)
+                    r = by_datum.get(d.isoformat())
+                    netto = _az_netto_minuten(r['beginn'], r['ende'], r['pause_minuten']) if r else None
+                    if netto:
+                        eigene_summe += netto
+                    eigene_tage.append({
+                        'datum': d.isoformat(), 'tag': tage_de[i],
+                        'beginn': r['beginn'] if r else None,
+                        'ende': r['ende'] if r else None,
+                        'pause_minuten': (r['pause_minuten'] or 0) if r else 0,
+                        'netto': netto, 'netto_fmt': _az_fmt_std(netto),
+                    })
+            else:
+                # Monat: pro Kalenderwoche gruppiert
+                wochen = {}
+                for r in rows:
+                    d = date.fromisoformat(r['datum'])
+                    kw = d.isocalendar()[1]
+                    netto = _az_netto_minuten(r['beginn'], r['ende'], r['pause_minuten'])
+                    if kw not in wochen:
+                        wochen[kw] = {'kw': kw, 'summe': 0, 'tage': 0}
+                    if netto:
+                        wochen[kw]['summe'] += netto
+                        wochen[kw]['tage']  += 1
+                    eigene_summe += netto or 0
+                eigene_tage = [
+                    {'kw': w['kw'], 'summe': w['summe'], 'summe_fmt': _az_fmt_std(w['summe']), 'tage': w['tage']}
+                    for w in sorted(wochen.values(), key=lambda w: w['kw'])
+                ]
+
+        if is_manager and not ma_id:
+            _tm_sql, _tm_p = _team_m_clause('m')
+            rows = query(
+                f"SELECT az.mitarbeiter_id, az.datum, az.beginn, az.ende, az.pause_minuten "
+                f"FROM arbeitszeit az JOIN mitarbeiter m ON m.id = az.mitarbeiter_id "
+                f"WHERE az.datum BETWEEN ? AND ? {_tm_sql}",
+                (zeitraum_start.isoformat(), zeitraum_ende.isoformat()) + _tm_p
+            )
+            by_ma = {}
+            for r in rows:
+                by_ma.setdefault(r['mitarbeiter_id'], {})[r['datum']] = r
+            team_summary = []
+            for m in mitarbeiter_liste:
+                ma_rows = by_ma.get(m['id'], {})
+                summe = 0
+                tage_list = []
+                if modus == 'woche':
+                    for i in range(7):
+                        d = woche_start + timedelta(days=i)
+                        r = ma_rows.get(d.isoformat())
+                        netto = _az_netto_minuten(r['beginn'], r['ende'], r['pause_minuten']) if r else None
+                        if netto:
+                            summe += netto
+                        tage_list.append({
+                            'datum': d.isoformat(), 'tag': tage_de[i],
+                            'beginn': r['beginn'] if r else None,
+                            'ende': r['ende'] if r else None,
+                            'pause_minuten': (r['pause_minuten'] or 0) if r else 0,
+                            'netto_fmt': _az_fmt_std(netto),
+                        })
+                else:
+                    for r in ma_rows.values():
+                        summe += _az_netto_minuten(r['beginn'], r['ende'], r['pause_minuten']) or 0
+                team_summary.append({
+                    'id': m['id'], 'name': m['name'], 'kuerzel': m['kuerzel'],
+                    'summe': summe, 'summe_fmt': _az_fmt_std(summe), 'tage': tage_list,
+                })
+            team_summary.sort(key=lambda x: x['name'])
+
+    return render_template('arbeitszeit.html',
+        is_admin=is_admin, is_manager=is_manager, mitarbeiter_liste=mitarbeiter_liste, ma_id=ma_id,
+        modus=modus, eigene_ansicht=eigene_ansicht, today_str=today_str,
+        tag_datum=tag_datum_str, tag_prev=tag_prev, tag_next=tag_next,
+        tag_eintrag=tag_eintrag, tag_team=tag_team,
+        woche_start=woche_start.isoformat(), woche_ende=woche_ende.isoformat(), woche_kw=woche_kw,
+        prev_woche=(woche_start - timedelta(days=7)).isoformat(),
+        next_woche=(woche_start + timedelta(days=7)).isoformat(),
+        monat_str=monat_start.strftime('%Y-%m'), monat_label=monat_label,
+        prev_monat=prev_monat.strftime('%Y-%m'), next_monat=next_monat.strftime('%Y-%m'),
+        eigene_tage=eigene_tage, eigene_summe=eigene_summe, eigene_summe_fmt=_az_fmt_std(eigene_summe),
+        team_summary=team_summary,
+    )
+
+
 @app.route('/tourenplanung')
 @login_required
 def tourenplanung():
@@ -2088,6 +2482,7 @@ def tourenplanung():
         SELECT tp.id, tp.datum, tp.reihenfolge, tp.notiz, tp.erledigt,
                COALESCE(tp.geloescht, 0) AS geloescht, tp.geloescht_am,
                v.name AS station, v.plz, v.ort, v.id AS vs_id,
+               v.lieferant, v.ansprechpartner, v.hinweis,
                m.name AS mitarbeiter, m.kuerzel, m.id AS ma_id
         FROM tagesplan tp
         JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
@@ -2112,6 +2507,7 @@ def tourenplanung():
         SELECT tp.id, tp.datum, tp.reihenfolge, tp.notiz, tp.erledigt,
                COALESCE(tp.geloescht, 0) AS geloescht, tp.geloescht_am,
                v.name AS station, v.plz, v.ort, v.id AS vs_id,
+               v.lieferant, v.ansprechpartner, v.hinweis,
                m.name AS mitarbeiter, m.kuerzel, m.id AS ma_id
         FROM tagesplan tp
         JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
@@ -2817,6 +3213,14 @@ def neue_aktivitaet():
                     (akt_id, bier['id'], int(menge))
                 )
 
+        # Optionaler Hinweis an den Admin (z.B. Adress-/Namensänderung der Verkaufsstelle)
+        admin_hinweis = request.form.get('admin_hinweis', '').strip()
+        if admin_hinweis:
+            execute(
+                "INSERT INTO vs_hinweis_meldung (verkaufsstelle_id, mitarbeiter_id, aktivitaet_id, text) VALUES (?,?,?,?)",
+                (vs_id, session['user_id'], akt_id, admin_hinweis)
+            )
+
         # KONZEPT-V2: aus offenen Bestellungen aufgebaut → diese Bestellungen schließen
         if aktionstyp == 'Aufbau':
             erledigt = request.form.get('erledigt_bestellung_ids', '')
@@ -3399,7 +3803,13 @@ def admin_demo_cleanup():
 @admin_required
 def admin():
     mitarbeiter     = query("SELECT m.*, t.name AS team_name FROM mitarbeiter m LEFT JOIN team t ON t.id = m.team_id WHERE m.kuerzel != 'ADMIN' ORDER BY m.rolle, m.name")
-    verkaufsstellen = query("SELECT * FROM verkaufsstelle ORDER BY aktiv DESC, name")
+    # Bei vielen Verkaufsstellen würde das ungebremste Einbetten ALLER Zeilen die
+    # Admin-Seite lahmlegen – initial nur die ersten laden, für den Rest steht die
+    # Suche (api_admin_verkaufsstellen_suche) zur Verfügung.
+    vs_admin_gesamt = query("SELECT COUNT(*) AS n FROM verkaufsstelle", one=True)['n']
+    verkaufsstellen = query(
+        "SELECT * FROM verkaufsstelle ORDER BY aktiv DESC, name LIMIT ?", (VS_ADMIN_SEITENGROESSE,)
+    )
     biersorten      = query("SELECT * FROM biersorte ORDER BY name")
     displaysorte    = query("SELECT * FROM displaysorte ORDER BY name")
     teams           = query("SELECT t.*, COUNT(m.id) AS mitglieder FROM team t LEFT JOIN mitarbeiter m ON m.team_id = t.id GROUP BY t.id ORDER BY t.name")
@@ -3430,6 +3840,16 @@ def admin():
     # Alle Außendienst-Mitarbeiter für Dropdowns
     alle_ad = query("SELECT id, name FROM mitarbeiter WHERE rolle IN ('rep','verkaufsleiter') ORDER BY name")
 
+    # Offene Verkaufsstellen-Hinweise (z.B. Adress-/Namensänderung, aus "Neue Aktivität" gemeldet)
+    vs_hinweise_offen = query('''
+        SELECT h.id, h.text, h.erstellt_am, v.name AS verkaufsstelle, v.id AS verkaufsstelle_id, m.name AS mitarbeiter
+        FROM vs_hinweis_meldung h
+        JOIN verkaufsstelle v ON v.id = h.verkaufsstelle_id
+        JOIN mitarbeiter m ON m.id = h.mitarbeiter_id
+        WHERE h.status = 'offen'
+        ORDER BY h.erstellt_am DESC
+    ''')
+
     cfg = query("SELECT urlaubsmail_empfaenger, neue_vs_empfaenger FROM wochenbericht_config WHERE id=1", one=True)
     urlaubsmail_empfaenger = cfg['urlaubsmail_empfaenger'] if cfg else ''
     neue_vs_empfaenger     = cfg['neue_vs_empfaenger']     if cfg else ''
@@ -3437,11 +3857,14 @@ def admin():
     return render_template('admin.html',
         mitarbeiter=mitarbeiter,
         verkaufsstellen=verkaufsstellen,
+        vs_admin_gesamt=vs_admin_gesamt,
+        vs_admin_seitengroesse=VS_ADMIN_SEITENGROESSE,
         biersorten=biersorten,
         displaysorte=displaysorte,
         zuordnungen=zuordnungen,
         vs_besitzer=vs_besitzer,
         vertretungen=vertretungen,
+        vs_hinweise_offen=vs_hinweise_offen,
         alle_ad=alle_ad,
         teams=teams,
         mail_konfiguriert=mail_konfiguriert,
@@ -3895,6 +4318,17 @@ def admin_vertretung_ablehnen(vtr_id):
     return redirect(request.referrer or url_for('dashboard'))
 
 
+@app.route('/admin/vs-hinweis/<int:hinweis_id>/erledigt', methods=['POST'])
+@admin_required
+def admin_vs_hinweis_erledigt(hinweis_id):
+    execute(
+        "UPDATE vs_hinweis_meldung SET status='erledigt', erledigt_am=datetime('now','localtime'), erledigt_von_id=? WHERE id=?",
+        (session['user_id'], hinweis_id)
+    )
+    flash('Hinweis als erledigt markiert.', 'success')
+    return redirect(url_for('admin') + '#vs-hinweise')
+
+
 @app.route('/admin/urlaubsmail/empfaenger', methods=['POST'])
 @admin_required
 def admin_urlaubsmail_empfaenger():
@@ -4008,10 +4442,13 @@ def admin_vs_neu():
     landkreis        = request.form.get('landkreis',        '').strip()
     typ              = request.form.get('typ',              '').strip()
     ansprechpartner  = request.form.get('ansprechpartner',  '').strip()
+    lieferant        = request.form.get('lieferant',        '').strip()
+    kundennummer     = request.form.get('kundennummer',     '').strip()
+    hinweis          = request.form.get('hinweis',          '').strip()
     if name:
         new_id = execute(
-            "INSERT INTO verkaufsstelle (name, strasse, plz, ort, landkreis, typ, ansprechpartner) VALUES (?,?,?,?,?,?,?)",
-            (name, strasse, plz or None, ort, landkreis or None, typ, ansprechpartner)
+            "INSERT INTO verkaufsstelle (name, strasse, plz, ort, landkreis, typ, ansprechpartner, lieferant, kundennummer, hinweis) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (name, strasse, plz or None, ort, landkreis or None, typ, ansprechpartner, lieferant or None, kundennummer or None, hinweis or None)
         )
         if KARTE_MODUS != 'aus' and (strasse or ort):
             lat, lng, quelle, kreis_aus_geo = _geocode_adresse(strasse, ort, plz=plz or None)
@@ -4048,13 +4485,18 @@ def admin_vs_bearbeiten(vs_id):
     landkreis       = request.form.get('landkreis',       '').strip()
     typ             = request.form.get('typ',             '').strip()
     ansprechpartner = request.form.get('ansprechpartner', '').strip()
+    lieferant       = request.form.get('lieferant',       '').strip()
+    kundennummer    = request.form.get('kundennummer',    '').strip()
+    hinweis         = request.form.get('hinweis',         '').strip()
     if not name:
         flash('Name ist ein Pflichtfeld.', 'danger')
         return redirect(url_for('admin'))
     adresse_geaendert = strasse != (vs['strasse'] or '') or ort != (vs['ort'] or '')
     execute(
-        "UPDATE verkaufsstelle SET name=?, strasse=?, plz=?, ort=?, landkreis=?, typ=?, ansprechpartner=? WHERE id=?",
-        (name, strasse, plz or None, ort, landkreis or None, typ, ansprechpartner, vs_id)
+        "UPDATE verkaufsstelle SET name=?, strasse=?, plz=?, ort=?, landkreis=?, typ=?, ansprechpartner=?, "
+        "lieferant=?, kundennummer=?, hinweis=? WHERE id=?",
+        (name, strasse, plz or None, ort, landkreis or None, typ, ansprechpartner,
+         lieferant or None, kundennummer or None, hinweis or None, vs_id)
     )
     if adresse_geaendert and KARTE_MODUS != 'aus' and (strasse or ort):
         lat, lng, quelle, kreis_aus_geo = _geocode_adresse(strasse, ort, plz=plz or None)
@@ -6495,6 +6937,170 @@ def monatsbericht_vorschau():
 </body></html>'''
 
     return html, 200, {'Content-Type': 'text/html; charset=utf-8'}
+
+
+# ─── Verkaufsstellen (Rep/VKL-Selbstservice für Lieferant/Ansprechpartner) ────
+
+VS_FELDER = "v.id, v.name, v.strasse, v.plz, v.ort, v.typ, v.landkreis, v.lieferant, v.ansprechpartner, v.hinweis, v.kundennummer"
+VS_LISTE_SEITENGROESSE = 150
+VS_ADMIN_SEITENGROESSE = 150
+
+
+def _verkaufsstellen_liste_sql(suche=None):
+    """Baut FROM/WHERE + Parameter für die eigene Verkaufsstellen-Liste
+    (Rep: eigene Zuordnung, VKL: Team bzw. alle ohne eigenes Team, Admin: alle).
+    Zentral, damit Seiten-Rendering und Such-API exakt denselben Gebiets-Scope
+    verwenden."""
+    rolle = session.get('rolle')
+    if rolle == 'rep':
+        from_sql  = "FROM verkaufsstelle v JOIN mitarbeiter_verkaufsstelle mv ON mv.verkaufsstelle_id = v.id"
+        where_sql = "WHERE mv.mitarbeiter_id = ? AND v.aktiv = 1"
+        params    = [session['user_id']]
+        distinct  = False
+    elif rolle == 'verkaufsleiter' and session.get('team_id'):
+        from_sql  = ("FROM verkaufsstelle v JOIN mitarbeiter_verkaufsstelle mv ON mv.verkaufsstelle_id = v.id "
+                     "JOIN mitarbeiter m ON m.id = mv.mitarbeiter_id")
+        where_sql = "WHERE m.team_id = ? AND v.aktiv = 1"
+        params    = [session['team_id']]
+        distinct  = True
+    else:
+        from_sql  = "FROM verkaufsstelle v"
+        where_sql = "WHERE v.aktiv = 1"
+        params    = []
+        distinct  = False
+
+    if suche:
+        where_sql += " AND (v.name LIKE ? OR v.ort LIKE ? OR v.landkreis LIKE ?)"
+        like = f'%{suche}%'
+        params += [like, like, like]
+
+    return from_sql, where_sql, params, distinct
+
+
+@app.route('/verkaufsstellen')
+@login_required
+def verkaufsstellen_liste():
+    """Liste der Verkaufsstellen im eigenen Gebiet (Rep: eigene Zuordnung, VKL:
+    ganzes Team) mit Möglichkeit, Lieferant und Ansprechpartner selbst zu
+    korrigieren – diese Stammdaten kennt vor Ort meist nur der Außendienst,
+    nicht der Admin. Initial nur die ersten Treffer laden (Performance bei
+    VKL ohne eigenes Team / Admin mit vielen Verkaufsstellen); für den Rest
+    steht die Suche zur Verfügung (serverseitig, siehe api_verkaufsstellen_mein_gebiet)."""
+    from_sql, where_sql, params, distinct = _verkaufsstellen_liste_sql()
+    select = f"SELECT {'DISTINCT ' if distinct else ''}{VS_FELDER}"
+    gesamt = query(f"SELECT COUNT(*) AS n FROM ({select} {from_sql} {where_sql})", params, one=True)['n']
+    verkaufsstellen = query(
+        f"{select} {from_sql} {where_sql} ORDER BY v.name LIMIT ?",
+        params + [VS_LISTE_SEITENGROESSE]
+    )
+    return render_template('verkaufsstellen_liste.html',
+        verkaufsstellen=verkaufsstellen, vs_gesamt=gesamt, vs_seitengroesse=VS_LISTE_SEITENGROESSE)
+
+
+@app.route('/api/verkaufsstellen-mein-gebiet')
+@login_required
+def api_verkaufsstellen_mein_gebiet():
+    """Serverseitige Suche für die Verkaufsstellen-Selbstservice-Seite (ersetzt
+    reines Client-Filtering, das bei vielen Zeilen den Browser einfrieren
+    ließe)."""
+    suche = request.args.get('q', '').strip()
+    from_sql, where_sql, params, distinct = _verkaufsstellen_liste_sql(suche)
+    select = f"SELECT {'DISTINCT ' if distinct else ''}{VS_FELDER}"
+    rows = query(
+        f"{select} {from_sql} {where_sql} ORDER BY v.name LIMIT ?",
+        params + [VS_LISTE_SEITENGROESSE]
+    )
+    return jsonify([dict(r) for r in rows])
+
+
+def _verkaufsstelle_im_eigenen_gebiet(vs_id):
+    """True wenn die Verkaufsstelle im sichtbaren Gebiet des aktuellen Nutzers liegt
+    (Rep: eigene Zuordnung, VKL: Team-Zuordnung bzw. alle ohne eigenes Team, Admin: immer)."""
+    rolle = session.get('rolle')
+    if rolle == 'admin':
+        return True
+    if rolle == 'rep':
+        row = query(
+            "SELECT 1 FROM mitarbeiter_verkaufsstelle WHERE mitarbeiter_id=? AND verkaufsstelle_id=?",
+            (session['user_id'], vs_id), one=True
+        )
+        return bool(row)
+    if rolle == 'verkaufsleiter':
+        tid = session.get('team_id')
+        if not tid:
+            return True
+        row = query('''
+            SELECT 1 FROM mitarbeiter_verkaufsstelle mv
+            JOIN mitarbeiter m ON m.id = mv.mitarbeiter_id
+            WHERE mv.verkaufsstelle_id=? AND m.team_id=?
+        ''', (vs_id, tid), one=True)
+        return bool(row)
+    return False
+
+
+@app.route('/verkaufsstelle/<int:vs_id>/kontakt-aktualisieren', methods=['POST'])
+@login_required
+def verkaufsstelle_kontakt_aktualisieren(vs_id):
+    if not _verkaufsstelle_im_eigenen_gebiet(vs_id):
+        return jsonify({'ok': False, 'error': 'Kein Zugriff'}), 403
+    data = request.get_json(silent=True) or {}
+    lieferant       = (data.get('lieferant') or '').strip() or None
+    ansprechpartner = (data.get('ansprechpartner') or '').strip() or None
+    hinweis         = (data.get('hinweis') or '').strip() or None
+
+    # Admin darf hier zusätzlich alle Stammdaten pflegen (nicht nur Lieferant/
+    # Ansprechpartner/Hinweis wie Rep/VKL) – dieselbe Seite dient beiden Zwecken.
+    if session.get('rolle') == 'admin':
+        name = (data.get('name') or '').strip()
+        if not name:
+            return jsonify({'ok': False, 'error': 'Name ist ein Pflichtfeld'}), 400
+        strasse      = (data.get('strasse') or '').strip() or None
+        plz          = (data.get('plz') or '').strip() or None
+        ort          = (data.get('ort') or '').strip() or None
+        landkreis    = (data.get('landkreis') or '').strip() or None
+        typ          = (data.get('typ') or '').strip() or None
+        kundennummer = (data.get('kundennummer') or '').strip() or None
+
+        vs_alt = query("SELECT strasse, ort FROM verkaufsstelle WHERE id=?", (vs_id,), one=True)
+        adresse_geaendert = strasse != (vs_alt['strasse'] if vs_alt else None) or ort != (vs_alt['ort'] if vs_alt else None)
+
+        execute(
+            "UPDATE verkaufsstelle SET name=?, strasse=?, plz=?, ort=?, landkreis=?, typ=?, "
+            "kundennummer=?, lieferant=?, ansprechpartner=?, hinweis=? WHERE id=?",
+            (name, strasse, plz, ort, landkreis, typ, kundennummer, lieferant, ansprechpartner, hinweis, vs_id)
+        )
+        if adresse_geaendert and KARTE_MODUS != 'aus' and (strasse or ort):
+            lat, lng, quelle, kreis_aus_geo = _geocode_adresse(strasse, ort, plz=plz)
+            if lat is not None:
+                if kreis_aus_geo and not landkreis:
+                    execute("UPDATE verkaufsstelle SET lat=?, lng=?, geocode_quelle=?, landkreis=? WHERE id=?", (lat, lng, quelle, kreis_aus_geo, vs_id))
+                else:
+                    execute("UPDATE verkaufsstelle SET lat=?, lng=?, geocode_quelle=? WHERE id=?", (lat, lng, quelle, vs_id))
+    else:
+        execute(
+            "UPDATE verkaufsstelle SET lieferant=?, ansprechpartner=?, hinweis=? WHERE id=?",
+            (lieferant, ansprechpartner, hinweis, vs_id)
+        )
+    return jsonify({'ok': True})
+
+
+@app.route('/api/admin/verkaufsstellen-suche')
+@admin_required
+def api_admin_verkaufsstellen_suche():
+    """Serverseitige Suche für die Admin-Verkaufsstellen-Verwaltung (ersetzt reines
+    Client-Filtering, das bei vielen Zeilen den Browser einfrieren ließe)."""
+    suche = request.args.get('q', '').strip()
+    where_sql = ""
+    params = []
+    if suche:
+        like = f'%{suche}%'
+        where_sql = " WHERE name LIKE ? OR ort LIKE ? OR landkreis LIKE ? OR typ LIKE ? OR lieferant LIKE ?"
+        params = [like, like, like, like, like]
+    rows = query(
+        f"SELECT * FROM verkaufsstelle{where_sql} ORDER BY aktiv DESC, name LIMIT ?",
+        tuple(params) + (VS_ADMIN_SEITENGROESSE,)
+    )
+    return jsonify([dict(r) for r in rows])
 
 
 # ─── Karte ────────────────────────────────────────────────────────────────────

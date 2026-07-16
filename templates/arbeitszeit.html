@@ -1,0 +1,374 @@
+{% extends 'base.html' %}
+{% block title %}Arbeitszeit – Aktions Tracker{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div>
+    <h1><i class="bi bi-clock-history me-2"></i>Arbeitszeit</h1>
+    <p class="mb-0">{% if is_manager and not ma_id %}Übersicht aller Mitarbeiter{% else %}Meine Arbeitszeiten{% endif %}</p>
+  </div>
+</div>
+
+<div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+  <a href="{{ url_for('arbeitszeit_uebersicht', modus='tag', ma=ma_id) }}"
+     class="btn btn-sm {{ 'btn-primary' if modus == 'tag' else 'btn-outline-secondary' }}">
+    <i class="bi bi-calendar-day me-1"></i>Tag
+  </a>
+  <a href="{{ url_for('arbeitszeit_uebersicht', modus='woche', ma=ma_id) }}"
+     class="btn btn-sm {{ 'btn-primary' if modus == 'woche' else 'btn-outline-secondary' }}">
+    <i class="bi bi-calendar-week me-1"></i>Woche
+  </a>
+  <a href="{{ url_for('arbeitszeit_uebersicht', modus='monat', ma=ma_id) }}"
+     class="btn btn-sm {{ 'btn-primary' if modus == 'monat' else 'btn-outline-secondary' }}">
+    <i class="bi bi-calendar3 me-1"></i>Monat
+  </a>
+
+  {% if is_manager %}
+  <select class="form-select form-select-sm ms-auto" style="width:220px" onchange="window.location.href=this.value">
+    <option value="{{ url_for('arbeitszeit_uebersicht', modus=modus) }}" {% if not ma_id %}selected{% endif %}>Alle Mitarbeiter</option>
+    {% for m in mitarbeiter_liste %}
+    <option value="{{ url_for('arbeitszeit_uebersicht', modus=modus, ma=m.id) }}" {% if ma_id == m.id %}selected{% endif %}>{{ m.name }} ({{ m.kuerzel }})</option>
+    {% endfor %}
+  </select>
+  {% endif %}
+</div>
+
+{% if modus == 'tag' %}
+<div class="d-flex align-items-center gap-2 mb-3">
+  <a href="{{ url_for('arbeitszeit_uebersicht', modus='tag', datum=tag_prev, ma=ma_id) }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-chevron-left"></i>
+  </a>
+  <span class="fw-semibold" style="color:#1a3a5c">
+    {{ tag_datum[8:10] }}.{{ tag_datum[5:7] }}.{{ tag_datum[0:4] }}
+    {% if tag_datum == today_str %}<span class="badge bg-primary ms-1">Heute</span>{% endif %}
+  </span>
+  <a href="{{ url_for('arbeitszeit_uebersicht', modus='tag', datum=tag_next, ma=ma_id) }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-chevron-right"></i>
+  </a>
+</div>
+
+{% if ma_id %}
+{% set kann_bearbeiten = is_manager or (eigene_ansicht and tag_datum == today_str) %}
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-sm mb-0 align-middle">
+      <thead style="background:#f4f6fa">
+        <tr>
+          <th>Beginn</th><th>Ende</th><th>Pause</th><th>Netto</th>
+          {% if kann_bearbeiten %}<th></th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        <tr id="az_tag_row">
+          {% if kann_bearbeiten %}
+          <td><input type="time" class="form-control form-control-sm az-beginn" value="{{ tag_eintrag.beginn or '' }}" style="width:110px"></td>
+          <td><input type="time" class="form-control form-control-sm az-ende" value="{{ tag_eintrag.ende or '' }}" style="width:110px"></td>
+          <td><input type="number" class="form-control form-control-sm az-pause" min="0" value="{{ tag_eintrag.pause_minuten or 0 }}" style="width:70px" title="Minuten"></td>
+          <td class="fw-semibold">{{ tag_eintrag.netto_fmt }}</td>
+          <td>
+            <button type="button" class="btn btn-sm btn-outline-primary az-speichern-btn"
+                    data-row="az_tag_row"
+                    data-modus="{{ 'admin' if is_manager else 'selbst' }}"
+                    data-ma="{{ ma_id }}" data-datum="{{ tag_datum }}" title="Speichern">
+              <i class="bi bi-check2"></i>
+            </button>
+          </td>
+          {% else %}
+          <td>{{ tag_eintrag.beginn or '–' }}</td>
+          <td>{{ tag_eintrag.ende or '–' }}</td>
+          <td>{% if tag_eintrag.pause_minuten %}{{ tag_eintrag.pause_minuten }} min{% else %}–{% endif %}</td>
+          <td class="fw-semibold">{{ tag_eintrag.netto_fmt }}</td>
+          {% endif %}
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  {% if is_manager %}
+  <div class="p-2 small text-muted border-top">
+    <i class="bi bi-info-circle me-1"></i>Als Leitung kannst du Arbeitsbeginn, -ende und Pause für jeden Tag korrigieren – auch rückwirkend.
+  </div>
+  {% elif eigene_ansicht and tag_datum != today_str %}
+  <div class="p-2 small text-muted border-top">
+    <i class="bi bi-info-circle me-1"></i>Vergangene Tage kannst du nicht mehr selbst ändern – wende dich dafür an die Leitung.
+  </div>
+  {% endif %}
+</div>
+{% else %}
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-sm mb-0 align-middle">
+      <thead style="background:#f4f6fa"><tr><th>Mitarbeiter</th><th>Beginn</th><th>Ende</th><th>Pause</th><th>Netto</th>{% if is_manager %}<th></th>{% endif %}</tr></thead>
+      <tbody>
+        {% for row in tag_team %}
+        <tr id="az_team_row_{{ row.id }}">
+          <td>{{ row.name }} <span class="text-muted">({{ row.kuerzel }})</span></td>
+          {% if is_manager %}
+          <td><input type="time" class="form-control form-control-sm az-beginn" value="{{ row.beginn or '' }}" style="width:110px"></td>
+          <td><input type="time" class="form-control form-control-sm az-ende" value="{{ row.ende or '' }}" style="width:110px"></td>
+          <td><input type="number" class="form-control form-control-sm az-pause" min="0" value="{{ row.pause_minuten or 0 }}" style="width:70px" title="Minuten"></td>
+          <td class="fw-semibold">{{ row.netto_fmt }}</td>
+          <td>
+            <button type="button" class="btn btn-sm btn-outline-primary az-speichern-btn"
+                    data-row="az_team_row_{{ row.id }}" data-modus="admin"
+                    data-ma="{{ row.id }}" data-datum="{{ tag_datum }}" title="Speichern">
+              <i class="bi bi-check2"></i>
+            </button>
+          </td>
+          {% else %}
+          <td>{{ row.beginn or '–' }}</td>
+          <td>{{ row.ende or '–' }}</td>
+          <td>{% if row.pause_minuten %}{{ row.pause_minuten }} min{% else %}–{% endif %}</td>
+          <td class="fw-semibold">{{ row.netto_fmt }}</td>
+          {% endif %}
+        </tr>
+        {% else %}
+        <tr><td colspan="{{ 6 if is_manager else 5 }}" class="text-muted">Keine Mitarbeiter gefunden.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% elif modus == 'woche' %}
+<div class="d-flex align-items-center gap-2 mb-3">
+  <a href="{{ url_for('arbeitszeit_uebersicht', modus='woche', woche=prev_woche, ma=ma_id) }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-chevron-left"></i>
+  </a>
+  <span class="fw-semibold" style="color:#1a3a5c">KW {{ woche_kw }} &nbsp;·&nbsp; {{ woche_start[8:10] }}.{{ woche_start[5:7] }}. – {{ woche_ende[8:10] }}.{{ woche_ende[5:7] }}.{{ woche_ende[0:4] }}</span>
+  <a href="{{ url_for('arbeitszeit_uebersicht', modus='woche', woche=next_woche, ma=ma_id) }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-chevron-right"></i>
+  </a>
+</div>
+
+{% if ma_id %}
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-sm mb-0 align-middle">
+      <thead style="background:#f4f6fa">
+        <tr>
+          <th>Tag</th><th>Datum</th><th>Beginn</th><th>Ende</th><th>Pause</th><th>Netto</th>
+          {% if is_manager or eigene_ansicht %}<th></th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in eigene_tage %}
+        {% set kann_bearbeiten = is_manager or (eigene_ansicht and t.datum == today_str) %}
+        <tr id="az_row_{{ t.datum }}">
+          <td>{{ t.tag }}</td>
+          <td>{{ t.datum[8:10] }}.{{ t.datum[5:7] }}.{{ t.datum[2:4] }}</td>
+          {% if kann_bearbeiten %}
+          <td><input type="time" class="form-control form-control-sm az-beginn" value="{{ t.beginn or '' }}" style="width:110px"></td>
+          <td><input type="time" class="form-control form-control-sm az-ende" value="{{ t.ende or '' }}" style="width:110px"></td>
+          <td><input type="number" class="form-control form-control-sm az-pause" min="0" value="{{ t.pause_minuten or 0 }}" style="width:70px" title="Minuten"></td>
+          <td class="fw-semibold">{{ t.netto_fmt }}</td>
+          <td>
+            <button type="button" class="btn btn-sm btn-outline-primary az-speichern-btn"
+                    data-row="az_row_{{ t.datum }}"
+                    data-modus="{{ 'admin' if is_manager else 'selbst' }}"
+                    data-ma="{{ ma_id }}" data-datum="{{ t.datum }}" title="Speichern">
+              <i class="bi bi-check2"></i>
+            </button>
+          </td>
+          {% else %}
+          <td>{{ t.beginn or '–' }}</td>
+          <td>{{ t.ende or '–' }}</td>
+          <td>{% if t.pause_minuten %}{{ t.pause_minuten }} min{% else %}–{% endif %}</td>
+          <td class="fw-semibold">{{ t.netto_fmt }}</td>
+          {% if is_manager or eigene_ansicht %}<td></td>{% endif %}
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr style="background:#f4f6fa">
+          <td colspan="5" class="fw-bold text-end">Wochensumme</td>
+          <td class="fw-bold" style="color:#1a3a5c">{{ eigene_summe_fmt }}</td>
+          {% if is_manager or eigene_ansicht %}<td></td>{% endif %}
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  {% if is_manager %}
+  <div class="p-2 small text-muted border-top">
+    <i class="bi bi-info-circle me-1"></i>Als Leitung kannst du Arbeitsbeginn, -ende und Pause für jeden Tag korrigieren – auch rückwirkend.
+  </div>
+  {% elif eigene_ansicht %}
+  <div class="p-2 small text-muted border-top">
+    <i class="bi bi-info-circle me-1"></i>Nur der heutige Tag ist für dich noch änderbar.
+  </div>
+  {% endif %}
+</div>
+{% else %}
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-sm mb-0 align-middle">
+      <thead style="background:#f4f6fa"><tr><th style="width:30px"></th><th>Mitarbeiter</th><th>Netto-Arbeitszeit (Woche)</th></tr></thead>
+      <tbody>
+        {% for row in team_summary %}
+        <tr class="az-team-toggle" style="cursor:pointer" data-bs-toggle="collapse" data-bs-target="#az_team_detail_{{ row.id }}">
+          <td><i class="bi bi-chevron-right az-chevron"></i></td>
+          <td>{{ row.name }} <span class="text-muted">({{ row.kuerzel }})</span></td>
+          <td class="fw-semibold">{{ row.summe_fmt }}</td>
+        </tr>
+        <tr>
+          <td colspan="3" class="p-0 border-0">
+            <div class="collapse" id="az_team_detail_{{ row.id }}">
+              <table class="table table-sm mb-0" style="background:#fafbfc">
+                <thead style="background:#f0f2f6">
+                  <tr><th class="ps-4">Tag</th><th>Datum</th><th>Beginn</th><th>Ende</th><th>Pause</th><th>Netto</th><th></th></tr>
+                </thead>
+                <tbody>
+                  {% for t in row.tage %}
+                  <tr id="az_wrow_{{ row.id }}_{{ t.datum }}">
+                    <td class="ps-4">{{ t.tag }}</td>
+                    <td>{{ t.datum[8:10] }}.{{ t.datum[5:7] }}.{{ t.datum[2:4] }}</td>
+                    <td><input type="time" class="form-control form-control-sm az-beginn" value="{{ t.beginn or '' }}" style="width:110px"></td>
+                    <td><input type="time" class="form-control form-control-sm az-ende" value="{{ t.ende or '' }}" style="width:110px"></td>
+                    <td><input type="number" class="form-control form-control-sm az-pause" min="0" value="{{ t.pause_minuten or 0 }}" style="width:70px" title="Minuten"></td>
+                    <td class="fw-semibold">{{ t.netto_fmt }}</td>
+                    <td>
+                      <button type="button" class="btn btn-sm btn-outline-primary az-speichern-btn"
+                              data-row="az_wrow_{{ row.id }}_{{ t.datum }}" data-modus="admin"
+                              data-ma="{{ row.id }}" data-datum="{{ t.datum }}" title="Speichern">
+                        <i class="bi bi-check2"></i>
+                      </button>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="text-muted">Keine Mitarbeiter gefunden.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% else %}
+<div class="d-flex align-items-center gap-2 mb-3">
+  <a href="{{ url_for('arbeitszeit_uebersicht', modus='monat', monat=prev_monat, ma=ma_id) }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-chevron-left"></i>
+  </a>
+  <span class="fw-semibold" style="color:#1a3a5c">{{ monat_label }}</span>
+  <a href="{{ url_for('arbeitszeit_uebersicht', modus='monat', monat=next_monat, ma=ma_id) }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-chevron-right"></i>
+  </a>
+</div>
+
+{% if ma_id %}
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-sm mb-0 align-middle">
+      <thead style="background:#f4f6fa"><tr><th>KW</th><th>Erfasste Tage</th><th>Netto-Arbeitszeit</th></tr></thead>
+      <tbody>
+        {% for w in eigene_tage %}
+        <tr>
+          <td>KW {{ w.kw }}</td>
+          <td>{{ w.tage }}</td>
+          <td class="fw-semibold">{{ w.summe_fmt }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="text-muted">Keine Einträge in {{ monat_label }}.</td></tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr style="background:#f4f6fa">
+          <td colspan="2" class="fw-bold text-end">Monatssumme</td>
+          <td class="fw-bold" style="color:#1a3a5c">{{ eigene_summe_fmt }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-sm mb-0 align-middle">
+      <thead style="background:#f4f6fa"><tr><th>Mitarbeiter</th><th>Netto-Arbeitszeit (Monat)</th></tr></thead>
+      <tbody>
+        {% for row in team_summary %}
+        <tr>
+          <td>{{ row.name }} <span class="text-muted">({{ row.kuerzel }})</span></td>
+          <td class="fw-semibold">{{ row.summe_fmt }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="2" class="text-muted">Keine Mitarbeiter gefunden.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('.az-speichern-btn');
+  if (!btn) return;
+  const row = document.getElementById(btn.dataset.row);
+  const beginn = row.querySelector('.az-beginn').value;
+  const ende   = row.querySelector('.az-ende').value;
+  const pause  = row.querySelector('.az-pause').value;
+  const icon   = btn.querySelector('i');
+  icon.className = 'bi bi-hourglass-split';
+
+  let anfrage;
+  if (btn.dataset.modus === 'admin') {
+    anfrage = fetch('/api/arbeitszeit/admin-speichern', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mitarbeiter_id: btn.dataset.ma, datum: btn.dataset.datum,
+        beginn: beginn, ende: ende, pause_minuten: pause
+      })
+    }).then(function(r) { return r.json(); });
+  } else {
+    // Eigene Ansicht: die bestehende Selbst-API kennt nur "heute" und arbeitet
+    // pro Feld – nur ausgefüllte Zeit-Felder mitschicken, da leere Beginn/Ende-
+    // Werte von der API abgelehnt werden (Pause wird immer mitgeschickt, 0 ist gültig).
+    const aufrufe = [];
+    if (beginn) {
+      aufrufe.push(fetch('/api/arbeitszeit/speichern', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ feld: 'beginn', uhrzeit: beginn }) }).then(function(r) { return r.json(); }));
+    }
+    if (ende) {
+      aufrufe.push(fetch('/api/arbeitszeit/speichern', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ feld: 'ende', uhrzeit: ende }) }).then(function(r) { return r.json(); }));
+    }
+    aufrufe.push(fetch('/api/arbeitszeit/speichern', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ feld: 'pause', minuten: pause }) }).then(function(r) { return r.json(); }));
+    anfrage = Promise.all(aufrufe).then(function(ergebnisse) { return { ok: ergebnisse.every(function(r) { return r.ok; }) }; });
+  }
+
+  anfrage
+    .then(function(data) {
+      if (data.ok) {
+        window.location.reload();
+      } else {
+        icon.className = 'bi bi-check2';
+        alert(data.error || 'Speichern fehlgeschlagen');
+      }
+    })
+    .catch(function() {
+      icon.className = 'bi bi-check2';
+      alert('Speichern fehlgeschlagen');
+    });
+});
+
+document.querySelectorAll('.az-team-toggle').forEach(function(tr) {
+  var target = document.querySelector(tr.getAttribute('data-bs-target'));
+  var chevron = tr.querySelector('.az-chevron');
+  if (!target || !chevron) return;
+  target.addEventListener('show.bs.collapse', function() { chevron.classList.replace('bi-chevron-right', 'bi-chevron-down'); });
+  target.addEventListener('hide.bs.collapse', function() { chevron.classList.replace('bi-chevron-down', 'bi-chevron-right'); });
+});
+</script>
+{% endblock %}
