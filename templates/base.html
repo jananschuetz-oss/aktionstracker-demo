@@ -507,6 +507,21 @@
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
+        {% if urlaub_konto %}
+        <div class="rounded-3 px-3 py-2 mb-3" style="background:#f3ebfc;border:1px solid #e0cff5">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-1">
+            <span class="fw-bold" style="color:#4a235a;font-size:.85rem">
+              <i class="bi bi-calendar2-check me-1"></i>Urlaubskonto {{ now.year }}
+            </span>
+            <span class="fw-bold" style="color:#4a235a;font-size:1rem">{{ urlaub_konto.verfuegbar }} Tage übrig</span>
+          </div>
+          <div class="small text-muted mt-1">
+            {{ urlaub_konto.anspruch }} Anspruch{% if urlaub_konto.uebertrag %} + {{ urlaub_konto.uebertrag }} Übertrag{% endif %}
+            − {{ urlaub_konto.genommen }} genommen
+            {% if urlaub_konto.beantragt %}<span class="ms-1">· {{ urlaub_konto.beantragt }} Tage offen beantragt</span>{% endif %}
+          </div>
+        </div>
+        {% endif %}
         <p class="small text-muted mb-3">
           {% if session.rolle in ['admin','verkaufsleiter'] %}
           Tragen Sie Ihren Abwesenheits-Zeitraum ein – dann werden Sie nicht als „inaktiv“ gemeldet.
@@ -517,6 +532,15 @@
           Optional können Sie einen Vertreter wählen, der Aktivitäten für Ihre Stationen eintragen darf.
         </p>
         <form method="POST" action="{{ url_for('profil_vertretung_neu') }}">
+          <div class="mb-2">
+            <label class="form-label small fw-bold">Art der Abwesenheit</label>
+            <select name="typ" class="form-select form-select-sm">
+              <option value="urlaub">Urlaub</option>
+              <option value="krankheit">Krankheit</option>
+              <option value="sonderurlaub">Sonderurlaub</option>
+              <option value="unbezahlt">Unbezahlter Urlaub</option>
+            </select>
+          </div>
           <div class="mb-2">
             <label class="form-label small fw-bold">Vertreter <span class="text-muted fw-normal">(optional)</span></label>
             <select name="vertreter_id" class="form-select form-select-sm">
@@ -540,18 +564,20 @@
             {% if session.rolle in ['admin','verkaufsleiter'] %}
             <i class="bi bi-plus-circle me-1"></i>Eintragen
             {% else %}
-            <i class="bi bi-send me-1"></i>Urlaub anfragen
+            <i class="bi bi-send me-1"></i>Beantragen
             {% endif %}
           </button>
         </form>
         {% if meine_vertretungen %}
         <hr class="my-3">
         <div class="small fw-bold text-muted mb-2">Meine Urlaube / Vertretungen:</div>
+        {% set typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'unbezahlt': 'Unbezahlt'} %}
         {% for vtr in meine_vertretungen %}
         {% set heute = now.date().isoformat() %}
         <div class="d-flex align-items-center justify-content-between py-1 border-bottom">
           <div class="small">
-            <i class="bi bi-person me-1"></i><strong>{% if vtr.vertreter_name %}{{ vtr.vertreter_name }}{% else %}Urlaub{% endif %}</strong>
+            <i class="bi bi-person me-1"></i><strong>{{ typ_label.get(vtr.typ, 'Urlaub') }}</strong>
+            {% if vtr.vertreter_name %}<span class="text-muted">({{ vtr.vertreter_name }})</span>{% endif %}
             <span class="text-muted ms-2">{{ vtr.von }} – {{ vtr.bis }}</span>
             {% if vtr.status == 'angefragt' %}
             <span class="badge bg-warning text-dark ms-1" style="font-size:.6rem">⏳ Angefragt</span>

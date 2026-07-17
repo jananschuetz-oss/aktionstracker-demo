@@ -164,6 +164,15 @@
               {% endfor %}
             </select>
           </div>
+          <div class="col-sm-2">
+            <label class="form-label fw-semibold">Art</label>
+            <select name="typ" class="form-select">
+              <option value="urlaub">Urlaub</option>
+              <option value="krankheit">Krankheit</option>
+              <option value="sonderurlaub">Sonderurlaub</option>
+              <option value="unbezahlt">Unbezahlt</option>
+            </select>
+          </div>
           <div class="col-sm-3">
             <label class="form-label fw-semibold">Vertreter/in <span class="text-muted fw-normal">(optional)</span></label>
             <select name="vertreter_id" class="form-select">
@@ -207,11 +216,12 @@
     </div>
     <table class="table table-sm mb-0">
       <tbody>
+        {% set typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'unbezahlt': 'Unbezahlt'} %}
         {% for vtr in offene %}
         <tr>
           <td class="ps-3 align-middle fw-semibold">{{ vtr.abwesender }}</td>
           <td class="align-middle small">{{ vtr.von }} – {{ vtr.bis }}</td>
-          <td class="align-middle small text-muted">{% if vtr.vertreter %}{{ vtr.vertreter }}{% else %}nur Urlaub{% endif %}</td>
+          <td class="align-middle small text-muted">{{ typ_label.get(vtr.typ, 'Urlaub') }}{% if vtr.vertreter %} · {{ vtr.vertreter }}{% endif %}</td>
           <td class="pe-2 text-end align-middle">
             <form method="POST" action="{{ url_for('admin_vertretung_bestaetigen', vtr_id=vtr.id) }}" style="display:inline">
               <button type="submit" class="btn btn-sm btn-success">
@@ -244,11 +254,12 @@
         </tr>
       </thead>
       <tbody>
+        {% set typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'unbezahlt': 'Unbezahlt'} %}
         {% for vtr in vertretungen %}
         {% set today = heute.isoformat() if heute is defined else '' %}
         <tr class="{% if vtr.bis < today %}text-muted{% endif %}">
           <td class="align-middle fw-semibold">{{ vtr.abwesender }}</td>
-          <td class="align-middle">{% if vtr.vertreter %}{{ vtr.vertreter }}{% else %}<span class="badge bg-warning text-dark">Urlaub</span>{% endif %}</td>
+          <td class="align-middle">{% if vtr.vertreter %}{{ vtr.vertreter }}{% else %}<span class="badge bg-warning text-dark">{{ typ_label.get(vtr.typ, 'Urlaub') }}</span>{% endif %}</td>
           <td class="align-middle small">
             {{ vtr.von }} – {{ vtr.bis }}
             {% if vtr.status == 'angefragt' %}
@@ -288,6 +299,47 @@
     <div class="text-center py-4 text-muted">
       <i class="bi bi-calendar-x display-5"></i>
       <p class="mt-2 mb-0">Keine Urlaubs- oder Vertretungsregelungen vorhanden.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Urlaubskonten-Übersicht -->
+<div class="card mb-4" id="urlaubskonten">
+  <div class="card-header">
+    <i class="bi bi-calendar2-check me-2"></i>Urlaubskonten {{ now.year }}
+  </div>
+  <div class="card-body p-0">
+    {% if reps %}
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Mitarbeiter</th>
+          <th class="text-center">Anspruch</th>
+          <th class="text-center">Genommen</th>
+          <th class="text-center">Offen beantragt</th>
+          <th class="text-center">Verfügbar</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rep in reps %}
+        {% set uk = urlaub_konten.get(rep.id) %}
+        {% if uk %}
+        <tr>
+          <td class="align-middle fw-semibold">{{ rep.name }}</td>
+          <td class="text-center align-middle">{{ uk.anspruch }}{% if uk.uebertrag %}<span class="text-muted small"> (+{{ uk.uebertrag }})</span>{% endif %}</td>
+          <td class="text-center align-middle">{{ uk.genommen }}</td>
+          <td class="text-center align-middle">{% if uk.beantragt %}<span class="badge bg-warning text-dark">{{ uk.beantragt }}</span>{% else %}–{% endif %}</td>
+          <td class="text-center align-middle fw-bold {% if uk.verfuegbar < 0 %}text-danger{% endif %}">{{ uk.verfuegbar }}</td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="text-center py-4 text-muted">
+      <i class="bi bi-calendar2-check display-5"></i>
+      <p class="mt-2 mb-0">Keine Mitarbeiter vorhanden.</p>
     </div>
     {% endif %}
   </div>

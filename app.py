@@ -28,6 +28,8 @@ import urllib.request
 import urllib.parse
 import time as _time
 import threading
+import functools
+import holidays as _holidays_lib
 import re
 
 app = Flask(__name__)
@@ -144,19 +146,21 @@ def inject_now():
         'offene_vs_hinweise': 0,
         'mein_email': '',
         'karte_benachrichtigung': None,
+        'urlaub_konto': None,
     }
     if session.get('user_id'):
         try:
             _benachr = query("SELECT karte_benachrichtigung FROM mitarbeiter WHERE id=?", (session['user_id'],), one=True)
             ctx['karte_benachrichtigung'] = (_benachr['karte_benachrichtigung'] if _benachr else None)
             ctx['meine_vertretungen'] = query(
-                '''SELECT v.id, v.von, v.bis, v.status, m.name AS vertreter_name
+                '''SELECT v.id, v.von, v.bis, v.status, v.typ, m.name AS vertreter_name
                    FROM vertretung v
                    LEFT JOIN mitarbeiter m ON m.id = v.vertreter_id
                    WHERE v.abwesender_id = ?
                    ORDER BY v.von DESC''',
                 (session['user_id'],)
             )
+            ctx['urlaub_konto'] = _urlaub_konto(session['user_id'], date.today().year)
             ctx['alle_kollegen'] = query(
                 "SELECT id, name FROM mitarbeiter WHERE rolle IN ('rep','verkaufsleiter') AND id != ? ORDER BY name",
                 (session['user_id'],)
@@ -686,6 +690,14 @@ def init_db():
             # Full-Table-Scan auf jeder einzelnen Seite.
             "CREATE INDEX IF NOT EXISTS idx_vertretung_abwesender ON vertretung(abwesender_id)",
             "CREATE INDEX IF NOT EXISTS idx_vertretung_status ON vertretung(status)",
+            # Urlaubskonto: Jahresanspruch + Übertrag Vorjahr je Mitarbeiter, Bundesland für
+            # die gesetzlichen Feiertage bei der Werktage-Berechnung (siehe _werktage_zaehlen).
+            "ALTER TABLE mitarbeiter ADD COLUMN urlaubsanspruch_jahr INTEGER DEFAULT 30",
+            "ALTER TABLE mitarbeiter ADD COLUMN urlaub_uebertrag_vorjahr INTEGER DEFAULT 0",
+            "ALTER TABLE mitarbeiter ADD COLUMN bundesland TEXT DEFAULT 'BY'",
+            # Abwesenheitstyp – nur 'urlaub' zieht vom Urlaubskonto ab, der Rest bleibt reine
+            # Abwesenheitsdokumentation (Bestand vor diesem Feature: alles war faktisch Urlaub).
+            "ALTER TABLE vertretung ADD COLUMN typ TEXT DEFAULT 'urlaub'",
         ]:
             try:
                 db.execute(migration)
@@ -1600,6 +1612,85 @@ def _urlaub_daten(ma_ids, start_iso, end_iso):
             ergebnis.add((r['abwesender_id'], d.isoformat()))
             d += timedelta(days=1)
     return ergebnis
+
+
+_BUNDESLAENDER = {
+    'BW': 'Baden-Württemberg', 'BY': 'Bayern', 'BE': 'Berlin', 'BB': 'Brandenburg',
+    'HB': 'Bremen', 'HH': 'Hamburg', 'HE': 'Hessen', 'MV': 'Mecklenburg-Vorpommern',
+    'NI': 'Niedersachsen', 'NW': 'Nordrhein-Westfalen', 'RP': 'Rheinland-Pfalz',
+    'SL': 'Saarland', 'SN': 'Sachsen', 'ST': 'Sachsen-Anhalt', 'SH': 'Schleswig-Holstein',
+    'TH': 'Thüringen',
+}
+
+
+@functools.lru_cache(maxsize=256)
+def _feiertage_set(jahr, bundesland):
+    """Gesetzliche Feiertage eines Bundeslands/Jahres als Set von 'YYYY-MM-DD'-Strings.
+    Gecacht, da bei jedem Seitenaufruf (context_processor → _urlaub_konto) neu berechnet
+    würde, obwohl sich Feiertage für ein gegebenes (Jahr, Bundesland)-Paar nie ändern."""
+    try:
+        return {d.isoformat() for d in _holidays_lib.Germany(subdiv=bundesland or 'BY', years=jahr)}
+    except Exception:
+        return set()
+
+
+def _werktage_zaehlen(von_iso, bis_iso, bundesland):
+    """Zählt Werktage (Mo–Fr) zwischen von/bis (inklusive), abzüglich gesetzlicher
+    Feiertage des angegebenen Bundeslands. Grundlage für die Urlaubskonto-Berechnung."""
+    von = date.fromisoformat(von_iso)
+    bis = date.fromisoformat(bis_iso)
+    if bis < von:
+        return 0
+    feiertage = set()
+    for jahr in range(von.year, bis.year + 1):
+        feiertage |= _feiertage_set(jahr, bundesland)
+    n = 0
+    d = von
+    while d <= bis:
+        if d.weekday() < 5 and d.isoformat() not in feiertage:
+            n += 1
+        d += timedelta(days=1)
+    return n
+
+
+def _urlaub_konto(mitarbeiter_id, jahr):
+    """Urlaubskonto eines Mitarbeiters für ein Kalenderjahr: Anspruch + Übertrag aus dem
+    Vorjahr, abzüglich bereits genehmigter Urlaubstage (nur typ='urlaub', status='bestätigt').
+    Beantragte-aber-noch-nicht-genehmigte Tage werden separat ausgewiesen (reservieren das
+    Kontingent noch nicht, damit eine Ablehnung nichts zurückbuchen muss)."""
+    ma = query(
+        "SELECT urlaubsanspruch_jahr, urlaub_uebertrag_vorjahr, bundesland FROM mitarbeiter WHERE id=?",
+        (mitarbeiter_id,), one=True
+    )
+    if not ma:
+        return None
+    anspruch    = ma['urlaubsanspruch_jahr'] if ma['urlaubsanspruch_jahr'] is not None else 30
+    uebertrag   = ma['urlaub_uebertrag_vorjahr'] or 0
+    bundesland  = ma['bundesland'] or 'BY'
+    jahr_start  = f"{jahr}-01-01"
+    jahr_ende   = f"{jahr}-12-31"
+    rows = query(
+        "SELECT von, bis, status FROM vertretung WHERE abwesender_id=? AND typ='urlaub' "
+        "AND von <= ? AND bis >= ?",
+        (mitarbeiter_id, jahr_ende, jahr_start)
+    )
+    genommen  = 0
+    beantragt = 0
+    for r in rows:
+        von = max(r['von'], jahr_start)
+        bis = min(r['bis'], jahr_ende)
+        tage = _werktage_zaehlen(von, bis, bundesland)
+        if r['status'] == 'bestätigt':
+            genommen += tage
+        elif r['status'] == 'angefragt':
+            beantragt += tage
+    return {
+        'anspruch':   anspruch,
+        'uebertrag':  uebertrag,
+        'genommen':   genommen,
+        'beantragt':  beantragt,
+        'verfuegbar': anspruch + uebertrag - genommen,
+    }
 
 
 # ─── PWA Manifest (dynamisch mit COMPANY_NAME aus ENV) ───────────────────────
@@ -4025,7 +4116,9 @@ def admin():
         mail_konfiguriert=mail_konfiguriert,
         urlaubsmail_empfaenger=urlaubsmail_empfaenger,
         neue_vs_empfaenger=neue_vs_empfaenger,
-        export_email=EXPORT_EMAIL)
+        export_email=EXPORT_EMAIL,
+        bundeslaender=_BUNDESLAENDER,
+        urlaub_konten={m['id']: _urlaub_konto(m['id'], date.today().year) for m in mitarbeiter})
 
 
 @app.route('/admin/mitarbeiter/neu', methods=['POST'])
@@ -4292,6 +4385,31 @@ def admin_mitarbeiter_team(ma_id):
     return redirect(url_for('admin'))
 
 
+@app.route('/admin/mitarbeiter/<int:ma_id>/urlaubskonto', methods=['POST'])
+@admin_required
+def admin_mitarbeiter_urlaubskonto(ma_id):
+    ma = query("SELECT * FROM mitarbeiter WHERE id=?", (ma_id,), one=True)
+    if not ma:
+        flash('Mitarbeiter nicht gefunden.', 'danger')
+        return redirect(url_for('admin'))
+    anspruch  = request.form.get('urlaubsanspruch_jahr', type=int)
+    uebertrag = request.form.get('urlaub_uebertrag_vorjahr', type=int)
+    bundesland = request.form.get('bundesland', 'BY').strip()
+    if anspruch is None or anspruch < 0:
+        flash('Ungültiger Jahresanspruch.', 'danger')
+        return redirect(url_for('admin'))
+    if uebertrag is None or uebertrag < 0:
+        uebertrag = 0
+    if bundesland not in _BUNDESLAENDER:
+        bundesland = 'BY'
+    execute(
+        "UPDATE mitarbeiter SET urlaubsanspruch_jahr=?, urlaub_uebertrag_vorjahr=?, bundesland=? WHERE id=?",
+        (anspruch, uebertrag, bundesland, ma_id)
+    )
+    flash(f'Urlaubskonto von „{ma["name"]}" aktualisiert.', 'success')
+    return redirect(url_for('admin'))
+
+
 @app.route('/profil/passwort', methods=['POST'])
 @login_required
 def profil_passwort():
@@ -4348,6 +4466,9 @@ def admin_vertretung_neu():
     vertreter_id  = request.form.get('vertreter_id',  type=int)
     von           = request.form.get('von', '').strip()
     bis           = request.form.get('bis', '').strip()
+    typ           = request.form.get('typ', 'urlaub').strip()
+    if typ not in ('urlaub', 'krankheit', 'sonderurlaub', 'unbezahlt'):
+        typ = 'urlaub'
     if not all([abwesender_id, von, bis]):
         flash('Abwesender Mitarbeiter, Von und Bis sind Pflichtfelder.', 'danger')
         return redirect(_redir)
@@ -4361,8 +4482,8 @@ def admin_vertretung_neu():
             flash('Keine Berechtigung für diesen Mitarbeiter.', 'danger')
             return redirect(_redir)
     execute(
-        "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis, status) VALUES (?,?,?,?,'bestätigt')",
-        (abwesender_id, vertreter_id, von, bis)
+        "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis, status, typ) VALUES (?,?,?,?,'bestätigt',?)",
+        (abwesender_id, vertreter_id, von, bis, typ)
     )
     flash('Urlaub / Vertretung gespeichert.', 'success')
     return redirect(_redir)
@@ -4553,6 +4674,9 @@ def profil_vertretung_neu():
     vertreter_id = request.form.get('vertreter_id', type=int)
     von          = request.form.get('von', '').strip()
     bis          = request.form.get('bis', '').strip()
+    typ          = request.form.get('typ', 'urlaub').strip()
+    if typ not in ('urlaub', 'krankheit', 'sonderurlaub', 'unbezahlt'):
+        typ = 'urlaub'
     if not all([von, bis]):
         flash('Von und Bis sind Pflichtfelder.', 'danger')
         return redirect(request.referrer or url_for('dashboard'))
@@ -4562,13 +4686,23 @@ def profil_vertretung_neu():
     # VKL/GF tragen ihren eigenen Urlaub direkt bestätigt ein; Reps müssen anfragen.
     _status = 'bestätigt' if session.get('rolle') in ('admin', 'verkaufsleiter') else 'angefragt'
     execute(
-        "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis, status) VALUES (?,?,?,?,?)",
-        (session['user_id'], vertreter_id, von, bis, _status)
+        "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis, status, typ) VALUES (?,?,?,?,?,?)",
+        (session['user_id'], vertreter_id, von, bis, _status, typ)
     )
-    if _status == 'angefragt':
-        flash('Urlaub angefragt – wartet auf Bestätigung durch Verkaufsleiter oder Leitung.', 'success')
+    _typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'unbezahlt': 'Unbezahlter Urlaub'}[typ]
+    if typ == 'urlaub':
+        _tage = _werktage_zaehlen(von, bis, query("SELECT bundesland FROM mitarbeiter WHERE id=?", (session['user_id'],), one=True)['bundesland'])
+        _konto = _urlaub_konto(session['user_id'], date.fromisoformat(von).year)
+        _rest_info = f' {_konto["verfuegbar"]} Tage verbleiben {date.fromisoformat(von).year}.' if _konto else ''
+        if _status == 'angefragt':
+            flash(f'{_typ_label} angefragt ({_tage} Werktage) – wartet auf Bestätigung durch Verkaufsleiter oder Leitung.{_rest_info}', 'success')
+        else:
+            flash(f'{_typ_label} eingetragen ({_tage} Werktage).{_rest_info}', 'success')
     else:
-        flash('Urlaub / Vertretung eingetragen.', 'success')
+        if _status == 'angefragt':
+            flash(f'{_typ_label} angefragt – wartet auf Bestätigung durch Verkaufsleiter oder Leitung.', 'success')
+        else:
+            flash(f'{_typ_label} eingetragen.', 'success')
     return redirect(request.referrer or url_for('dashboard'))
 
 
@@ -5324,7 +5458,7 @@ def team_verwaltung():
     # Vertretungen des eigenen Teams
     if is_vkl and session.get('team_id'):
         vertretungen = query("""
-            SELECT v.id, v.von, v.bis, v.status, ab.name AS abwesender, vtr.name AS vertreter
+            SELECT v.id, v.von, v.bis, v.status, v.typ, ab.name AS abwesender, vtr.name AS vertreter
             FROM vertretung v
             JOIN mitarbeiter ab  ON ab.id  = v.abwesender_id
             LEFT JOIN mitarbeiter vtr ON vtr.id = v.vertreter_id
@@ -5333,12 +5467,14 @@ def team_verwaltung():
         """, (session['team_id'],))
     else:
         vertretungen = query("""
-            SELECT v.id, v.von, v.bis, v.status, ab.name AS abwesender, vtr.name AS vertreter
+            SELECT v.id, v.von, v.bis, v.status, v.typ, ab.name AS abwesender, vtr.name AS vertreter
             FROM vertretung v
             JOIN mitarbeiter ab  ON ab.id  = v.abwesender_id
             LEFT JOIN mitarbeiter vtr ON vtr.id = v.vertreter_id
             ORDER BY v.bis DESC
         """)
+
+    urlaub_konten = {rep['id']: _urlaub_konto(rep['id'], jahr) for rep in reps}
 
     # Zielzahlen-Daten für eingebettetes Formular
     ziele_raw = query(
@@ -5352,7 +5488,8 @@ def team_verwaltung():
     return render_template('team_verwaltung.html',
         reps=reps, vertretungen=vertretungen,
         is_admin=is_admin, is_vkl=is_vkl,
-        ziele=ziele, teamziel=teamziel, jahr=jahr, alle_jahre=alle_jahre)
+        ziele=ziele, teamziel=teamziel, jahr=jahr, alle_jahre=alle_jahre,
+        urlaub_konten=urlaub_konten)
 
 
 # ─── Team-Vergleich (Admin) ───────────────────────────────────────────────────
