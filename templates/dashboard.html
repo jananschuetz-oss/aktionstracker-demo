@@ -1409,6 +1409,7 @@ document.addEventListener('DOMContentLoaded', function(){
         {% if erl_n %}<span class="badge" style="background:#d4edda;color:#155724;font-size:.7rem">{{ erl_n }} ✓</span>{% endif %}
         {% if offen_n %}<span class="badge" style="background:#fff3cd;color:#856404;font-size:.7rem">{{ offen_n }} offen</span>{% endif %}
         {% if not tag_stops and d in urlaub_woche_rep %}<span class="badge" style="background:#fff3cd;color:#856404;font-size:.7rem"><i class="bi bi-sun me-1"></i>Urlaub</span>
+        {% elif not tag_stops and d in feiertage_woche_rep %}<span class="badge" style="background:#e8f0fb;color:#2e6da4;font-size:.7rem"><i class="bi bi-flag me-1"></i>Feiertag</span>
         {% elif not tag_stops %}<span class="badge" style="background:#e2e8f0;color:#adb5bd;font-size:.7rem">Kein Plan</span>{% endif %}
       </span>
     </div>

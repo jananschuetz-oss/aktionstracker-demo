@@ -695,6 +695,10 @@ def init_db():
             "ALTER TABLE mitarbeiter ADD COLUMN urlaubsanspruch_jahr INTEGER DEFAULT 30",
             "ALTER TABLE mitarbeiter ADD COLUMN urlaub_uebertrag_vorjahr INTEGER DEFAULT 0",
             "ALTER TABLE mitarbeiter ADD COLUMN bundesland TEXT DEFAULT 'BY'",
+            # Manuell erfasste, bereits genommene Urlaubstage des laufenden Jahres, die NICHT
+            # über das Tool liefen (z.B. Alturlaub vor Einführung des Urlaubskontos) – fließt
+            # zusätzlich zu den über 'vertretung' erfassten Tagen in "genommen" ein.
+            "ALTER TABLE mitarbeiter ADD COLUMN urlaub_manuell_genommen INTEGER DEFAULT 0",
             # Abwesenheitstyp – nur 'urlaub' zieht vom Urlaubskonto ab, der Rest bleibt reine
             # Abwesenheitsdokumentation (Bestand vor diesem Feature: alles war faktisch Urlaub).
             "ALTER TABLE vertretung ADD COLUMN typ TEXT DEFAULT 'urlaub'",
@@ -1659,7 +1663,7 @@ def _urlaub_konto(mitarbeiter_id, jahr):
     Beantragte-aber-noch-nicht-genehmigte Tage werden separat ausgewiesen (reservieren das
     Kontingent noch nicht, damit eine Ablehnung nichts zurückbuchen muss)."""
     ma = query(
-        "SELECT urlaubsanspruch_jahr, urlaub_uebertrag_vorjahr, bundesland FROM mitarbeiter WHERE id=?",
+        "SELECT urlaubsanspruch_jahr, urlaub_uebertrag_vorjahr, bundesland, urlaub_manuell_genommen FROM mitarbeiter WHERE id=?",
         (mitarbeiter_id,), one=True
     )
     if not ma:
@@ -1674,7 +1678,10 @@ def _urlaub_konto(mitarbeiter_id, jahr):
         "AND von <= ? AND bis >= ?",
         (mitarbeiter_id, jahr_ende, jahr_start)
     )
-    genommen  = 0
+    # Manuell erfasster Alturlaub gilt nur fürs laufende Jahr – die Spalte ist nicht
+    # jahresgebunden, da sie ausschließlich zum einmaligen Nachtragen von vor Tool-Einführung
+    # bereits genommenem Urlaub des aktuellen Jahres gedacht ist.
+    genommen  = (ma['urlaub_manuell_genommen'] or 0) if jahr == date.today().year else 0
     beantragt = 0
     for r in rows:
         von = max(r['von'], jahr_start)
@@ -2250,6 +2257,14 @@ def dashboard():
     urlaub_woche_rep = {
         d for (_mid, d) in _urlaub_daten([session['user_id']], tp_woche_montag.isoformat(), tp_woche_sonntag.isoformat())
     }
+    # Feiertage in der Besuchsplanung anzeigen statt "Kein Plan" – Bundesland des Reps,
+    # damit Feiertage korrekt regional zugeordnet sind (analog zur Urlaubskonto-Logik).
+    _bundesland_rep = query("SELECT bundesland FROM mitarbeiter WHERE id=?", (session['user_id'],), one=True)
+    _bundesland_rep = (_bundesland_rep['bundesland'] if _bundesland_rep else None) or 'BY'
+    _feiertage_rep = set()
+    for _j in {tp_woche_montag.year, tp_woche_sonntag.year}:
+        _feiertage_rep |= _feiertage_set(_j, _bundesland_rep)
+    feiertage_woche_rep = {d for d in datum_woche_rep if d in _feiertage_rep}
     # Eigener Besuchsplan: eigene Ansicht (Rep, oder VKL ohne ma_filter)
     if zeige_eigene_ansicht:
         tagesplan_rep = query('''
@@ -2318,6 +2333,7 @@ def dashboard():
         alle_verkaufsstellen_rep=alle_verkaufsstellen_rep,
         datum_woche_rep=datum_woche_rep,
         urlaub_woche_rep=urlaub_woche_rep,
+        feiertage_woche_rep=feiertage_woche_rep,
         tp_kw=tp_kw,
         tp_prev_kw=tp_prev_kw,
         tp_next_kw=tp_next_kw,
@@ -2676,7 +2692,7 @@ def tourenplanung():
     today = date.today()
     _tm_sql, _tm_p = _team_m_clause('m')
     reps = query(
-        f"SELECT id, name, kuerzel FROM mitarbeiter m WHERE rolle='rep' AND aktiv=1 {_tm_sql} ORDER BY name",
+        f"SELECT id, name, kuerzel, bundesland FROM mitarbeiter m WHERE rolle='rep' AND aktiv=1 {_tm_sql} ORDER BY name",
         _tm_p
     )
     rep_ids = [r['id'] for r in reps]
@@ -2695,6 +2711,8 @@ def tourenplanung():
     tag_prev_datum = (_datum_d - timedelta(days=7)).isoformat()
     tag_next_datum = (_datum_d + timedelta(days=7)).isoformat()
     urlaub_tag = _urlaub_daten(rep_ids, datum, datum) if modus == 'tag' else set()
+    # Feiertag statt "Kein Plan" anzeigen – Bundesland ist je Mitarbeiter individuell.
+    feiertag_tag = {r['id'] for r in reps if datum in _feiertage_set(_datum_d.year, r['bundesland'] or 'BY')}
     plan_tag = query(f'''
         SELECT tp.id, tp.datum, tp.reihenfolge, tp.notiz, tp.erledigt,
                COALESCE(tp.geloescht, 0) AS geloescht, tp.geloescht_am,
@@ -2751,6 +2769,7 @@ def tourenplanung():
         tag_next_datum=tag_next_datum,
         plan_tag=plan_tag,
         urlaub_tag=urlaub_tag,
+        feiertag_tag=feiertag_tag,
         today_str=today.isoformat(),
         tomorrow_str=(today + timedelta(days=1)).isoformat(),
         # Woche
@@ -4394,17 +4413,20 @@ def admin_mitarbeiter_urlaubskonto(ma_id):
         return redirect(url_for('admin'))
     anspruch  = request.form.get('urlaubsanspruch_jahr', type=int)
     uebertrag = request.form.get('urlaub_uebertrag_vorjahr', type=int)
+    manuell_genommen = request.form.get('urlaub_manuell_genommen', type=int)
     bundesland = request.form.get('bundesland', 'BY').strip()
     if anspruch is None or anspruch < 0:
         flash('Ungültiger Jahresanspruch.', 'danger')
         return redirect(url_for('admin'))
     if uebertrag is None or uebertrag < 0:
         uebertrag = 0
+    if manuell_genommen is None or manuell_genommen < 0:
+        manuell_genommen = 0
     if bundesland not in _BUNDESLAENDER:
         bundesland = 'BY'
     execute(
-        "UPDATE mitarbeiter SET urlaubsanspruch_jahr=?, urlaub_uebertrag_vorjahr=?, bundesland=? WHERE id=?",
-        (anspruch, uebertrag, bundesland, ma_id)
+        "UPDATE mitarbeiter SET urlaubsanspruch_jahr=?, urlaub_uebertrag_vorjahr=?, bundesland=?, urlaub_manuell_genommen=? WHERE id=?",
+        (anspruch, uebertrag, bundesland, manuell_genommen, ma_id)
     )
     flash(f'Urlaubskonto von „{ma["name"]}" aktualisiert.', 'success')
     return redirect(url_for('admin'))
@@ -4502,14 +4524,19 @@ def admin_vertretung_loeschen(vtr_id):
 
 def _vertretung_team_ok(vtr_id):
     """True wenn der aktuelle Manager diesen Vertretungs-/Urlaubseintrag bearbeiten darf.
-    Admin: immer. VKL: nur wenn der Abwesende im eigenen Team ist."""
+    Admin: immer. VKL: nur wenn der Abwesende im eigenen Team ist – hat der VKL selbst
+    kein Team zugeordnet, gilt wie überall sonst in der App keine Einschränkung (statt
+    fälschlich jeden Antrag zu blockieren)."""
     if session.get('rolle') == 'admin':
         return True
-    if session.get('rolle') == 'verkaufsleiter' and session.get('team_id'):
+    if session.get('rolle') == 'verkaufsleiter':
+        tid = session.get('team_id')
+        if not tid:
+            return True
         row = query('''SELECT m.team_id FROM vertretung v
                        JOIN mitarbeiter m ON m.id = v.abwesender_id
                        WHERE v.id = ?''', (vtr_id,), one=True)
-        return bool(row and row['team_id'] == session.get('team_id'))
+        return bool(row and row['team_id'] == tid)
     return False
 
 

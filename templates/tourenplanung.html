@@ -151,6 +151,8 @@
           {% endif %}
         {% elif (rep.id, datum) in urlaub_tag %}
           <span class="badge" style="background:#fff3cd;color:#856404;font-size:.75rem"><i class="bi bi-sun me-1"></i>Urlaub</span>
+        {% elif rep.id in feiertag_tag %}
+          <span class="badge" style="background:#e8f0fb;color:#2e6da4;font-size:.75rem"><i class="bi bi-flag me-1"></i>Feiertag</span>
         {% else %}
           <span class="badge" style="background:#e2e8f0;color:#adb5bd;font-size:.75rem">Kein Plan</span>
         {% endif %}
@@ -221,6 +223,8 @@
       <div class="list-group-item py-3 text-center" style="color:#adb5bd;font-size:.85rem">
         {% if (rep.id, datum) in urlaub_tag %}
           <i class="bi bi-sun me-1"></i>Urlaub
+        {% elif rep.id in feiertag_tag %}
+          <i class="bi bi-flag me-1"></i>Feiertag
         {% else %}
           Noch kein Besuchsplan eingetragen
         {% endif %}

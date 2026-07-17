@@ -1608,6 +1608,12 @@ function vsAdminSucheAusfuehren(q) {
                    value="{{ m.urlaub_uebertrag_vorjahr or 0 }}" min="0" max="99">
           </div>
           <div class="mb-2">
+            <label class="form-label small fw-bold">Bereits genommen {{ now.year }} <span class="text-muted fw-normal">(außerhalb des Tools)</span></label>
+            <input type="number" name="urlaub_manuell_genommen" class="form-control form-control-sm"
+                   value="{{ m.urlaub_manuell_genommen or 0 }}" min="0" max="99">
+            <div class="form-text">Für Alturlaub des laufenden Jahres, der vor Einführung des Urlaubskontos genommen wurde.</div>
+          </div>
+          <div class="mb-2">
             <label class="form-label small fw-bold">Bundesland <span class="text-muted fw-normal">(für Feiertage)</span></label>
             <select name="bundesland" class="form-select form-select-sm">
               {% for code, name in bundeslaender.items() %}
