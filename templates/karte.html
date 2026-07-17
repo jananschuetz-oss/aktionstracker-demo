@@ -341,16 +341,17 @@ function renderMarkers() {
       return;
     }
 
-    const hatBesuche = !monateFilter.length || (besuchtStationen[String(s.id)] || 0) > 0;
-    const farbe      = hatBesuche ? stelleFarbe(s) : '#6c757d';
-    const mehrfach   = s.zuordnungen.length > 1;
+    const hatBesuche   = !monateFilter.length || (besuchtStationen[String(s.id)] || 0) > 0;
+    const farbe        = hatBesuche ? stelleFarbe(s) : '#6c757d';
+    const mehrfach     = s.zuordnungen.length > 1;
+    const istHomeoffice = !!s.homeoffice_mitarbeiter_id;
 
     const m = L.circleMarker([s.lat, s.lng], {
-      radius:      hatBesuche ? 9 : 6,
+      radius:      istHomeoffice ? 10 : (hatBesuche ? 9 : 6),
       fillColor:   farbe,
-      color:       hatBesuche ? (mehrfach ? '#fff' : 'white') : '#495057',
-      weight:      mehrfach ? 3 : 2,
-      dashArray:   (!hatBesuche || mehrfach) ? '4,3' : null,
+      color:       istHomeoffice ? '#000' : (hatBesuche ? (mehrfach ? '#fff' : 'white') : '#495057'),
+      weight:      istHomeoffice ? 4 : (mehrfach ? 3 : 2),
+      dashArray:   istHomeoffice ? null : ((!hatBesuche || mehrfach) ? '4,3' : null),
       opacity:     hatBesuche ? 1 : 0.9,
       fillOpacity: hatBesuche ? 0.92 : 0.72,
     }).addTo(map);
@@ -359,8 +360,9 @@ function renderMarkers() {
     const keinBesuch = (monateFilter.length && !hatBesuche)
       ? '<br><small style="color:#adb5bd">Kein Besuch im Zeitraum</small>' : '';
     const tipAdresse = [s.strasse, [s.plz, s.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ') || s.ort;
+    const homeofficeTag = istHomeoffice ? '<br><small><i class="bi bi-house-fill me-1"></i>Homeoffice</small>' : '';
     m.bindTooltip(
-      `<strong>${s.name}</strong><br><small>${tipAdresse} · ${s.typ}</small><br><small>${namenListe}</small>${keinBesuch}`,
+      `<strong>${s.name}</strong><br><small>${tipAdresse} · ${s.typ}</small><br><small>${namenListe}</small>${keinBesuch}${homeofficeTag}`,
       { direction: 'top', offset: [0, -8] });
 
     m.on('click', () => openStationModal(s.id));

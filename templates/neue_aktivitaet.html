@@ -48,7 +48,7 @@
   <!-- KONZEPT-V2: Aktivitätstyp -->
   <input type="hidden" name="aktionstyp" id="aktionstyp" value="Aufbau">
   <input type="hidden" name="erledigt_bestellung_ids" id="erledigtIds" value="{{ bestellung_id if bestellung_id else '' }}">
-  <div class="card mb-4">
+  <div class="card mb-4" id="typCard">
     <div class="card-header"><i class="bi bi-tag me-2"></i>Was war hier?</div>
     <div class="card-body">
       <div class="btn-group w-100" role="group" id="typBtns">
@@ -66,6 +66,10 @@
         <i class="bi bi-info-circle me-1"></i>Aufbau realisiert — Mengen zählen sofort, Foto ist Pflicht.
       </p>
     </div>
+  </div>
+
+  <div class="alert d-none mb-4" id="homeofficeHinweis" style="border-color:#000;background:#f4f4f4">
+    <i class="bi bi-house-fill me-1"></i>Homeoffice-Tag — nur Notiz und Uhrzeit sind nötig, Foto ist optional.
   </div>
 
   {% if bestellung_info %}
@@ -510,7 +514,32 @@ function fotoSlotsBelegt() {
 }
 
 function hatFoto() {
+  if (isHomeofficeAktiv()) return true;
   return fotoSlotsBelegt().length > 0;
+}
+
+// ── Homeoffice: automatischer VS-Stopp pro Mitarbeiter ─────────────────────────
+const HOMEOFFICE_VS_IDS = {{ homeoffice_vs_ids | tojson }};
+function isHomeofficeAktiv() {
+  return HOMEOFFICE_VS_IDS.includes(parseInt(document.getElementById('vsId').value, 10));
+}
+function updateHomeofficeUI() {
+  const homeoffice = isHomeofficeAktiv();
+  const typCard     = document.getElementById('typCard');
+  const hinweis     = document.getElementById('homeofficeHinweis');
+  if (homeoffice) {
+    setTyp('Besuch');
+    if (typCard) typCard.style.display = 'none';
+    if (hinweis)  hinweis.classList.remove('d-none');
+    const stern = document.getElementById('fotoPflichtStern');
+    const pHint = document.getElementById('fotoPflichtHint');
+    if (stern) stern.style.display = 'none';
+    if (pHint) pHint.textContent = '(optional)';
+  } else {
+    if (typCard) typCard.style.display = '';
+    if (hinweis)  hinweis.classList.add('d-none');
+    setTyp(document.getElementById('aktionstyp').value || 'Aufbau');
+  }
 }
 
 // ── KONZEPT-V2: Aktivitätstyp steuert die sichtbaren Felder ────────────────────
@@ -810,10 +839,15 @@ function vsSelect(id, label) {
   vsSearch.value = label;
   vsDropdown.style.display = 'none';
   vsClear.classList.remove('d-none');
-  document.getElementById('vsZonenContainer').style.display = 'block';
-  document.getElementById('vsZone1').style.display = 'block';
-  vsShowOffeneBestellungen(id);
-  vsShowLetzterBesuch(id);
+  updateHomeofficeUI();
+  if (isHomeofficeAktiv()) {
+    document.getElementById('vsZonenContainer').style.display = 'none';
+  } else {
+    document.getElementById('vsZonenContainer').style.display = 'block';
+    document.getElementById('vsZone1').style.display = 'block';
+    vsShowOffeneBestellungen(id);
+    vsShowLetzterBesuch(id);
+  }
 }
 
 function vsClearSelection() {
@@ -823,6 +857,7 @@ function vsClearSelection() {
   vsDropdown.style.display = 'none';
   document.getElementById('vsZonenContainer').style.display = 'none';
   document.getElementById('erledigtIds').value = '';
+  updateHomeofficeUI();
   vsSearch.focus();
 }
 
@@ -1078,6 +1113,7 @@ document.getElementById('aktivForm').addEventListener('submit', async function(e
 {% if preselect_typ in ('Aufbau', 'Bestellung', 'Besuch') %}
 setTyp('{{ preselect_typ }}');
 {% endif %}
+updateHomeofficeUI();
 
 // Uhrzeiten auf 5-Minuten-Schritte runden (iOS ignoriert step="300")
 (function() {

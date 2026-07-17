@@ -702,6 +702,15 @@ def init_db():
             # Abwesenheitstyp – nur 'urlaub' zieht vom Urlaubskonto ab, der Rest bleibt reine
             # Abwesenheitsdokumentation (Bestand vor diesem Feature: alles war faktisch Urlaub).
             "ALTER TABLE vertretung ADD COLUMN typ TEXT DEFAULT 'urlaub'",
+            # Homeoffice: Wohnort je Mitarbeiter + Verweis auf die automatisch angelegte
+            # Homeoffice-„Verkaufsstelle" (siehe verkaufsstelle.homeoffice_mitarbeiter_id
+            # unten), damit Homeoffice als normaler Besuchsplanungs-Stopp funktioniert,
+            # ohne dass Tagesplan/Aktivität-Grundgerüst angefasst werden muss.
+            "ALTER TABLE mitarbeiter ADD COLUMN wohnort_strasse TEXT",
+            "ALTER TABLE mitarbeiter ADD COLUMN wohnort_plz TEXT",
+            "ALTER TABLE mitarbeiter ADD COLUMN wohnort_ort TEXT",
+            "ALTER TABLE mitarbeiter ADD COLUMN homeoffice_vs_id INTEGER REFERENCES verkaufsstelle(id) ON DELETE SET NULL",
+            "ALTER TABLE verkaufsstelle ADD COLUMN homeoffice_mitarbeiter_id INTEGER REFERENCES mitarbeiter(id) ON DELETE CASCADE",
         ]:
             try:
                 db.execute(migration)
@@ -2297,8 +2306,10 @@ def dashboard():
             )
         else:
             alle_verkaufsstellen_rep = query(
-                "SELECT id, name, plz, ort, strasse, typ, landkreis FROM verkaufsstelle WHERE aktiv=1 ORDER BY name LIMIT ?",
-                (VS_DASHBOARD_SEITENGROESSE,)
+                "SELECT id, name, plz, ort, strasse, typ, landkreis FROM verkaufsstelle "
+                "WHERE aktiv=1 AND (homeoffice_mitarbeiter_id IS NULL OR homeoffice_mitarbeiter_id=?) "
+                "ORDER BY name LIMIT ?",
+                (session['user_id'], VS_DASHBOARD_SEITENGROESSE)
             )
 
     return render_template('dashboard.html',
@@ -2358,9 +2369,17 @@ def api_tourenplanung_mitarbeiter_verkaufsstellen(ma_id):
     vs_ids = [r['verkaufsstelle_id'] for r in assigned] if assigned else []
     if vs_ids:
         ph = ','.join('?' * len(vs_ids))
-        vs_rows = query(f"SELECT id, name, plz, ort FROM verkaufsstelle WHERE aktiv=1 AND id IN ({ph}) ORDER BY name", vs_ids)
+        vs_rows = query(
+            f"SELECT id, name, plz, ort FROM verkaufsstelle WHERE aktiv=1 AND id IN ({ph}) "
+            "AND (homeoffice_mitarbeiter_id IS NULL OR homeoffice_mitarbeiter_id=?) ORDER BY name",
+            vs_ids + [ma_id]
+        )
     else:
-        vs_rows = query("SELECT id, name, plz, ort FROM verkaufsstelle WHERE aktiv=1 ORDER BY name")
+        vs_rows = query(
+            "SELECT id, name, plz, ort FROM verkaufsstelle WHERE aktiv=1 "
+            "AND (homeoffice_mitarbeiter_id IS NULL OR homeoffice_mitarbeiter_id=?) ORDER BY name",
+            (ma_id,)
+        )
     return jsonify([{'id': v['id'], 'name': v['name'], 'plz': v['plz'], 'ort': v['ort']} for v in vs_rows])
 
 
@@ -3342,6 +3361,12 @@ def neue_aktivitaet():
     else:
         min_datum = None
 
+    # Homeoffice-VS des aktuellen Nutzers – steuert im Frontend das reduzierte Formular
+    # (kein Bestellung/Aufbau-Typ, Foto optional statt Pflicht).
+    homeoffice_vs_ids = [
+        r['id'] for r in query("SELECT id FROM verkaufsstelle WHERE homeoffice_mitarbeiter_id=?", (session['user_id'],))
+    ]
+
     # Mitarbeiter und VKL sehen nur ihre zugeordneten Verkaufsstellen (wenn Zuordnung gesetzt)
     if session.get('rolle') in ('rep', 'verkaufsleiter'):
         assigned = query(
@@ -3400,6 +3425,16 @@ def neue_aktivitaet():
         if aktionstyp not in ('Aufbau', 'Bestellung', 'Besuch'):
             aktionstyp = 'Aufbau'
 
+        # Homeoffice-Stopp: kein Bestellung/Aufbau, aktionstyp wird server-seitig auf
+        # 'Besuch' erzwungen – das macht (über die bestehende Foto-Pflicht-Regel unten,
+        # die nur beim Typ 'Aufbau' greift) automatisch auch das Foto optional.
+        _vs_homeoffice_check = query(
+            "SELECT homeoffice_mitarbeiter_id FROM verkaufsstelle WHERE id=?", (vs_id,), one=True
+        ) if vs_id and vs_id.isdigit() else None
+        is_homeoffice = bool(_vs_homeoffice_check and _vs_homeoffice_check['homeoffice_mitarbeiter_id'])
+        if is_homeoffice:
+            aktionstyp = 'Besuch'
+
         von_uhrzeit = request.form.get('von_uhrzeit', '').strip()
         bis_uhrzeit = request.form.get('bis_uhrzeit', '').strip()
         foto_files = [f for f in request.files.getlist('fotos') if f and f.filename][:3]
@@ -3409,21 +3444,22 @@ def neue_aktivitaet():
             return render_template('neue_aktivitaet.html',
                 verkaufsstellen=verkaufsstellen, biersorten=biersorten,
                 displaysorte=displaysorte, vertretungs_gruppen=vertretungs_gruppen,
-                heute=date.today().isoformat(), min_datum=min_datum)
+                heute=date.today().isoformat(), min_datum=min_datum,
+                homeoffice_vs_ids=homeoffice_vs_ids)
 
         if not datum or not vs_id:
             flash('Datum und Verkaufsstelle sind Pflichtfelder.', 'danger')
             return render_template('neue_aktivitaet.html',
                 verkaufsstellen=verkaufsstellen, biersorten=biersorten,
                 displaysorte=displaysorte, heute=date.today().isoformat(),
-                min_datum=min_datum)
+                min_datum=min_datum, homeoffice_vs_ids=homeoffice_vs_ids)
 
         if is_rep and min_datum and datum < min_datum:
             flash('Aktivitäten können nur für die aktuelle Woche eingetragen werden.', 'danger')
             return render_template('neue_aktivitaet.html',
                 verkaufsstellen=verkaufsstellen, biersorten=biersorten,
                 displaysorte=displaysorte, heute=date.today().isoformat(),
-                min_datum=min_datum)
+                min_datum=min_datum, homeoffice_vs_ids=homeoffice_vs_ids)
 
         # Displaypositionen sammeln + Gesamtzahl berechnen
         # Nur Tier-1-Typen (zaehlt_zur_zielerreichung=1) fließen in anzahl_displays ein
@@ -3565,7 +3601,7 @@ def neue_aktivitaet():
         heute=date.today().isoformat(), preselect_vs=preselect_vs,
         preselect_typ=preselect_typ,
         bestellung_id=bestellung_id, bestellung_info=bestellung_info,
-        tagesplan_heute=tagesplan_heute)
+        tagesplan_heute=tagesplan_heute, homeoffice_vs_ids=homeoffice_vs_ids)
 
 
 @app.route('/aktivitaeten')
@@ -4077,9 +4113,13 @@ def admin():
     # Bei vielen Verkaufsstellen würde das ungebremste Einbetten ALLER Zeilen die
     # Admin-Seite lahmlegen – initial nur die ersten laden, für den Rest steht die
     # Suche (api_admin_verkaufsstellen_suche) zur Verfügung.
-    vs_admin_gesamt = query("SELECT COUNT(*) AS n FROM verkaufsstelle", one=True)['n']
+    # Homeoffice-Einträge werden über den Wohnort-Dialog im Mitarbeiter-Panel gepflegt,
+    # nicht über diese allgemeine VS-Tabelle – dort ausgeblendet, um sie nicht mit
+    # echten Kunden-Verkaufsstellen zu vermischen.
+    vs_admin_gesamt = query("SELECT COUNT(*) AS n FROM verkaufsstelle WHERE homeoffice_mitarbeiter_id IS NULL", one=True)['n']
     verkaufsstellen = query(
-        "SELECT * FROM verkaufsstelle ORDER BY aktiv DESC, name LIMIT ?", (VS_ADMIN_SEITENGROESSE,)
+        "SELECT * FROM verkaufsstelle WHERE homeoffice_mitarbeiter_id IS NULL ORDER BY aktiv DESC, name LIMIT ?",
+        (VS_ADMIN_SEITENGROESSE,)
     )
     biersorten      = query("SELECT * FROM biersorte ORDER BY name")
     displaysorte    = query("SELECT * FROM displaysorte ORDER BY name")
@@ -4247,7 +4287,10 @@ def api_admin_mitarbeiter_vs_liste(ma_id):
         WHERE mv.mitarbeiter_id != ?
     ''', (ma_id,))
     besitzer_map = {r['verkaufsstelle_id']: r['besitzer'] for r in besitzer_rows}
-    vs_rows = query("SELECT id, name, ort, typ FROM verkaufsstelle WHERE aktiv=1 ORDER BY name")
+    vs_rows = query(
+        "SELECT id, name, ort, typ FROM verkaufsstelle "
+        "WHERE aktiv=1 AND homeoffice_mitarbeiter_id IS NULL ORDER BY name"
+    )
     return jsonify([{
         'id': v['id'], 'name': v['name'], 'ort': v['ort'], 'typ': v['typ'],
         'zugeordnet': v['id'] in zugeordnet_ids,
@@ -4435,6 +4478,49 @@ def admin_mitarbeiter_urlaubskonto(ma_id):
         (anspruch, uebertrag, bundesland, manuell_genommen, ma_id)
     )
     flash(f'Urlaubskonto von „{ma["name"]}" aktualisiert.', 'success')
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/mitarbeiter/<int:ma_id>/wohnort', methods=['POST'])
+@admin_required
+def admin_mitarbeiter_wohnort(ma_id):
+    """Speichert den Wohnort und pflegt dabei automatisch eine synthetische
+    „Verkaufsstelle" vom Typ Homeoffice, die dem Mitarbeiter zugeordnet wird –
+    dadurch funktioniert Homeoffice als ganz normaler Besuchsplanungs-Stopp,
+    ohne dass Tagesplan/Aktivität an ihrer Grundstruktur geändert werden müssen."""
+    ma = query("SELECT * FROM mitarbeiter WHERE id=?", (ma_id,), one=True)
+    if not ma:
+        flash('Mitarbeiter nicht gefunden.', 'danger')
+        return redirect(url_for('admin'))
+    strasse = request.form.get('wohnort_strasse', '').strip() or None
+    plz     = request.form.get('wohnort_plz', '').strip() or None
+    ort     = request.form.get('wohnort_ort', '').strip() or None
+    execute(
+        "UPDATE mitarbeiter SET wohnort_strasse=?, wohnort_plz=?, wohnort_ort=? WHERE id=?",
+        (strasse, plz, ort, ma_id)
+    )
+    if ort:
+        vs_name = f"Homeoffice – {ma['name']}"
+        if ma['homeoffice_vs_id']:
+            execute(
+                "UPDATE verkaufsstelle SET name=?, strasse=?, plz=?, ort=?, lat=NULL, lng=NULL WHERE id=?",
+                (vs_name, strasse, plz, ort, ma['homeoffice_vs_id'])
+            )
+            homeoffice_vs_id = ma['homeoffice_vs_id']
+        else:
+            homeoffice_vs_id = execute(
+                "INSERT INTO verkaufsstelle (name, strasse, plz, ort, typ, aktiv, homeoffice_mitarbeiter_id) "
+                "VALUES (?,?,?,?,'Homeoffice',1,?)",
+                (vs_name, strasse, plz, ort, ma_id)
+            )
+            execute("UPDATE mitarbeiter SET homeoffice_vs_id=? WHERE id=?", (homeoffice_vs_id, ma_id))
+        execute(
+            "INSERT OR IGNORE INTO mitarbeiter_verkaufsstelle (mitarbeiter_id, verkaufsstelle_id) VALUES (?,?)",
+            (ma_id, homeoffice_vs_id)
+        )
+        flash(f'Wohnort von „{ma["name"]}" gespeichert – Homeoffice ist jetzt in der Besuchsplanung wählbar.', 'success')
+    else:
+        flash(f'Wohnort von „{ma["name"]}" aktualisiert.', 'success')
     return redirect(url_for('admin'))
 
 
@@ -5672,7 +5758,7 @@ def serve_upload(filename):
 @login_required
 def api_verkaufsstellen():
     q = request.args.get('q', '')
-    rows = query("SELECT id, name, ort, typ FROM verkaufsstelle WHERE aktiv=1 AND name LIKE ? ORDER BY name LIMIT 20",
+    rows = query("SELECT id, name, ort, typ FROM verkaufsstelle WHERE aktiv=1 AND homeoffice_mitarbeiter_id IS NULL AND name LIKE ? ORDER BY name LIMIT 20",
                  (f'%{q}%',))
     return jsonify([dict(r) for r in rows])
 
@@ -7305,18 +7391,18 @@ def _verkaufsstellen_liste_sql(suche=None):
     rolle = session.get('rolle')
     if rolle == 'rep':
         from_sql  = "FROM verkaufsstelle v JOIN mitarbeiter_verkaufsstelle mv ON mv.verkaufsstelle_id = v.id"
-        where_sql = "WHERE mv.mitarbeiter_id = ? AND v.aktiv = 1"
+        where_sql = "WHERE mv.mitarbeiter_id = ? AND v.aktiv = 1 AND v.homeoffice_mitarbeiter_id IS NULL"
         params    = [session['user_id']]
         distinct  = False
     elif rolle == 'verkaufsleiter' and session.get('team_id'):
         from_sql  = ("FROM verkaufsstelle v JOIN mitarbeiter_verkaufsstelle mv ON mv.verkaufsstelle_id = v.id "
                      "JOIN mitarbeiter m ON m.id = mv.mitarbeiter_id")
-        where_sql = "WHERE m.team_id = ? AND v.aktiv = 1"
+        where_sql = "WHERE m.team_id = ? AND v.aktiv = 1 AND v.homeoffice_mitarbeiter_id IS NULL"
         params    = [session['team_id']]
         distinct  = True
     else:
         from_sql  = "FROM verkaufsstelle v"
-        where_sql = "WHERE v.aktiv = 1"
+        where_sql = "WHERE v.aktiv = 1 AND v.homeoffice_mitarbeiter_id IS NULL"
         params    = []
         distinct  = False
 
@@ -7441,11 +7527,11 @@ def api_admin_verkaufsstellen_suche():
     """Serverseitige Suche für die Admin-Verkaufsstellen-Verwaltung (ersetzt reines
     Client-Filtering, das bei vielen Zeilen den Browser einfrieren ließe)."""
     suche = request.args.get('q', '').strip()
-    where_sql = ""
+    where_sql = " WHERE homeoffice_mitarbeiter_id IS NULL"
     params = []
     if suche:
         like = f'%{suche}%'
-        where_sql = " WHERE name LIKE ? OR ort LIKE ? OR landkreis LIKE ? OR typ LIKE ? OR lieferant LIKE ?"
+        where_sql += " AND (name LIKE ? OR ort LIKE ? OR landkreis LIKE ? OR typ LIKE ? OR lieferant LIKE ?)"
         params = [like, like, like, like, like]
     rows = query(
         f"SELECT * FROM verkaufsstelle{where_sql} ORDER BY aktiv DESC, name LIMIT ?",
@@ -7498,6 +7584,7 @@ def api_karte_daten():
     if is_manager:
         stellen = query("""
             SELECT v.id, v.name, v.ort, v.plz, v.typ, v.strasse, v.ansprechpartner, v.landkreis, v.lat, v.lng,
+                   v.homeoffice_mitarbeiter_id,
                    GROUP_CONCAT(m.id || ':' || m.name || ':' || m.kuerzel, '|') AS zuordnungen
             FROM verkaufsstelle v
             LEFT JOIN mitarbeiter_verkaufsstelle mv ON mv.verkaufsstelle_id = v.id
@@ -7509,6 +7596,7 @@ def api_karte_daten():
     else:
         stellen = query("""
             SELECT v.id, v.name, v.ort, v.plz, v.typ, v.strasse, v.ansprechpartner, v.landkreis, v.lat, v.lng,
+                   v.homeoffice_mitarbeiter_id,
                    m.id || ':' || m.name || ':' || m.kuerzel AS zuordnungen
             FROM verkaufsstelle v
             JOIN mitarbeiter_verkaufsstelle mv ON mv.verkaufsstelle_id = v.id
@@ -7539,6 +7627,7 @@ def api_karte_daten():
             'lat': s['lat'],
             'lng': s['lng'],
             'zuordnungen': zuordnung_list,
+            'homeoffice_mitarbeiter_id': s['homeoffice_mitarbeiter_id'],
         })
 
     # Für die Farb-/Legenden-Zuordnung im Frontend (repFarbe()) muss "reps" auch für
