@@ -57,6 +57,7 @@ ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123')
 EXPORT_EMAIL   = os.environ.get('EXPORT_EMAIL',   '')        # E-Mail für automatischen 4-Wochen-Export
 KARTE_MODUS    = os.environ.get('KARTE_MODUS',   'basis')   # 'aus' | 'basis' | 'heatmap'
 TOUREN_MODUS   = os.getenv('TOUREN_MODUS', 'aus')             # 'aus' | 'an'
+ARBEITSZEIT_MODUS = os.getenv('ARBEITSZEIT_MODUS', 'aus') == 'an'  # Zusatzmodul, standardmäßig aus (Add-on)
 UNIT_LABEL       = os.environ.get('UNIT_LABEL',      'Einheiten')  # Mengenbezeichnung z.B. 'Kisten', 'Kartons', 'Paletten'
 MAX_MITARBEITER  = int(os.environ.get('MAX_MITARBEITER', 0))  # 0 = kein Limit (nicht konfiguriert)
 DEFAULT_PASSWORD = os.environ.get('DEFAULT_PASSWORD', 'demo123')  # Standard-Passwort für neue Mitarbeiter
@@ -132,6 +133,7 @@ def inject_now():
         'logo_url':      LOGO_URL or '/static/logo.png',
         'karte_modus':      KARTE_MODUS,
         'touren_modus':     TOUREN_MODUS,
+        'arbeitszeit_modus': ARBEITSZEIT_MODUS,
         'unit_label':       UNIT_LABEL,
         'max_mitarbeiter':  MAX_MITARBEITER,
         'default_password': DEFAULT_PASSWORD,
@@ -2258,6 +2260,8 @@ def api_tourenplanung_mitarbeiter_verkaufsstellen(ma_id):
 @app.route('/api/arbeitszeit/heute', methods=['GET'])
 @login_required
 def api_arbeitszeit_heute():
+    if not ARBEITSZEIT_MODUS:
+        return jsonify({'ok': False, 'error': 'Arbeitszeiterfassung ist nicht aktiviert.'}), 403
     row = query(
         "SELECT beginn, ende, pause_minuten FROM arbeitszeit WHERE mitarbeiter_id=? AND datum=?",
         (session['user_id'], date.today().isoformat()), one=True
@@ -2273,6 +2277,8 @@ def api_arbeitszeit_heute():
 @app.route('/api/arbeitszeit/speichern', methods=['POST'])
 @login_required
 def api_arbeitszeit_speichern():
+    if not ARBEITSZEIT_MODUS:
+        return jsonify({'ok': False, 'error': 'Arbeitszeiterfassung ist nicht aktiviert.'}), 403
     data = request.get_json(force=True, silent=True) or {}
     feld = data.get('feld')
     if feld in ('beginn', 'ende'):
@@ -2325,6 +2331,8 @@ def api_arbeitszeit_speichern():
 def api_arbeitszeit_admin_speichern():
     """Admin kann Arbeitszeit für jeden Mitarbeiter und jedes Datum – auch in der
     Vergangenheit – korrigieren. VKL genauso, aber nur für die eigenen Teammitglieder."""
+    if not ARBEITSZEIT_MODUS:
+        return jsonify({'ok': False, 'error': 'Arbeitszeiterfassung ist nicht aktiviert.'}), 403
     data = request.get_json(force=True, silent=True) or {}
     try:
         ma_id = int(data.get('mitarbeiter_id'))
@@ -2374,6 +2382,9 @@ def api_arbeitszeit_admin_speichern():
 @app.route('/arbeitszeit')
 @login_required
 def arbeitszeit_uebersicht():
+    if not ARBEITSZEIT_MODUS:
+        flash('Die Arbeitszeiterfassung ist in Ihrem aktuellen Paket nicht verfügbar.', 'warning')
+        return redirect(url_for('dashboard'))
     is_admin   = session.get('rolle') == 'admin'
     is_manager = session.get('rolle') in ('admin', 'verkaufsleiter')
     modus = request.args.get('modus', 'woche')

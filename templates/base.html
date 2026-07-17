@@ -282,10 +282,12 @@
         <li class="nav-item">
           <a class="nav-link" href="{{ url_for('aktivitaeten_liste') }}"><i class="bi bi-list-ul"></i>Aktivitäten</a>
         </li>
+        {% if arbeitszeit_modus %}
         <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'arbeitszeit_uebersicht' %}active{% endif %}"
              href="{{ url_for('arbeitszeit_uebersicht') }}"><i class="bi bi-clock-history"></i>Arbeitszeit</a>
         </li>
+        {% endif %}
         {% if session.rolle == 'rep' %}
         <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'vergleich' %}active{% endif %}"
@@ -599,9 +601,11 @@
     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Schließen"></button>
   </div>
   <div style="overflow-y:auto">
+    {% if arbeitszeit_modus %}
     <a href="{{ url_for('arbeitszeit_uebersicht') }}" class="mobile-menu-item {% if request.endpoint == 'arbeitszeit_uebersicht' %}active{% endif %}">
       <i class="bi bi-clock-history"></i>Arbeitszeit
     </a>
+    {% endif %}
     <a href="{{ url_for('verkaufsstellen_liste') }}" class="mobile-menu-item {% if request.endpoint == 'verkaufsstellen_liste' %}active{% endif %}">
       <i class="bi bi-shop"></i>Verkaufsstellen
     </a>
