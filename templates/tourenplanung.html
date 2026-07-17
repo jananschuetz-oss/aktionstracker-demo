@@ -337,6 +337,8 @@
               </span>
               {% elif (rep.id, tag_datum) in urlaub_woche %}
               <span class="ms-2 text-muted" style="font-size:.8rem"><i class="bi bi-sun me-1"></i>Urlaub</span>
+              {% elif (rep.id, tag_datum) in feiertag_woche %}
+              <span class="ms-2 text-muted" style="font-size:.8rem"><i class="bi bi-flag me-1"></i>Feiertag</span>
               {% else %}
               <span class="ms-2 text-muted" style="font-size:.8rem">— kein Plan</span>
               {% endif %}

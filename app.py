@@ -2755,6 +2755,11 @@ def tourenplanung():
         ma_id for ma_id in rep_ids
         if all((ma_id, tag) in urlaub_woche for tag in woche_tage)
     } if modus == 'woche' else set()
+    # Feiertag statt "kein Plan" je Tag/Mitarbeiter im Wochen-Modus – Bundesland individuell.
+    feiertag_woche = {
+        (r['id'], tag) for r in reps for tag in woche_tage
+        if tag in _feiertage_set(date.fromisoformat(tag).year, r['bundesland'] or 'BY')
+    } if modus == 'woche' else set()
 
     return render_template('tourenplanung.html',
         reps=reps,
@@ -2779,6 +2784,7 @@ def tourenplanung():
         plan_woche=plan_woche,
         urlaub_woche=urlaub_woche,
         urlaub_ganze_woche=urlaub_ganze_woche,
+        feiertag_woche=feiertag_woche,
         prev_woche=(woche_start - timedelta(days=7)).isoformat(),
         next_woche=(woche_start + timedelta(days=7)).isoformat(),
     )
