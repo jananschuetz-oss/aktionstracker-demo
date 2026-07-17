@@ -805,6 +805,11 @@ window.refreshTagesplanListe = function() {
       const neu = doc.getElementById('tagesplanListe');
       const alt = document.getElementById('tagesplanListe');
       if (neu && alt) alt.innerHTML = neu.innerHTML;
+      // Die frisch eingefügte Liste enthält alle Tage der Woche ungefiltert und
+      // die Jinja-Nummerierung zählt wochenweise durch – beides muss hier wie
+      // beim ursprünglichen Seitenaufbau neu angewendet werden.
+      window.reapplyTagesplanFilter?.();
+      window.renumberTagesplanGruppen?.();
     })
     .catch(function() {});
 };
@@ -1182,9 +1187,14 @@ document.addEventListener('DOMContentLoaded', function(){
   const tiles      = document.querySelectorAll('.rep-datum-tile');
   const hiddenInp  = document.getElementById('repDatumHidden');
   const leerMsg    = document.getElementById('repKeinPlanTag');
-  const gruppen    = document.querySelectorAll('.rep-tag-gruppe');
 
   function zeigeTag(datum) {
+    // #tagesplanListe wird nach dem AJAX-Hinzufügen eines Stops per innerHTML
+    // ausgetauscht (siehe refreshTagesplanListe) – .rep-tag-gruppe MUSS deshalb bei
+    // jedem Aufruf frisch abgefragt werden, sonst filtert das auf die alten,
+    // bereits aus dem DOM entfernten Elemente und die neue Liste zeigt ungefiltert
+    // die ganze Woche.
+    const gruppen = document.querySelectorAll('.rep-tag-gruppe');
     let gefunden = false;
     gruppen.forEach(g => {
       const sichtbar = g.dataset.datum === datum;
@@ -1193,6 +1203,14 @@ document.addEventListener('DOMContentLoaded', function(){
     });
     if (leerMsg) leerMsg.classList.toggle('d-none', gefunden || gruppen.length === 0);
   }
+
+  // Nach einem AJAX-Refresh der Liste erneut auf den aktuell gewählten Tag filtern
+  // und die Stop-Nummerierung neu berechnen (siehe reihenfolge-Script weiter unten).
+  window.reapplyTagesplanFilter = function() {
+    const d = hiddenInp?.value || '{{ today_str }}';
+    zeigeTag(d);
+    updateSubmitState(d);
+  };
 
   function updateSubmitState(datum) {
     const past = datum < '{{ today_str }}';
@@ -1541,6 +1559,13 @@ document.addEventListener('DOMContentLoaded', function(){
   }
 
   document.querySelectorAll('.rep-tag-gruppe').forEach(g => updateBtnsInGruppe(g));
+
+  // Nach einem AJAX-Refresh der Liste (neue DOM-Elemente) müssen Nummerierung und
+  // Auf/Ab-Button-Zustände neu berechnet werden – die Jinja-Nummerierung im HTML
+  // (loop.index) zählt über die ganze Woche durch, nicht pro Tag.
+  window.renumberTagesplanGruppen = function() {
+    document.querySelectorAll('.rep-tag-gruppe').forEach(g => updateBtnsInGruppe(g));
+  };
 
   document.addEventListener('click', function (e) {
     const btn = e.target.closest('.tp-reihf-btn');
