@@ -154,8 +154,13 @@
   </li>
 </ul>
 <script>
-// Tab per Hash aktivieren (nach KW-Navigation)
-(function(){
+// Tab per Hash aktivieren (nach KW-Navigation). Muss auf DOMContentLoaded warten:
+// dieses Script steht im HTML VOR dem bootstrap.bundle.min.js-Tag (das erst am
+// Ende von base.html lädt) – lief es synchron beim Parsen, wäre "bootstrap" noch
+// undefined und new bootstrap.Tab(...) würfe einen stillen ReferenceError, wodurch
+// der Hash-Redirect wirkungslos blieb und man optisch auf der Übersicht "hängen"
+// blieb statt auf Tagesplan/Wochenplan.
+document.addEventListener('DOMContentLoaded', function(){
   const hash = window.location.hash;
   if (hash === '#tab-wochenplan-btn') {
     const btn = document.getElementById('tab-wochenplan-btn');
@@ -164,7 +169,7 @@
     const btn = document.getElementById('tab-tagesplan-btn');
     if (btn) { new bootstrap.Tab(btn).show(); }
   }
-})();
+});
 </script>
 
 <div class="tab-content" id="repTabContent">
@@ -788,6 +793,22 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
 </div>
 
 <script>
+// Lädt den Tagesplan-Abschnitt (#tagesplanListe) neu, ohne die ganze Seite neu zu
+// laden – nach dem Hinzufügen eines Stops per AJAX. Die Buttons innerhalb der Liste
+// hängen an document-weiten Click-Delegationen (siehe weiter unten sowie base.html),
+// brauchen also nach dem Austausch des innerHTML KEIN erneutes Anhängen von Event-Listenern.
+window.refreshTagesplanListe = function() {
+  return fetch(window.location.pathname + window.location.search)
+    .then(function(r) { return r.text(); })
+    .then(function(html) {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const neu = doc.getElementById('tagesplanListe');
+      const alt = document.getElementById('tagesplanListe');
+      if (neu && alt) alt.innerHTML = neu.innerHTML;
+    })
+    .catch(function() {});
+};
+
 document.addEventListener('DOMContentLoaded', function(){
   const trigger    = document.getElementById('vsDropdownTrigger');
   const menu       = document.getElementById('vsDropdownMenu');
@@ -856,6 +877,7 @@ document.addEventListener('DOMContentLoaded', function(){
           if (data.ok) {
             this.innerHTML = '<i class="bi bi-check-lg"></i>';
             this.classList.replace('btn-outline-primary', 'btn-outline-success');
+            window.refreshTagesplanListe();
             setTimeout(() => {
               this.innerHTML = orig;
               this.disabled = false;
@@ -943,6 +965,44 @@ document.addEventListener('DOMContentLoaded', function(){
       trigger.style.borderColor = '#dc3545';
       setTimeout(() => { trigger.style.outline = ''; trigger.style.borderColor = ''; }, 2000);
     }
+  });
+
+  // Form-Submit per AJAX statt vollem Seiten-Reload: bisher sprang der Browser nach
+  // dem Absenden auf die Übersichtsseite zurück (siehe Hash-Redirect-Fix oben) und
+  // man musste danach erneut zur Tagesplanung navigieren, um den nächsten Stop
+  // hinzuzufügen. Jetzt bleibt man auf der Seite, die Liste aktualisiert sich, und
+  // die Auswahl wird direkt für den nächsten Stop zurückgesetzt.
+  document.getElementById('stopForm')?.addEventListener('submit', function(e) {
+    if (!nativeSel.value) return; // Validierung oben übernimmt Fehleranzeige
+    e.preventDefault();
+    const vsId  = nativeSel.value;
+    const datum = document.getElementById('repDatumHidden')?.value || '{{ today_str }}';
+    const orig  = stopBtn.innerHTML;
+    stopBtn.disabled  = true;
+    stopBtn.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+    fetch('{{ url_for("api_tagesplan_stopp_neu") }}', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({vs_id: vsId, datum: datum})
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        stopBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Hinzugefügt';
+        window.refreshTagesplanListe();
+        selectVs('', '');
+        setTimeout(() => { stopBtn.innerHTML = orig; stopBtn.disabled = false; }, 1400);
+      } else {
+        alert(data.error || 'Fehler beim Hinzufügen');
+        stopBtn.innerHTML = orig;
+        stopBtn.disabled  = false;
+      }
+    })
+    .catch(() => {
+      alert('Fehler beim Hinzufügen – bitte erneut versuchen.');
+      stopBtn.innerHTML = orig;
+      stopBtn.disabled  = false;
+    });
   });
 
   trigger.addEventListener('click', function() { isOpen ? closeMenu() : openMenu(); });
@@ -1177,6 +1237,7 @@ document.addEventListener('DOMContentLoaded', function(){
 });
 </script>
 
+<div id="tagesplanListe">
 {% if tagesplan_rep %}
   {# Stops gruppiert nach Datum #}
   {% set aktuelles_datum = namespace(d='') %}
@@ -1293,7 +1354,7 @@ document.addEventListener('DOMContentLoaded', function(){
   <p class="small" style="color:#adb5bd">Füge oben Stationen hinzu, um deinen Tag zu planen.</p>
 </div>
 {% endif %}
-
+</div>{# /tagesplanListe #}
 
 </div>{# /tab-pane #tab-tagesplan #}
 
