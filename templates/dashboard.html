@@ -737,6 +737,18 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
         </div>
       </div>
 
+      <!-- Deutlich sichtbarer Hinweis, wenn ein Filter aktiv ist – die Chip-Badges allein
+           sind auf dem Handy leicht zu übersehen, vor allem wenn die PWA tagelang nie
+           geschlossen wird und der Filter (sessionStorage, siehe vsFilter_tp) über Tage
+           hinweg unbemerkt aktiv bleibt und Verkaufsstellen still ausblendet. -->
+      <div class="alert alert-warning d-none py-2 px-3 mb-2 d-flex align-items-center justify-content-between gap-2"
+           id="vsFilterAktivBanner" style="font-size:.82rem">
+        <span><i class="bi bi-funnel-fill me-1"></i><span id="vsFilterAktivText"></span></span>
+        <button type="button" class="btn btn-sm btn-warning py-0 px-2" id="vsFilterAktivReset">
+          Filter zurücksetzen
+        </button>
+      </div>
+
       <!-- Zeile 3: Stationsauswahl + Button -->
       <div class="d-flex gap-2 align-items-end flex-wrap">
         <div id="vsCustomDropdown" class="position-relative" style="flex:1;min-width:200px">
@@ -1107,16 +1119,38 @@ document.addEventListener('DOMContentLoaded', function(){
   function filterAnwenden() {
     const noFilter = DIMS.every(d => aktiv[d].length === 0);
     vsSelect.innerHTML = '<option value="">– Bitte wählen –</option>';
+    let sichtbar = 0;
     alleOpts.forEach(opt => {
       const match = noFilter || DIMS.every(d =>
         aktiv[d].length === 0 || aktiv[d].includes((opt.dataset[d] || '').trim())
       );
-      if (match) vsSelect.appendChild(opt.cloneNode(true));
+      if (match) { vsSelect.appendChild(opt.cloneNode(true)); sichtbar++; }
     });
     vsSelect.value = '';
     if (btnVerlauf) { btnVerlauf.disabled = true; btnVerlauf.dataset.vsId = ''; }
     saveFilter();
+    updateFilterBanner(noFilter, sichtbar, alleOpts.length);
   }
+
+  // Deutlich sichtbarer Banner, falls ein (evtl. schon vor Tagen gesetzter,
+  // per sessionStorage persistierter) Filter Verkaufsstellen ausblendet.
+  function updateFilterBanner(noFilter, sichtbar, gesamt) {
+    const banner = document.getElementById('vsFilterAktivBanner');
+    const text   = document.getElementById('vsFilterAktivText');
+    if (!banner || !text) return;
+    if (noFilter) {
+      banner.classList.add('d-none');
+    } else {
+      text.textContent = `Filter aktiv – zeigt ${sichtbar} von ${gesamt} Verkaufsstellen`;
+      banner.classList.remove('d-none');
+    }
+  }
+
+  document.getElementById('vsFilterAktivReset')?.addEventListener('click', function () {
+    DIMS.forEach(d => aktiv[d] = []);
+    DIMS.forEach(updateChip);
+    filterAnwenden();
+  });
 
   function saveFilter() {
     try { sessionStorage.setItem('vsFilter_tp', JSON.stringify(aktiv)); } catch(e) {}
