@@ -5757,9 +5757,21 @@ def serve_upload(filename):
 @app.route('/api/verkaufsstellen')
 @login_required
 def api_verkaufsstellen():
+    """Freitext-Suche für die Verkaufsstellen-Auswahl in Neue Aktivität. Homeoffice-
+    Einträge sind wie überall sonst ausgeblendet – außer für Admin/VKL (Team-Übersicht)
+    und für den Eigentümer selbst (eigener Homeoffice-Stopp)."""
     q = request.args.get('q', '')
-    rows = query("SELECT id, name, ort, typ FROM verkaufsstelle WHERE aktiv=1 AND homeoffice_mitarbeiter_id IS NULL AND name LIKE ? ORDER BY name LIMIT 20",
-                 (f'%{q}%',))
+    like = f'%{q}%'
+    if session.get('rolle') in ('admin', 'verkaufsleiter'):
+        where_zusatz = ""
+        params = (like,)
+    else:
+        where_zusatz = " AND (homeoffice_mitarbeiter_id IS NULL OR homeoffice_mitarbeiter_id = ?)"
+        params = (like, session['user_id'])
+    rows = query(
+        "SELECT id, name, ort, typ FROM verkaufsstelle WHERE aktiv=1 AND name LIKE ?" + where_zusatz + " ORDER BY name LIMIT 20",
+        params
+    )
     return jsonify([dict(r) for r in rows])
 
 
