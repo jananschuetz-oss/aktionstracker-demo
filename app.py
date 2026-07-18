@@ -3361,11 +3361,23 @@ def neue_aktivitaet():
     else:
         min_datum = None
 
-    # Homeoffice-VS des aktuellen Nutzers – steuert im Frontend das reduzierte Formular
-    # (kein Bestellung/Aufbau-Typ, Foto optional statt Pflicht).
-    homeoffice_vs_ids = [
-        r['id'] for r in query("SELECT id FROM verkaufsstelle WHERE homeoffice_mitarbeiter_id=?", (session['user_id'],))
-    ]
+    # Homeoffice-VS, die das reduzierte Formular auslösen (kein Bestellung/Aufbau-Typ,
+    # Foto optional). Rollenbasiert: Admin/VKL erfassen ggf. für andere Mitarbeiter nach,
+    # brauchen also mehr als nur ihren eigenen Homeoffice-Stopp.
+    _rolle = session.get('rolle')
+    if _rolle == 'admin' or (_rolle == 'verkaufsleiter' and not session.get('team_id')):
+        homeoffice_vs_ids = [r['id'] for r in query(
+            "SELECT id FROM verkaufsstelle WHERE homeoffice_mitarbeiter_id IS NOT NULL"
+        )]
+    elif _rolle == 'verkaufsleiter':
+        homeoffice_vs_ids = [r['id'] for r in query(
+            "SELECT id FROM verkaufsstelle WHERE homeoffice_mitarbeiter_id IN "
+            "(SELECT id FROM mitarbeiter WHERE team_id=?)", (session['team_id'],)
+        )]
+    else:
+        homeoffice_vs_ids = [r['id'] for r in query(
+            "SELECT id FROM verkaufsstelle WHERE homeoffice_mitarbeiter_id=?", (session['user_id'],)
+        )]
 
     # Mitarbeiter und VKL sehen nur ihre zugeordneten Verkaufsstellen (wenn Zuordnung gesetzt)
     if session.get('rolle') in ('rep', 'verkaufsleiter'):
