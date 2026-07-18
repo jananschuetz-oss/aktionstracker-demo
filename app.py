@@ -7388,21 +7388,28 @@ def _verkaufsstellen_liste_sql(suche=None):
     (Rep: eigene Zuordnung, VKL: Team bzw. alle ohne eigenes Team, Admin: alle).
     Zentral, damit Seiten-Rendering und Such-API exakt denselben Gebiets-Scope
     verwenden."""
+    # Homeoffice-Einträge (private Wohnadressen) sind zwar allgemein aus geteilten Listen
+    # ausgeblendet (siehe Privacy-Nachbesserung 2026-07-17), aber der Eigentümer selbst und
+    # VKL/Admin müssen sie trotzdem sehen können (Team-Übersicht, eigene Datenpflege) – reine
+    # Blanko-Ausblendung für alle Rollen war ein Bug, kein bewusstes Verhalten (siehe Arco-Fix,
+    # Commit `d26e6f6`). Hier reicht das schlichte Entfernen der Ausblendung: die JOINs scopen
+    # ohnehin schon per mitarbeiter_verkaufsstelle auf die eigene Zuordnung bzw. das Team des
+    # Homeoffice-Eigentümers.
     rolle = session.get('rolle')
     if rolle == 'rep':
         from_sql  = "FROM verkaufsstelle v JOIN mitarbeiter_verkaufsstelle mv ON mv.verkaufsstelle_id = v.id"
-        where_sql = "WHERE mv.mitarbeiter_id = ? AND v.aktiv = 1 AND v.homeoffice_mitarbeiter_id IS NULL"
+        where_sql = "WHERE mv.mitarbeiter_id = ? AND v.aktiv = 1"
         params    = [session['user_id']]
         distinct  = False
     elif rolle == 'verkaufsleiter' and session.get('team_id'):
         from_sql  = ("FROM verkaufsstelle v JOIN mitarbeiter_verkaufsstelle mv ON mv.verkaufsstelle_id = v.id "
                      "JOIN mitarbeiter m ON m.id = mv.mitarbeiter_id")
-        where_sql = "WHERE m.team_id = ? AND v.aktiv = 1 AND v.homeoffice_mitarbeiter_id IS NULL"
+        where_sql = "WHERE m.team_id = ? AND v.aktiv = 1"
         params    = [session['team_id']]
         distinct  = True
     else:
         from_sql  = "FROM verkaufsstelle v"
-        where_sql = "WHERE v.aktiv = 1 AND v.homeoffice_mitarbeiter_id IS NULL"
+        where_sql = "WHERE v.aktiv = 1"
         params    = []
         distinct  = False
 
