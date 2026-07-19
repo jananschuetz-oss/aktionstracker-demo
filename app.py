@@ -753,6 +753,13 @@ def init_db():
         except Exception:
             pass
 
+        # Migration: Freitext-Grund für Abwesenheiten (v.a. "Frei/Sonderurlaub").
+        try:
+            db.execute("ALTER TABLE vertretung ADD COLUMN grund TEXT")
+            db.commit()
+        except Exception:
+            pass
+
         # Idempotent (läuft bei jedem Start, aber nach der ersten Korrektur ohne
         # Effekt): Pflichtpause rückwirkend auf bestehende Arbeitszeit-Einträge
         # anwenden, bei denen sie noch nicht korrekt gespeichert war (z.B. durch
@@ -1604,25 +1611,27 @@ def _team_m_clause(alias='m'):
 
 
 def _urlaub_daten(ma_ids, start_iso, end_iso):
-    """Menge von (mitarbeiter_id, datum)-Paaren für alle Tage im Bereich [start_iso, end_iso],
-    an denen der jeweilige Mitarbeiter laut bestätigter Abwesenheit (vertretung) im Urlaub ist.
-    Wird genutzt, um in der Besuchsplanung „Urlaub" statt „Kein Plan" anzuzeigen."""
+    """Dict {(mitarbeiter_id, datum): {'typ':..., 'grund':...}} für alle Tage im Bereich
+    [start_iso, end_iso], an denen der jeweilige Mitarbeiter laut bestätigter Abwesenheit
+    (vertretung) abwesend ist. Verhält sich für Mitgliedschaftsprüfungen ('in urlaub_tag')
+    wie die frühere Set-Variante, liefert zusätzlich typ/grund – genutzt, um in der
+    Besuchsplanung „Urlaub" bzw. „Frei/Sonderurlaub" (inkl. Grund) statt „Kein Plan" anzuzeigen."""
     if not ma_ids:
-        return set()
+        return {}
     ph = ','.join('?' * len(ma_ids))
     rows = query(
-        f"SELECT abwesender_id, von, bis FROM vertretung "
+        f"SELECT abwesender_id, von, bis, typ, grund FROM vertretung "
         f"WHERE status='bestätigt' AND abwesender_id IN ({ph}) AND von <= ? AND bis >= ?",
         tuple(ma_ids) + (end_iso, start_iso)
     )
     start_d = date.fromisoformat(start_iso)
     end_d   = date.fromisoformat(end_iso)
-    ergebnis = set()
+    ergebnis = {}
     for r in rows:
         d = max(date.fromisoformat(r['von']), start_d)
         bis = min(date.fromisoformat(r['bis']), end_d)
         while d <= bis:
-            ergebnis.add((r['abwesender_id'], d.isoformat()))
+            ergebnis[(r['abwesender_id'], d.isoformat())] = {'typ': r['typ'], 'grund': r['grund']}
             d += timedelta(days=1)
     return ergebnis
 
@@ -2264,7 +2273,7 @@ def dashboard():
     tp_next_woche    = (tp_woche_montag + timedelta(days=7)).isoformat()
     datum_woche_rep  = [(tp_woche_montag + timedelta(days=i)).isoformat() for i in range(7)]
     urlaub_woche_rep = {
-        d for (_mid, d) in _urlaub_daten([session['user_id']], tp_woche_montag.isoformat(), tp_woche_sonntag.isoformat())
+        d: info for (_mid, d), info in _urlaub_daten([session['user_id']], tp_woche_montag.isoformat(), tp_woche_sonntag.isoformat()).items()
     }
     # Feiertage in der Besuchsplanung anzeigen statt "Kein Plan" – Bundesland des Reps,
     # damit Feiertage korrekt regional zugeordnet sind (analog zur Urlaubskonto-Logik).
@@ -4593,10 +4602,14 @@ def admin_vertretung_neu():
     von           = request.form.get('von', '').strip()
     bis           = request.form.get('bis', '').strip()
     typ           = request.form.get('typ', 'urlaub').strip()
-    if typ not in ('urlaub', 'krankheit', 'sonderurlaub', 'unbezahlt'):
+    grund         = request.form.get('grund', '').strip()
+    if typ not in ('urlaub', 'krankheit', 'sonderurlaub', 'frei_sonderurlaub', 'unbezahlt'):
         typ = 'urlaub'
     if not all([abwesender_id, von, bis]):
         flash('Abwesender Mitarbeiter, Von und Bis sind Pflichtfelder.', 'danger')
+        return redirect(_redir)
+    if typ == 'frei_sonderurlaub' and not grund:
+        flash('Bitte einen Grund für Frei/Sonderurlaub angeben.', 'danger')
         return redirect(_redir)
     if vertreter_id and abwesender_id == vertreter_id:
         flash('Abwesender und Vertreter dürfen nicht dieselbe Person sein.', 'danger')
@@ -4608,8 +4621,8 @@ def admin_vertretung_neu():
             flash('Keine Berechtigung für diesen Mitarbeiter.', 'danger')
             return redirect(_redir)
     execute(
-        "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis, status, typ) VALUES (?,?,?,?,'bestätigt',?)",
-        (abwesender_id, vertreter_id, von, bis, typ)
+        "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis, status, typ, grund) VALUES (?,?,?,?,'bestätigt',?,?)",
+        (abwesender_id, vertreter_id, von, bis, typ, grund or None)
     )
     flash('Urlaub / Vertretung gespeichert.', 'success')
     return redirect(_redir)
@@ -4806,10 +4819,14 @@ def profil_vertretung_neu():
     von          = request.form.get('von', '').strip()
     bis          = request.form.get('bis', '').strip()
     typ          = request.form.get('typ', 'urlaub').strip()
-    if typ not in ('urlaub', 'krankheit', 'sonderurlaub', 'unbezahlt'):
+    grund        = request.form.get('grund', '').strip()
+    if typ not in ('urlaub', 'krankheit', 'sonderurlaub', 'frei_sonderurlaub', 'unbezahlt'):
         typ = 'urlaub'
     if not all([von, bis]):
         flash('Von und Bis sind Pflichtfelder.', 'danger')
+        return redirect(request.referrer or url_for('dashboard'))
+    if typ == 'frei_sonderurlaub' and not grund:
+        flash('Bitte einen Grund für Frei/Sonderurlaub angeben.', 'danger')
         return redirect(request.referrer or url_for('dashboard'))
     if vertreter_id and vertreter_id == session['user_id']:
         flash('Sie können sich nicht selbst als Vertreter eintragen.', 'danger')
@@ -4817,10 +4834,10 @@ def profil_vertretung_neu():
     # VKL/GF tragen ihren eigenen Urlaub direkt bestätigt ein; Reps müssen anfragen.
     _status = 'bestätigt' if session.get('rolle') in ('admin', 'verkaufsleiter') else 'angefragt'
     execute(
-        "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis, status, typ) VALUES (?,?,?,?,?,?)",
-        (session['user_id'], vertreter_id, von, bis, _status, typ)
+        "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis, status, typ, grund) VALUES (?,?,?,?,?,?,?)",
+        (session['user_id'], vertreter_id, von, bis, _status, typ, grund or None)
     )
-    _typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'unbezahlt': 'Unbezahlter Urlaub'}[typ]
+    _typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'frei_sonderurlaub': 'Frei/Sonderurlaub', 'unbezahlt': 'Unbezahlter Urlaub'}[typ]
     if typ == 'urlaub':
         _tage = _werktage_zaehlen(von, bis, query("SELECT bundesland FROM mitarbeiter WHERE id=?", (session['user_id'],), one=True)['bundesland'])
         _konto = _urlaub_konto(session['user_id'], date.fromisoformat(von).year)

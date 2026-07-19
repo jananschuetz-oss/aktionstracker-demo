@@ -150,7 +150,12 @@
           <span class="badge" style="background:#d4edda;color:#155724;font-size:.75rem"><i class="bi bi-check2-all me-1"></i>Alle erledigt</span>
           {% endif %}
         {% elif (rep.id, datum) in urlaub_tag %}
+          {% set _u = urlaub_tag[(rep.id, datum)] %}
+          {% if _u.typ == 'frei_sonderurlaub' %}
+          <span class="badge" style="background:#fff3cd;color:#856404;font-size:.75rem"><i class="bi bi-sun me-1"></i>Frei/Sonderurlaub{% if _u.grund %}: {{ _u.grund }}{% endif %}</span>
+          {% else %}
           <span class="badge" style="background:#fff3cd;color:#856404;font-size:.75rem"><i class="bi bi-sun me-1"></i>Urlaub</span>
+          {% endif %}
         {% elif rep.id in feiertag_tag %}
           <span class="badge" style="background:#e8f0fb;color:#2e6da4;font-size:.75rem"><i class="bi bi-flag me-1"></i>Feiertag</span>
         {% else %}
@@ -222,7 +227,12 @@
       {% if not rep_stops %}
       <div class="list-group-item py-3 text-center" style="color:#adb5bd;font-size:.85rem">
         {% if (rep.id, datum) in urlaub_tag %}
+          {% set _u = urlaub_tag[(rep.id, datum)] %}
+          {% if _u.typ == 'frei_sonderurlaub' %}
+          <i class="bi bi-sun me-1"></i>Frei/Sonderurlaub{% if _u.grund %}: {{ _u.grund }}{% endif %}
+          {% else %}
           <i class="bi bi-sun me-1"></i>Urlaub
+          {% endif %}
         {% elif rep.id in feiertag_tag %}
           <i class="bi bi-flag me-1"></i>Feiertag
         {% else %}
@@ -304,7 +314,12 @@
           <span class="badge" style="background:#fff3cd;color:#856404;font-size:.75rem">{{ offen_n }} offen</span>
           {% endif %}
         {% elif rep.id in urlaub_ganze_woche %}
+          {% set _u = urlaub_woche.get((rep.id, woche_tage[0])) %}
+          {% if _u and _u.typ == 'frei_sonderurlaub' %}
+          <span class="badge" style="background:#fff3cd;color:#856404;font-size:.75rem"><i class="bi bi-sun me-1"></i>Frei/Sonderurlaub{% if _u.grund %}: {{ _u.grund }}{% endif %}</span>
+          {% else %}
           <span class="badge" style="background:#fff3cd;color:#856404;font-size:.75rem"><i class="bi bi-sun me-1"></i>Urlaub</span>
+          {% endif %}
         {% else %}
           <span class="badge" style="background:#e2e8f0;color:#adb5bd;font-size:.75rem">Kein Plan</span>
         {% endif %}
@@ -336,7 +351,12 @@
                 {% if tag_del %}<span class="badge" style="background:#f8d7da;color:#721c24;font-size:.7rem"><i class="bi bi-trash me-1"></i>{{ tag_del|length }}</span>{% endif %}
               </span>
               {% elif (rep.id, tag_datum) in urlaub_woche %}
+              {% set _u = urlaub_woche[(rep.id, tag_datum)] %}
+              {% if _u.typ == 'frei_sonderurlaub' %}
+              <span class="ms-2 text-muted" style="font-size:.8rem"><i class="bi bi-sun me-1"></i>Frei/Sonderurlaub{% if _u.grund %}: {{ _u.grund }}{% endif %}</span>
+              {% else %}
               <span class="ms-2 text-muted" style="font-size:.8rem"><i class="bi bi-sun me-1"></i>Urlaub</span>
+              {% endif %}
               {% elif (rep.id, tag_datum) in feiertag_woche %}
               <span class="ms-2 text-muted" style="font-size:.8rem"><i class="bi bi-flag me-1"></i>Feiertag</span>
               {% else %}
