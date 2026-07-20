@@ -776,6 +776,11 @@ def init_db():
             # deaktiviert): eigene Kisten-Produkte (Verleger/Kofferraum), gesondert von der
             # regulären Bestellmenge im Gratisware-Report auswertbar.
             "ALTER TABLE biersorte ADD COLUMN ist_gratisware INTEGER DEFAULT 0",
+            # Urlaubsantrag-PDF: Antragsdatum wird für den "Datum"-Vermerk des Mitarbeiters
+            # auf dem erzeugten PDF benötigt. Kein Default-Ausdruck möglich (SQLite erlaubt
+            # bei ALTER TABLE ADD COLUMN keinen nicht-konstanten DEFAULT) – wird stattdessen
+            # explizit bei den beiden nutzerseitigen INSERT INTO vertretung gesetzt.
+            "ALTER TABLE vertretung ADD COLUMN erstellt_am TEXT",
         ]:
             try:
                 db.execute(migration)
@@ -1821,6 +1826,80 @@ def _urlaub_konto(mitarbeiter_id, jahr):
         'beantragt':  beantragt,
         'verfuegbar': anspruch + uebertrag - genommen,
     }
+
+
+def _urlaubsantrag_pdf_bytes(vtr_id: int) -> bytes | None:
+    """Erzeugt einen Urlaubsantrag als PDF, befüllt mit den Daten aus dem Urlaubskonto.
+    Nur für typ='urlaub' gedacht – andere Vertretungs-Typen (Krankheit, Sonderurlaub,
+    Frei/Sonderurlaub, unbezahlt) haben kein PDF-Pendant und werden hier bewusst nicht
+    bedient (kein Papierformular, keine Lohnbüro-Relevanz). Ohne Firmen-Briefkopf, da
+    Demo mandantenunabhängig ist. Schlägt nie hart fehl, gibt bei fehlenden Daten nur
+    None zurück (Aufrufer verschickt die Mail dann ohne Anhang)."""
+    vtr = query(
+        '''SELECT v.abwesender_id, v.von, v.bis, v.typ, v.erstellt_am,
+                  m.name AS mitarbeiter_name, m.wohnort_ort, m.bundesland
+           FROM vertretung v JOIN mitarbeiter m ON m.id = v.abwesender_id
+           WHERE v.id=?''',
+        (vtr_id,), one=True
+    )
+    if not vtr or vtr['typ'] != 'urlaub':
+        return None
+    konto = _urlaub_konto(vtr['abwesender_id'], date.fromisoformat(vtr['von']).year)
+    if not konto:
+        return None
+    tage = _werktage_zaehlen(vtr['von'], vtr['bis'], vtr['bundesland'] or 'BY')
+    # v.status ist zu diesem Zeitpunkt bereits auf 'bestätigt' gesetzt (Aufrufer aktualisiert
+    # vor dem Mail-/PDF-Versand) – konto['verfuegbar'] spiegelt also schon den Saldo NACH
+    # Abzug dieses Antrags. "Anspruch zum Zeitpunkt des Antrags" ist der Saldo VOR Abzug.
+    anspruch_zum_antrag = konto['verfuegbar'] + tage
+    verbleibender_resturlaub = konto['verfuegbar']
+
+    def _fmt(iso_datum):
+        return date.fromisoformat(iso_datum).strftime('%d.%m.%Y')
+
+    antrags_datum = _fmt(vtr['erstellt_am']) if vtr['erstellt_am'] else _fmt(date.today().isoformat())
+    heute         = date.today().strftime('%d.%m.%Y')
+    wohnort       = vtr['wohnort_ort'] or '–'
+
+    html = f'''<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;font-family:Arial,sans-serif;color:#222">
+<div style="max-width:680px;margin:0 auto;padding:30px 36px">
+  <div style="font-size:15px;font-weight:bold;color:#1a3a5c;margin:0 0 18px">{COMPANY_NAME}</div>
+
+  <div style="font-size:22px;font-weight:bold;color:#1a3a5c;margin:0 0 18px;border-bottom:2px solid #1a3a5c;padding-bottom:6px">Urlaubsantrag</div>
+
+  <table width="100%" cellpadding="0" cellspacing="0" style="font-size:13px">
+    <tr><td style="padding:7px 0;color:#555;width:58%">Name des Mitarbeiters</td>
+        <td style="padding:7px 0;font-weight:bold">{vtr['mitarbeiter_name']}</td></tr>
+    <tr><td style="padding:7px 0;color:#555;border-top:1px solid #eee">Resturlaub Vorjahr</td>
+        <td style="padding:7px 0;border-top:1px solid #eee">{konto['uebertrag']} Tage</td></tr>
+    <tr><td style="padding:7px 0;color:#555;border-top:1px solid #eee">Urlaubsanspruch laufendes Jahr</td>
+        <td style="padding:7px 0;border-top:1px solid #eee">{konto['anspruch']} Tage</td></tr>
+    <tr><td style="padding:7px 0;color:#555;border-top:1px solid #eee">Anspruch zum Zeitpunkt des Antrags</td>
+        <td style="padding:7px 0;border-top:1px solid #eee">{anspruch_zum_antrag} Tage</td></tr>
+    <tr><td style="padding:7px 0;color:#555;border-top:1px solid #eee">Beantragter Urlaub</td>
+        <td style="padding:7px 0;border-top:1px solid #eee">{_fmt(vtr['von'])} bis {_fmt(vtr['bis'])} &nbsp;({tage} Tage)</td></tr>
+    <tr><td style="padding:7px 0;color:#555;border-top:1px solid #eee;font-weight:bold">Verbleibender Resturlaub</td>
+        <td style="padding:7px 0;border-top:1px solid #eee;font-weight:bold">{verbleibender_resturlaub} Tage</td></tr>
+  </table>
+
+  <div style="margin-top:28px;font-size:12px;color:#555">{wohnort}, {antrags_datum}</div>
+  <div style="font-size:10px;color:#999">Ort, Datum (Antragstellung)</div>
+
+  <div style="margin-top:26px;padding-top:16px;border-top:1px solid #ccc;font-size:13px">
+    <span style="color:#2d8a4e;font-weight:bold">&#10003;</span> Der Antrag auf Urlaub wird befürwortet / genehmigt.
+  </div>
+
+  <div style="margin-top:22px;font-size:12px;color:#555">{heute}</div>
+  <div style="font-size:10px;color:#999">Datum (Genehmigung)</div>
+
+  <div style="margin-top:32px;padding-top:10px;border-top:1px solid #eee;font-size:10px;color:#999">
+    Automatisch erzeugt vom Aktions Tracker am {heute} &middot; digital genehmigt, ohne Unterschrift gültig.
+  </div>
+</div>
+</body></html>'''
+    return _html_to_pdf(html)
 
 
 # ─── PWA Manifest (dynamisch mit COMPANY_NAME aus ENV) ───────────────────────
@@ -5432,8 +5511,8 @@ def admin_vertretung_neu():
             flash('Keine Berechtigung für diesen Mitarbeiter.', 'danger')
             return redirect(_redir)
     execute(
-        "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis, status, typ, grund) VALUES (?,?,?,?,'bestätigt',?,?)",
-        (abwesender_id, vertreter_id, von, bis, typ, grund or None)
+        "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis, status, typ, grund, erstellt_am) VALUES (?,?,?,?,'bestätigt',?,?,?)",
+        (abwesender_id, vertreter_id, von, bis, typ, grund or None, date.today().isoformat())
     )
     flash('Urlaub / Vertretung gespeichert.', 'success')
     return redirect(_redir)
@@ -5469,9 +5548,12 @@ def _vertretung_team_ok(vtr_id):
 
 
 def _send_vertretung_email(vtr_id: int, status: str):
-    """Sendet E-Mail-Benachrichtigung nach Urlaubsentscheidung an Rep + VKL/Admin."""
+    """Sendet E-Mail-Benachrichtigung nach Urlaubsentscheidung an Rep + VKL/Admin. Bei
+    genehmigtem Urlaub (typ='urlaub') wird zusätzlich der digitale Urlaubsantrag als PDF
+    angehängt (siehe _urlaubsantrag_pdf_bytes). Bei fehlgeschlagener PDF-Erzeugung wird
+    die Mail trotzdem ohne Anhang verschickt (kein Blocker für die Benachrichtigung)."""
     vtr = query(
-        """SELECT v.von, v.bis, m.name AS abwesender_name, m.email AS abwesender_email,
+        """SELECT v.typ, v.von, v.bis, m.name AS abwesender_name, m.email AS abwesender_email,
                   vt.name AS vertreter_name
            FROM vertretung v
            JOIN mitarbeiter m ON m.id = v.abwesender_id
@@ -5484,6 +5566,14 @@ def _send_vertretung_email(vtr_id: int, status: str):
     farbe  = '#2cc4b0' if status == 'bestätigt' else '#e24b4a'
     icon   = '✓' if status == 'bestätigt' else '✗'
     subject = f"Urlaubsantrag {icon} {status} – {vtr['abwesender_name']}"
+
+    attachments = []
+    if status == 'bestätigt' and vtr['typ'] == 'urlaub':
+        pdf = _urlaubsantrag_pdf_bytes(vtr_id)
+        if pdf:
+            dateiname = f"Urlaubsantrag_{re.sub(r'[^A-Za-z0-9]+', '_', vtr['abwesender_name']).strip('_')}_{vtr['von']}.pdf"
+            attachments = [(dateiname, pdf, 'application/pdf')]
+
     vertreter_zeile = (
         f"<tr><td style='padding:.35rem .7rem;background:#f4f6fa;font-weight:600'>Vertretung</td>"
         f"<td style='padding:.35rem .7rem'>{vtr['vertreter_name']}</td></tr>"
@@ -5502,13 +5592,20 @@ def _send_vertretung_email(vtr_id: int, status: str):
               <td style="padding:.35rem .7rem">{vtr['von']} bis {vtr['bis']}</td></tr>
           {vertreter_zeile}
         </table>
+        {'<p style="color:#555;font-size:.85rem;margin:0 0 1rem"><i>Der ausgefüllte Urlaubsantrag ist als PDF angehängt.</i></p>' if attachments else ''}
         <hr style="border:none;border-top:1px solid #e8e8e8;margin:1rem 0">
         <p style="color:#777;font-size:.82rem;margin:0">
           Diese Nachricht wurde automatisch vom Aktionstracker gesendet.</p>
       </div>
     </div>"""
+
+    def _versenden(to):
+        if attachments:
+            return send_email_with_attachments(to, subject, body, attachments)
+        return send_email(to, subject, body)
+
     if vtr['abwesender_email']:
-        send_email(vtr['abwesender_email'], subject, body)
+        _versenden(vtr['abwesender_email'])
     if status == 'bestätigt':
         manager_emails = query(
             "SELECT email FROM mitarbeiter WHERE rolle IN ('admin','verkaufsleiter') AND email IS NOT NULL AND email != ''",
@@ -5517,13 +5614,13 @@ def _send_vertretung_email(vtr_id: int, status: str):
         gesendet = {vtr['abwesender_email']} if vtr['abwesender_email'] else set()
         for mgr in manager_emails:
             if mgr['email'] not in gesendet:
-                send_email(mgr['email'], subject, body)
+                _versenden(mgr['email'])
                 gesendet.add(mgr['email'])
         cfg = query("SELECT urlaubsmail_empfaenger FROM wochenbericht_config WHERE id=1", one=True)
         if cfg and cfg['urlaubsmail_empfaenger']:
             for addr in [a.strip() for a in cfg['urlaubsmail_empfaenger'].split(',') if a.strip()]:
                 if addr not in gesendet:
-                    send_email(addr, subject, body)
+                    _versenden(addr)
 
 
 @app.route('/admin/vertretung/<int:vtr_id>/bestaetigen', methods=['POST'])
@@ -5645,8 +5742,8 @@ def profil_vertretung_neu():
     # VKL/GF tragen ihren eigenen Urlaub direkt bestätigt ein; Reps müssen anfragen.
     _status = 'bestätigt' if session.get('rolle') in ('admin', 'verkaufsleiter') else 'angefragt'
     execute(
-        "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis, status, typ, grund) VALUES (?,?,?,?,?,?,?)",
-        (session['user_id'], vertreter_id, von, bis, _status, typ, grund or None)
+        "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis, status, typ, grund, erstellt_am) VALUES (?,?,?,?,?,?,?,?)",
+        (session['user_id'], vertreter_id, von, bis, _status, typ, grund or None, date.today().isoformat())
     )
     _typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'frei_sonderurlaub': 'Frei/Sonderurlaub', 'unbezahlt': 'Unbezahlter Urlaub'}[typ]
     if typ == 'urlaub':
