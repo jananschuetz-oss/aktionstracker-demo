@@ -685,6 +685,13 @@ def init_db():
             # Expression-Index: deckt alle Stellen ab, die per strftime('%Y', datum) = ?
             # nach Jahr filtern (Dashboard, Aktivitäten, Exporte, ...).
             "CREATE INDEX IF NOT EXISTS idx_aktivitaet_jahr ON aktivitaet(strftime('%Y', datum))",
+            # Heatmap-Performance: api_karte_heatmap() joint pro Verkaufsstelle gegen
+            # aktivitaet im Jahreszeitraum. Mit strftime('%Y',datum)=? wählt SQLite oft den
+            # falschen Index (idx_aktivitaet_jahr) und scannt je VS über alle Aktivitäten des
+            # Jahres statt direkt zur VS zu springen – bei vielen VS/Aktivitäten langsam. Mit
+            # Datumsbereich (a.datum >= ? AND a.datum < ?) statt strftime kann dieser
+            # zusammengesetzte Index als Covering-Index genutzt werden.
+            "CREATE INDEX IF NOT EXISTS idx_aktivitaet_vs_datum ON aktivitaet(verkaufsstelle_id, datum)",
             # vertretung wird bei JEDEM Request im context_processor abgefragt
             # (Urlaubsantrag-Badge, meine_vertretungen) – ohne Index bisher ein
             # Full-Table-Scan auf jeder einzelnen Seite.
@@ -3680,8 +3687,19 @@ def aktivitaeten_liste():
         params.extend(mo_ids)
 
     if kw_filter:
-        sql += " AND CAST(strftime('%W', a.datum) AS INTEGER) = ?"
-        params.append(int(kw_filter))
+        # Bug: strftime('%W', datum) ist NICHT die ISO-Kalenderwoche (die überall sonst
+        # in der App via date.isocalendar()[1] angezeigt wird, z.B. das "KW"-Badge auf
+        # jeder Aktivitäts-Karte) – bei vielen Wochen weichen beide um 1 ab. Fix:
+        # Wochenbereich (Montag–Sonntag) über date.fromisocalendar() statt strftime,
+        # damit Filter und Badge dieselbe ISO-Woche meinen.
+        try:
+            kw_start = date.fromisocalendar(jahr, int(kw_filter), 1)
+            kw_end   = kw_start + timedelta(days=7)
+            sql += " AND a.datum >= ? AND a.datum < ?"
+            params.append(kw_start.isoformat())
+            params.append(kw_end.isoformat())
+        except ValueError:
+            pass  # ungültige KW/Jahr-Kombination (z.B. KW 53 in einem Jahr ohne 53. Woche)
 
     if typ_ids:
         _ph = ','.join('?' * len(typ_ids))
@@ -8004,8 +8022,10 @@ def api_karte_heatmap():
         metric     = "COUNT(a.id) AS anzahl"
         extra_join = ""
     else:
-        join_conds  = ["a.verkaufsstelle_id = v.id", "strftime('%Y', a.datum) = ?"]
-        join_params = [str(jahr)]
+        # Range-Vergleich statt strftime(), damit der Covering-Index
+        # idx_aktivitaet_vs_datum(verkaufsstelle_id, datum) genutzt werden kann.
+        join_conds  = ["a.verkaufsstelle_id = v.id", "a.datum >= ?", "a.datum < ?"]
+        join_params = [f"{jahr}-01-01", f"{jahr + 1}-01-01"]
         if monate_ids:
             ph = ','.join('?' * len(monate_ids))
             join_conds.append(f"CAST(strftime('%m', a.datum) AS INTEGER) IN ({ph})")
