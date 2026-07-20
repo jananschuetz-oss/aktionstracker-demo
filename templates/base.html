@@ -368,7 +368,7 @@
 </nav>
 {% endif %}
 
-{% set _vkl_seiten = ('vergleich','tourenplanung','karte','einstellungen_wochenbericht','bestellungen_uebersicht','team_verwaltung','zielzahlen','bestellung_detail','verkaufsstellen_liste') %}
+{% set _vkl_seiten = ('vergleich','tourenplanung','karte','einstellungen_wochenbericht','bestellungen_uebersicht','team_verwaltung','zielzahlen','bestellung_detail','verkaufsstellen_liste','aufbauten_freigabe') %}
 {% if session.user_id and (session.rolle == 'verkaufsleiter' or (session.rolle == 'admin' and request.endpoint in _vkl_seiten)) %}
 <nav id="vkl-subnav">
   <a href="{{ url_for('vergleich') }}"
@@ -394,6 +394,13 @@
   <a href="{{ url_for('verkaufsstellen_liste') }}"
      class="vkl-tab {% if request.endpoint == 'verkaufsstellen_liste' %}active{% endif %}">
     <i class="bi bi-shop"></i>Verkaufsstellen
+  </a>
+  <a href="{{ url_for('aufbauten_freigabe') }}"
+     class="vkl-tab {% if request.endpoint == 'aufbauten_freigabe' %}active{% endif %}">
+    <i class="bi bi-check2-square"></i>Freigaben
+    {% if offene_aufbauten_freigaben and offene_aufbauten_freigaben > 0 %}
+    <span class="badge bg-danger ms-1">{{ offene_aufbauten_freigaben }}</span>
+    {% endif %}
   </a>
   <a href="{{ url_for('team_verwaltung') }}"
      class="vkl-tab {% if request.endpoint in ('team_verwaltung', 'zielzahlen') %}active{% endif %}">
@@ -432,6 +439,22 @@
     </button>
     <button type="button" class="btn-close" onclick="_dbClear().then(_updateBanner)"></button>
   </div>
+
+  <!-- Abgelehnte Aufbauten: Hinweis für den Mitarbeiter, bis er bestätigt hat -->
+  {% for ab in abgelehnte_aufbauten %}
+  <div class="alert alert-warning d-flex align-items-start gap-2 py-2 mb-2">
+    <i class="bi bi-exclamation-triangle fs-5"></i>
+    <span class="flex-grow-1 small">
+      <strong>Besuch {{ ab.datum }}, {{ ab.vs_name }}:</strong>
+      Der Aufbau <strong>{{ ab.ds_name }}</strong> ({{ ab.anzahl }}×) wurde nicht genehmigt
+      und wird nicht in die Ziele gewertet.<br>
+      <span class="text-muted">Grund: {{ ab.ablehnungsgrund }}</span>
+    </span>
+    <form method="POST" action="{{ url_for('aufbau_gesehen', dp_id=ab.dp_id) }}">
+      <button type="submit" class="btn btn-outline-secondary btn-sm">Verstanden</button>
+    </form>
+  </div>
+  {% endfor %}
 
   <!-- Anleitung-Modal für iOS / ältere Android-Browser -->
   <div class="modal fade" id="modalPwaAnleitung" tabindex="-1">
@@ -640,6 +663,12 @@
       {% if session.rolle in ['admin','verkaufsleiter'] %}Urlaub eintragen{% else %}Urlaub anfragen{% endif %}
     </a>
     {% if session.rolle in ('admin', 'verkaufsleiter') %}
+    <a href="{{ url_for('aufbauten_freigabe') }}" class="mobile-menu-item {% if request.endpoint == 'aufbauten_freigabe' %}active{% endif %}">
+      <i class="bi bi-check2-square"></i>Freigaben
+      {% if offene_aufbauten_freigaben and offene_aufbauten_freigaben > 0 %}
+      <span class="badge bg-danger ms-auto">{{ offene_aufbauten_freigaben }}</span>
+      {% endif %}
+    </a>
     {% if touren_modus != 'aus' %}
     <a href="{{ url_for('tourenplanung') }}" class="mobile-menu-item {% if request.endpoint == 'tourenplanung' %}active{% endif %}">
       <i class="bi bi-map"></i>Besuchsplanung

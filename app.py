@@ -144,6 +144,8 @@ def inject_now():
         'alle_kollegen':      [],
         'offene_urlaubsantraege': 0,
         'offene_vs_hinweise': 0,
+        'offene_aufbauten_freigaben': 0,
+        'abgelehnte_aufbauten': [],
         'mein_email': '',
         'karte_benachrichtigung': None,
         'urlaub_konto': None,
@@ -180,6 +182,28 @@ def inject_now():
             if session.get('rolle') == 'admin':
                 _hcnt = query("SELECT COUNT(*) AS n FROM vs_hinweis_meldung WHERE status = 'offen'", one=True)
                 ctx['offene_vs_hinweise'] = _hcnt['n'] if _hcnt else 0
+            # Zähler offener Aufbauten-Freigaben (für Navbar-Markierung der Manager)
+            if session.get('rolle') in ('admin', 'verkaufsleiter'):
+                _tc, _tp = _freigabe_scope_clause('a')
+                _fcnt = query(f'''
+                    SELECT COUNT(*) AS n FROM displayposition dp JOIN aktivitaet a ON a.id = dp.aktivitaet_id
+                    WHERE dp.status = 'offen'{_tc}
+                ''', _tp, one=True)
+                ctx['offene_aufbauten_freigaben'] = _fcnt['n'] if _fcnt else 0
+            # Abgelehnte Aufbauten, die der Mitarbeiter noch nicht gesehen hat – als
+            # Hinweis-Banner auf dem Dashboard (s. /aufbau/<id>/gesehen zum Bestätigen).
+            if session.get('rolle') in ('rep', 'verkaufsleiter'):
+                ctx['abgelehnte_aufbauten'] = query('''
+                    SELECT dp.id AS dp_id, dp.anzahl, dp.ablehnungsgrund,
+                           ds.name AS ds_name, a.datum, v.name AS vs_name
+                    FROM displayposition dp
+                    JOIN displaysorte ds ON ds.id = dp.displaysorte_id
+                    JOIN aktivitaet a ON a.id = dp.aktivitaet_id
+                    JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id
+                    WHERE dp.status = 'abgelehnt' AND dp.mitarbeiter_gesehen = 0
+                          AND a.mitarbeiter_id = ?
+                    ORDER BY a.datum DESC
+                ''', (session['user_id'],))
         except Exception:
             pass
     return ctx
@@ -581,6 +605,15 @@ def init_db():
             );
         ''')
 
+        # Freigabe-Workflow für Aufbauten: vor der ALTER-Schleife prüfen, ob die
+        # displayposition.status-Spalte neu ist – nur dann gelten Bestandsdaten als bereits
+        # genehmigt (s. Update unten nach der Schleife).
+        try:
+            _dp_cols_vorher = {c['name'] for c in db.execute("PRAGMA table_info(displayposition)").fetchall()}
+            _dp_status_neu = 'status' not in _dp_cols_vorher
+        except Exception:
+            _dp_status_neu = False
+
         # Migrationen für bestehende DBs
         for migration in [
             "ALTER TABLE aktivitaet    ADD COLUMN foto_pfad          TEXT",
@@ -718,12 +751,29 @@ def init_db():
             "ALTER TABLE mitarbeiter ADD COLUMN wohnort_ort TEXT",
             "ALTER TABLE mitarbeiter ADD COLUMN homeoffice_vs_id INTEGER REFERENCES verkaufsstelle(id) ON DELETE SET NULL",
             "ALTER TABLE verkaufsstelle ADD COLUMN homeoffice_mitarbeiter_id INTEGER REFERENCES mitarbeiter(id) ON DELETE CASCADE",
+            # Freigabe-Workflow für Aufbauten: der VKL muss jeden neu erfassten zielrelevanten
+            # Aufbautyp einzeln prüfen (Details/Fotos ansehen) und freigeben oder ablehnen (mit
+            # Begründung), bevor er in die Zielzahlen einfließt – siehe /aufbauten/freigabe.
+            "ALTER TABLE displayposition ADD COLUMN status TEXT DEFAULT 'offen'",
+            "ALTER TABLE displayposition ADD COLUMN ablehnungsgrund TEXT",
+            "ALTER TABLE displayposition ADD COLUMN entschieden_von INTEGER",
+            "ALTER TABLE displayposition ADD COLUMN entschieden_am TEXT",
+            "ALTER TABLE displayposition ADD COLUMN mitarbeiter_gesehen INTEGER DEFAULT 1",
         ]:
             try:
                 db.execute(migration)
                 db.commit()
             except Exception:
                 pass  # Spalte existiert bereits
+
+        # Bestehende Displaypositionen (vor Einführung des Freigabe-Workflows) gelten als
+        # bereits genehmigt, damit sich anzahl_displays/Zielzahlen nicht rückwirkend ändern.
+        if _dp_status_neu:
+            try:
+                db.execute("UPDATE displayposition SET status='freigegeben'")
+                db.commit()
+            except Exception:
+                pass
 
         # Migration: vertreter_id nullable machen (Urlaub ohne Vertretung).
         # SQLite kann NOT NULL nicht per ALTER entfernen → Tabelle neu aufbauen.
@@ -1614,6 +1664,24 @@ def _team_m_clause(alias='m'):
         tid = session.get('team_id')
         if tid:
             return f' AND {alias}.team_id = ?', (tid,)
+    return '', ()
+
+
+def _freigabe_scope_clause(alias='a'):
+    """Gibt (sql_fragment, params) für die Aufbauten-Freigabe zurück. Ein VKL mit
+    Team-Zuordnung sieht sein Team plus die eigenen Aktivitäten (VKL mit eigenem Gebiet,
+    der selbst Aktivitäten für seine zugewiesenen Verkaufsstellen erfasst). Ein VKL OHNE
+    Team-Zuordnung gilt als gleichberechtigter Freigeber für alle VKLs ohne Team (z.B.
+    mehrere VKLs mit eigenem Gebiet, die sich gegenseitig vertreten/unterstützen) – sieht
+    daher wie Admin alle offenen Freigaben, nicht nur die eigenen. Admin: kein Filter."""
+    if session.get('rolle') == 'verkaufsleiter':
+        tid = session.get('team_id')
+        if tid:
+            uid = session['user_id']
+            return (
+                f' AND ({alias}.mitarbeiter_id IN (SELECT id FROM mitarbeiter WHERE team_id = ?) OR {alias}.mitarbeiter_id = ?)',
+                (tid, uid)
+            )
     return '', ()
 
 
@@ -3331,14 +3399,14 @@ def api_aktivitaet_offline_sync():
             app.logger.warning(f"Offline-Sync Foto-Fehler: {exc}")
     foto_pfad, foto_pfad_2, foto_pfad_3 = foto_pfade
 
-    # Nur Tier-1-Typen (zaehlt_zur_zielerreichung=1) fließen in anzahl_displays ein –
-    # muss identisch zur Zählung im Online-Pfad (neue_aktivitaet) sein, sonst
-    # unterscheidet sich die Zielerreichung je nachdem ob online oder offline erfasst.
+    # Freigabe-Workflow: Tier-1-Typen (zaehlt_zur_zielerreichung=1) starten als "offen" und
+    # fließen erst nach VKL-Freigabe in anzahl_displays ein – muss identisch zum Online-Pfad
+    # (neue_aktivitaet) sein, sonst unterscheidet sich die Zielerreichung je nachdem ob
+    # online oder offline erfasst. anzahl_displays startet daher hier bewusst bei 0.
     _tier1_ids = {str(r['id']) for r in query(
         "SELECT id FROM displaysorte WHERE zaehlt_zur_zielerreichung=1"
     )}
-    anzahl_displays = sum(int(v) for ds_id, v in displays.items()
-                          if str(v).lstrip('-').isdigit() and int(v) > 0 and ds_id in _tier1_ids)
+    anzahl_displays = 0
 
     akt_id = execute(
         "INSERT INTO aktivitaet (datum, mitarbeiter_id, verkaufsstelle_id, "
@@ -3349,8 +3417,9 @@ def api_aktivitaet_offline_sync():
     for ds_id, menge in displays.items():
         menge = int(menge)
         if menge > 0:
-            execute("INSERT INTO displayposition (aktivitaet_id, displaysorte_id, anzahl)"
-                    " VALUES (?,?,?)", (akt_id, int(ds_id), menge))
+            _status = 'offen' if ds_id in _tier1_ids else 'freigegeben'
+            execute("INSERT INTO displayposition (aktivitaet_id, displaysorte_id, anzahl, status)"
+                    " VALUES (?,?,?,?)", (akt_id, int(ds_id), menge, _status))
 
     for bier_id, kisten in bier_map.items():
         kisten = int(kisten)
@@ -3489,17 +3558,18 @@ def neue_aktivitaet():
                 displaysorte=displaysorte, heute=date.today().isoformat(),
                 min_datum=min_datum, homeoffice_vs_ids=homeoffice_vs_ids)
 
-        # Displaypositionen sammeln + Gesamtzahl berechnen
-        # Nur Tier-1-Typen (zaehlt_zur_zielerreichung=1) fließen in anzahl_displays ein
+        # Displaypositionen sammeln. Freigabe-Workflow: zielrelevante (Tier-1) Typen starten
+        # als "offen" und fließen erst nach VKL-Freigabe in anzahl_displays ein (s.
+        # /aufbauten/freigabe, aufbau_freigeben() erhöht anzahl_displays dann nachträglich) –
+        # anzahl_displays startet daher hier bewusst bei 0. Auffüllen-Typen (Tier-2) zählten
+        # ohnehin nie zur Zielerreichung und werden automatisch freigegeben.
         anzahl_displays  = 0
         disp_positionen  = []
         for ds in displaysorte:
             menge_str = request.form.get(f'disp_{ds["id"]}', '').strip()
             if menge_str and menge_str.isdigit() and int(menge_str) > 0:
                 menge = int(menge_str)
-                if ds['zaehlt_zur_zielerreichung']:
-                    anzahl_displays += menge
-                disp_positionen.append((ds['id'], menge))
+                disp_positionen.append((ds['id'], menge, ds['zaehlt_zur_zielerreichung']))
 
         # Fotos verarbeiten + komprimieren (max. 3)
         foto_pfade = [None, None, None]
@@ -3528,11 +3598,15 @@ def neue_aktivitaet():
             (datum, session['user_id'], vs_id, anzahl_displays, notizen, foto_pfad, foto_pfad_2, foto_pfad_3, aktionstyp, bestell_status, von_uhrzeit or None, bis_uhrzeit or None)
         )
 
-        # Displaypositionen speichern
-        for ds_id, menge in disp_positionen:
+        # Displaypositionen speichern – zielrelevante (Tier-1) Typen starten als "offen" und
+        # müssen erst vom VKL freigegeben werden, bevor sie in die Zielzahlen einfließen
+        # (Freigabe-Workflow, s. /aufbauten/freigabe). Auffüllen-Typen zählen ohnehin nicht
+        # zur Zielerreichung und werden automatisch freigegeben (keine Prüfung nötig).
+        for ds_id, menge, zaehlt in disp_positionen:
+            _status = 'offen' if zaehlt else 'freigegeben'
             execute(
-                "INSERT INTO displayposition (aktivitaet_id, displaysorte_id, anzahl) VALUES (?,?,?)",
-                (akt_id, ds_id, menge)
+                "INSERT INTO displayposition (aktivitaet_id, displaysorte_id, anzahl, status) VALUES (?,?,?,?)",
+                (akt_id, ds_id, menge, _status)
             )
 
         # Bestellpositionen speichern
@@ -3817,6 +3891,95 @@ def aktivitaet_loeschen(akt_id):
     execute("DELETE FROM aktivitaet       WHERE id=?",            (akt_id,))
     flash('Aktivität gelöscht.', 'success')
     return redirect(url_for('aktivitaeten_liste'))
+
+
+# ─── Freigabe-Workflow für Aufbauten ───────────────────────────────────────────
+
+@app.route('/aufbauten/freigabe')
+@manager_required
+def aufbauten_freigabe():
+    """Freigabe-Workflow: zielrelevante Aufbauten müssen vom VKL geprüft (Details/Fotos
+    einsehen) und freigegeben oder mit Begründung abgelehnt werden, bevor sie in die
+    Zielzahlen des Mitarbeiters einfließen."""
+    _tc, _tp = _freigabe_scope_clause('a')
+    pending = query(f'''
+        SELECT dp.id AS dp_id, dp.anzahl, dp.displaysorte_id,
+               ds.name AS ds_name,
+               a.id AS aktivitaet_id, a.datum, a.notizen, a.von_uhrzeit, a.bis_uhrzeit,
+               a.foto_pfad, a.foto_pfad_2, a.foto_pfad_3,
+               v.name AS vs_name, v.ort AS vs_ort, v.strasse AS vs_strasse,
+               m.name AS mitarbeiter_name
+        FROM displayposition dp
+        JOIN displaysorte ds ON ds.id = dp.displaysorte_id
+        JOIN aktivitaet a ON a.id = dp.aktivitaet_id
+        JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id
+        JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
+        WHERE dp.status = 'offen'{_tc}
+        ORDER BY a.datum DESC, dp.id DESC
+    ''', _tp)
+    return render_template('aufbauten_freigabe.html', pending=pending)
+
+
+@app.route('/aufbau/<int:dp_id>/freigeben', methods=['POST'])
+@manager_required
+def aufbau_freigeben(dp_id):
+    _tc, _tp = _freigabe_scope_clause('a')
+    dp = query(f'''
+        SELECT dp.id, dp.anzahl, dp.aktivitaet_id FROM displayposition dp
+        JOIN aktivitaet a ON a.id = dp.aktivitaet_id
+        WHERE dp.id = ?{_tc}
+    ''', (dp_id,) + _tp, one=True)
+    if not dp:
+        flash('Aufbau nicht gefunden oder keine Berechtigung.', 'danger')
+        return redirect(url_for('aufbauten_freigabe'))
+    execute(
+        "UPDATE displayposition SET status='freigegeben', entschieden_von=?, entschieden_am=? WHERE id=?",
+        (session['user_id'], datetime.now().isoformat(), dp_id)
+    )
+    # Erst jetzt fließt die Menge in die Zielzahlen ein (anzahl_displays ist die einzige
+    # Quelle für Zielzahlen/Reports, s. Kommentar bei neue_aktivitaet()).
+    execute(
+        "UPDATE aktivitaet SET anzahl_displays = anzahl_displays + ? WHERE id = ?",
+        (dp['anzahl'], dp['aktivitaet_id'])
+    )
+    flash('Aufbau freigegeben.', 'success')
+    return redirect(url_for('aufbauten_freigabe'))
+
+
+@app.route('/aufbau/<int:dp_id>/ablehnen', methods=['POST'])
+@manager_required
+def aufbau_ablehnen(dp_id):
+    grund = request.form.get('grund', '').strip()
+    if not grund:
+        flash('Bitte einen Ablehnungsgrund angeben.', 'danger')
+        return redirect(url_for('aufbauten_freigabe'))
+    _tc, _tp = _freigabe_scope_clause('a')
+    dp = query(f'''
+        SELECT dp.id FROM displayposition dp JOIN aktivitaet a ON a.id = dp.aktivitaet_id
+        WHERE dp.id = ?{_tc}
+    ''', (dp_id,) + _tp, one=True)
+    if not dp:
+        flash('Aufbau nicht gefunden oder keine Berechtigung.', 'danger')
+        return redirect(url_for('aufbauten_freigabe'))
+    execute(
+        "UPDATE displayposition SET status='abgelehnt', ablehnungsgrund=?, entschieden_von=?, "
+        "entschieden_am=?, mitarbeiter_gesehen=0 WHERE id=?",
+        (grund, session['user_id'], datetime.now().isoformat(), dp_id)
+    )
+    flash('Aufbau abgelehnt.', 'success')
+    return redirect(url_for('aufbauten_freigabe'))
+
+
+@app.route('/aufbau/<int:dp_id>/gesehen', methods=['POST'])
+@login_required
+def aufbau_gesehen(dp_id):
+    """Mitarbeiter bestätigt, die Ablehnungs-Notiz gesehen zu haben (Dashboard-Hinweis)."""
+    execute(
+        "UPDATE displayposition SET mitarbeiter_gesehen=1 WHERE id=? AND aktivitaet_id IN "
+        "(SELECT id FROM aktivitaet WHERE mitarbeiter_id=?)",
+        (dp_id, session['user_id'])
+    )
+    return redirect(request.referrer or url_for('dashboard'))
 
 
 # ─── Excel-Hilfsfunktion (für Route + Auto-Export) ────────────────────────────

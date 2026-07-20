@@ -1,0 +1,178 @@
+{% extends 'base.html' %}
+{% block title %}Aufbauten-Freigabe – {{ company_short }} – Aktions Tracker{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start flex-wrap gap-2">
+  <div>
+    <h1><i class="bi bi-check2-square me-2"></i>Aufbauten-Freigabe</h1>
+    <p>Zielrelevante Aufbauten prüfen und freigeben, bevor sie in die Zielzahlen des Mitarbeiters einfließen</p>
+  </div>
+</div>
+
+{% if pending %}
+<div class="row g-3">
+  {% for p in pending %}
+  <div class="col-12">
+    <div class="card">
+      <div class="card-body py-3 px-4">
+        <div class="row align-items-center g-3">
+          <!-- Datum -->
+          <div class="col-auto">
+            <div class="text-center" style="min-width:54px">
+              <div style="font-size:.92rem;font-weight:700;color:#1a3a5c;line-height:1.2">
+                {{ p.datum[8:10] }}.{{ p.datum[5:7] }}.{{ p.datum[2:4] }}
+              </div>
+              <span class="badge-kw" style="font-size:.65rem;padding:.1rem .42rem;margin-top:.18rem;display:inline-block">
+                KW {{ p.datum|isoweek }}
+              </span>
+            </div>
+          </div>
+
+          <!-- Details -->
+          <div class="col">
+            <div class="fw-bold" style="color:#1a3a5c;font-size:1rem">
+              {{ p.vs_name }}
+              <span class="badge ms-1" style="background:#eef4fb;color:#1a3a5c;font-size:.65rem;font-weight:600;vertical-align:middle">
+                <i class="bi bi-display me-1"></i>{{ p.anzahl }}× {{ p.ds_name }}
+              </span>
+              {% if p.von_uhrzeit %}
+              <span class="badge ms-1" style="background:#eef4fb;color:#1a3a5c;font-size:.65rem;font-weight:600;vertical-align:middle">
+                <i class="bi bi-clock me-1"></i>{{ p.von_uhrzeit }}{% if p.bis_uhrzeit %}–{{ p.bis_uhrzeit }}{% endif %}
+              </span>
+              {% endif %}
+            </div>
+            <small class="text-muted">
+              <i class="bi bi-geo-alt me-1"></i>{{ p.vs_ort or '–' }}{% if p.vs_strasse %} · {{ p.vs_strasse }}{% endif %}
+              &nbsp;·&nbsp;
+              <i class="bi bi-person me-1"></i>{{ p.mitarbeiter_name }}
+            </small>
+            {% if p.notizen %}
+            <br><small class="text-muted"><i class="bi bi-chat-left-text me-1"></i>{{ p.notizen }}</small>
+            {% endif %}
+          </div>
+
+          <!-- Fotos -->
+          {% set _fotos = [p.foto_pfad, p.foto_pfad_2, p.foto_pfad_3] | select | list %}
+          {% if _fotos %}
+          <div class="col-auto d-flex gap-1">
+            {% for fp in _fotos %}
+            <a href="#" class="freigabe-foto-oeffnen" data-fotos='{{ _fotos | tojson }}' data-index="{{ loop.index0 }}" title="Foto vergrößern">
+              <img src="/uploads/{{ fp }}" alt="Foto" loading="lazy" decoding="async"
+                   style="width:56px;height:56px;object-fit:cover;border-radius:.5rem;border:2px solid #2e6da4">
+            </a>
+            {% endfor %}
+          </div>
+          {% endif %}
+
+          <!-- Aktionen -->
+          <div class="col-auto d-flex gap-1">
+            <form method="POST" action="{{ url_for('aufbau_freigeben', dp_id=p.dp_id) }}" style="display:inline">
+              <button type="submit" class="btn btn-success btn-sm">
+                <i class="bi bi-check-lg me-1"></i>Freigeben
+              </button>
+            </form>
+            <button type="button" class="btn btn-outline-danger btn-sm"
+                    data-bs-toggle="modal" data-bs-target="#ablehnenModal"
+                    data-dp-id="{{ p.dp_id }}"
+                    data-label="{{ p.ds_name }} – {{ p.vs_name }} ({{ p.datum }})">
+              <i class="bi bi-x-lg me-1"></i>Ablehnen
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card">
+  <div class="card-body text-center py-5 text-muted">
+    <i class="bi bi-check-circle" style="font-size:2rem"></i>
+    <p class="mt-2 mb-0">Keine offenen Aufbauten zur Freigabe.</p>
+  </div>
+</div>
+{% endif %}
+
+<!-- Ablehnen-Modal -->
+<div class="modal fade" id="ablehnenModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <form method="POST" id="ablehnenForm" class="modal-content">
+      <div class="modal-header" style="background:#c0392b;color:white">
+        <h6 class="modal-title"><i class="bi bi-x-lg me-2"></i>Aufbau ablehnen</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted mb-2" id="ablehnenLabel"></p>
+        <label class="form-label small fw-semibold">Grund *</label>
+        <textarea class="form-control" name="grund" rows="3" required
+                  placeholder="z.B. kein Neukunde, Display nicht wie beschrieben aufgebaut..."></textarea>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Abbrechen</button>
+        <button type="submit" class="btn btn-danger btn-sm">Ablehnen</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Foto-Vorschau Modal (Galerie, bis zu 3 Fotos) -->
+<div class="modal fade" id="freigabeFotoModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content" style="background:transparent;border:none">
+      <div class="modal-header border-0 pb-0">
+        <span id="freigabeFotoZaehler" class="text-white small"></span>
+        <button type="button" class="btn-close btn-close-white ms-auto" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center p-0 position-relative">
+        <button type="button" id="freigabeFotoPrev" class="btn btn-light position-absolute top-50 start-0 translate-middle-y ms-2" style="display:none;z-index:2">
+          <i class="bi bi-chevron-left"></i>
+        </button>
+        <img id="freigabeFotoGross" src="" alt="Foto" style="max-width:100%;max-height:80vh;border-radius:.5rem">
+        <button type="button" id="freigabeFotoNext" class="btn btn-light position-absolute top-50 end-0 translate-middle-y me-2" style="display:none;z-index:2">
+          <i class="bi bi-chevron-right"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('ablehnenModal').addEventListener('show.bs.modal', function(ev) {
+  const btn = ev.relatedTarget;
+  document.getElementById('ablehnenLabel').textContent = btn.dataset.label || '';
+  document.getElementById('ablehnenForm').action = '/aufbau/' + btn.dataset.dpId + '/ablehnen';
+});
+
+let freigabeFotoListe = [];
+let freigabeFotoIndex = 0;
+function freigabeFotoZeigen() {
+  document.getElementById('freigabeFotoGross').src = '/uploads/' + freigabeFotoListe[freigabeFotoIndex];
+  const mehrere = freigabeFotoListe.length > 1;
+  document.getElementById('freigabeFotoPrev').style.display = mehrere ? '' : 'none';
+  document.getElementById('freigabeFotoNext').style.display = mehrere ? '' : 'none';
+  document.getElementById('freigabeFotoZaehler').textContent = mehrere ? (freigabeFotoIndex + 1) + ' / ' + freigabeFotoListe.length : '';
+}
+document.addEventListener('click', function(e) {
+  const link = e.target.closest('.freigabe-foto-oeffnen');
+  if (link) {
+    e.preventDefault();
+    freigabeFotoListe = JSON.parse(link.dataset.fotos);
+    freigabeFotoIndex = parseInt(link.dataset.index, 10) || 0;
+    freigabeFotoZeigen();
+    new bootstrap.Modal(document.getElementById('freigabeFotoModal')).show();
+    return;
+  }
+  if (e.target.closest('#freigabeFotoPrev')) {
+    freigabeFotoIndex = (freigabeFotoIndex - 1 + freigabeFotoListe.length) % freigabeFotoListe.length;
+    freigabeFotoZeigen();
+  }
+  if (e.target.closest('#freigabeFotoNext')) {
+    freigabeFotoIndex = (freigabeFotoIndex + 1) % freigabeFotoListe.length;
+    freigabeFotoZeigen();
+  }
+});
+</script>
+{% endblock %}
