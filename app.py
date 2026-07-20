@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, session, send_file, g, flash, jsonify, abort
 import sqlite3
 import os
+import math
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -3095,6 +3096,320 @@ def tourenplanung_reihenfolge(tp_id):
     db.execute("UPDATE tagesplan SET reihenfolge=? WHERE id=?", (cur['reihenfolge'], nb['id']))
     db.commit()
     return jsonify({'ok': True})
+
+
+# ─── Routenoptimierung (Tagesplan-Reihenfolgevorschlag) ───────────────────────
+
+_DE_LAT = (47.2, 55.2)
+_DE_LNG = (5.8,  15.2)
+
+
+def _geocode_freitext(text, timeout=5):
+    """Geocodiert einen beliebigen Freitext (z.B. Start-/Zieladresse für die
+    Routenoptimierung) via Photon, ohne die strikte Orts-Validierung von
+    _geocode_adresse (die ist auf strukturierte VS-Adressfelder zugeschnitten).
+    Gibt (lat, lng) oder (None, None) zurück."""
+    text = (text or '').strip()
+    if not text:
+        return None, None
+    url = ('https://photon.komoot.io/api/?q='
+           + urllib.parse.quote(text)
+           + '&limit=1&lang=de&bbox=5.8,47.2,15.2,55.2')
+    try:
+        req = urllib.request.Request(
+            url, headers={'User-Agent': 'AktionsTracker/1.0'}
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode())
+        features = data.get('features', [])
+        if features:
+            coords = features[0]['geometry']['coordinates']
+            lat, lng = float(coords[1]), float(coords[0])  # GeoJSON: [lng, lat]
+            if _DE_LAT[0] <= lat <= _DE_LAT[1] and _DE_LNG[0] <= lng <= _DE_LNG[1]:
+                return lat, lng
+    except Exception as exc:
+        app.logger.warning(f"Geocode Freitext '{text}': {exc}")
+    return None, None
+
+
+def _haversine_km(lat1, lng1, lat2, lng2):
+    """Luftlinien-Distanz zwischen zwei Koordinaten in km."""
+    R = 6371.0
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lng2 - lng1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return 2 * R * math.asin(math.sqrt(a))
+
+
+def _route_optimieren(stop_coords, start_coord=None, ende_coord=None):
+    """Nearest-Neighbor + 2-opt auf Luftlinien-Distanz. stop_coords: Liste von
+    (lat,lng) der zu sortierenden Stopps. start_coord/ende_coord: optionale
+    Fixpunkte, die NICHT Teil des Ergebnisses sind, aber die Distanzberechnung
+    an den Rändern beeinflussen (fehlender Fixpunkt = freies Ende). Gibt eine
+    Liste von Indizes (bezogen auf stop_coords) in optimierter Reihenfolge
+    zurück. Für die üblichen 3-15 Tagesstopps läuft das in Millisekunden."""
+    n = len(stop_coords)
+    if n <= 1:
+        return list(range(n))
+
+    def dist(p1, p2):
+        return _haversine_km(p1[0], p1[1], p2[0], p2[1])
+
+    dmat = [[dist(stop_coords[i], stop_coords[j]) for j in range(n)] for i in range(n)]
+
+    start_idx = 0
+    if start_coord:
+        start_idx = min(range(n), key=lambda i: dist(start_coord, stop_coords[i]))
+    unbesucht = set(range(n)) - {start_idx}
+    route = [start_idx]
+    aktuell = start_idx
+    while unbesucht:
+        naechster = min(unbesucht, key=lambda j: dmat[aktuell][j])
+        route.append(naechster)
+        unbesucht.remove(naechster)
+        aktuell = naechster
+
+    def routen_laenge(r):
+        total = dist(start_coord, stop_coords[r[0]]) if start_coord else 0.0
+        for i in range(len(r) - 1):
+            total += dmat[r[i]][r[i + 1]]
+        if ende_coord:
+            total += dist(stop_coords[r[-1]], ende_coord)
+        return total
+
+    aktuelle_laenge = routen_laenge(route)
+    verbessert = True
+    while verbessert:
+        verbessert = False
+        for i in range(n - 1):
+            for j in range(i + 1, n):
+                neu = route[:i] + route[i:j + 1][::-1] + route[j + 1:]
+                neue_laenge = routen_laenge(neu)
+                if neue_laenge < aktuelle_laenge - 1e-9:
+                    route = neu
+                    aktuelle_laenge = neue_laenge
+                    verbessert = True
+    return route
+
+
+MAPBOX_MAX_PUNKTE = 12  # Mapbox Optimized Trips API v1: max. 12 Koordinaten inkl. Start/Ziel
+
+
+def _route_optimieren_mapbox(stop_coords, start_coord=None, ende_coord=None, timeout=6):
+    """Straßenbasierter Routenvorschlag über die Mapbox Optimized Trips API
+    (v1, max. MAPBOX_MAX_PUNKTE Koordinaten inkl. Start/Ziel). Gibt eine Liste
+    von Indizes (bezogen auf stop_coords) zurück, oder None bei fehlendem
+    Token/Limit-Überschreitung/jedem Fehler – der Aufrufer fällt dann auf
+    _route_optimieren() (Luftlinie) zurück, damit das Feature nie hart
+    fehlschlägt, nur weil Mapbox gerade nicht erreichbar ist."""
+    token = os.environ.get('MAPBOX_ACCESS_TOKEN', '').strip()
+    if not token:
+        return None
+
+    n = len(stop_coords)
+    if n == 0:
+        return []
+    if n == 1:
+        return [0]
+
+    # Die Mapbox Optimized-Trips-API unterstützt bei roundtrip=false NUR die
+    # Kombination source=first + destination=last (beide gesetzt) – ein
+    # einseitiger Anker (nur Start ODER nur Ziel, freies anderes Ende) liefert
+    # "NotImplemented". Für diesen selteneren Fall daher bewusst kein Mapbox-
+    # Aufruf, sondern direkter Rückfall auf die Luftlinien-Berechnung.
+    if bool(start_coord) != bool(ende_coord):
+        return None
+
+    punkte = []
+    if start_coord:
+        punkte.append(start_coord)
+    punkte += list(stop_coords)
+    ende_separat = bool(ende_coord) and ende_coord != start_coord
+    if ende_separat:
+        punkte.append(ende_coord)
+
+    if len(punkte) > MAPBOX_MAX_PUNKTE:
+        return None
+
+    koord_str = ';'.join(f"{lng},{lat}" for lat, lng in punkte)
+    params = {'access_token': token, 'overview': 'false'}
+    if start_coord and ende_separat:
+        params['source'] = 'first'
+        params['destination'] = 'last'
+        params['roundtrip'] = 'false'
+    elif start_coord and ende_coord:
+        # Gleicher Start-/Zielpunkt (z.B. Homeoffice beide Richtungen) -> Rundtour
+        params['source'] = 'first'
+        params['roundtrip'] = 'true'
+    else:
+        # Weder Start noch Ziel vorgegeben -> freie Optimierung ohne Anker
+        params['roundtrip'] = 'true'
+
+    url = ('https://api.mapbox.com/optimized-trips/v1/mapbox/driving/'
+           + koord_str + '?' + urllib.parse.urlencode(params))
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'AktionsTracker/1.0'})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode())
+        if data.get('code') != 'Ok' or not data.get('trips'):
+            return None
+        waypoints = data.get('waypoints', [])
+        eingabe_offset = 1 if start_coord else 0
+        stop_eintraege = []
+        for punkt_idx, wp in enumerate(waypoints):
+            if punkt_idx < eingabe_offset:
+                continue
+            if ende_separat and punkt_idx == len(punkte) - 1:
+                continue
+            stop_idx = punkt_idx - eingabe_offset
+            stop_eintraege.append((wp['waypoint_index'], stop_idx))
+        stop_eintraege.sort(key=lambda t: t[0])
+        return [stop_idx for _, stop_idx in stop_eintraege]
+    except Exception as exc:
+        app.logger.warning(f"Mapbox Routenoptimierung fehlgeschlagen: {exc}")
+        return None
+
+
+def _homeoffice_punkt(ma_id):
+    """Koordinaten der Homeoffice-VS eines Mitarbeiters, falls hinterlegt und
+    bereits geocodiert. Gibt (lat, lng) oder None zurück."""
+    ma = query("SELECT homeoffice_vs_id FROM mitarbeiter WHERE id=?", (ma_id,), one=True)
+    if not ma or not ma['homeoffice_vs_id']:
+        return None
+    vs = query("SELECT lat, lng FROM verkaufsstelle WHERE id=?", (ma['homeoffice_vs_id'],), one=True)
+    if vs and vs['lat'] is not None and vs['lng'] is not None:
+        return (vs['lat'], vs['lng'])
+    return None
+
+
+@app.route('/api/tourenplanung/route-vorschlag', methods=['POST'])
+@login_required
+def api_route_vorschlag():
+    """Berechnet einen Reihenfolge-Vorschlag für die Tagesplanung eines Tages.
+    Ändert nichts an der DB – reine Berechnung, Anwenden erfolgt separat über
+    api_route_anwenden()."""
+    data  = request.get_json(silent=True) or {}
+    datum = (data.get('datum') or '').strip()
+    try:
+        ma_id = int(data.get('mitarbeiter_id') or session['user_id'])
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'Ungültige Mitarbeiter-ID'}), 400
+    if ma_id != session['user_id'] and session.get('rolle') not in ('admin', 'verkaufsleiter'):
+        return jsonify({'ok': False, 'error': 'Keine Berechtigung'}), 403
+    if not datum:
+        return jsonify({'ok': False, 'error': 'Datum fehlt'}), 400
+
+    stops = query(
+        "SELECT tp.id AS tp_id, v.name, v.lat, v.lng FROM tagesplan tp "
+        "JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id "
+        "WHERE tp.mitarbeiter_id=? AND tp.datum=? AND COALESCE(tp.geloescht,0)=0 "
+        "ORDER BY tp.reihenfolge, tp.id",
+        (ma_id, datum)
+    )
+    ohne_koordinaten = [s['name'] for s in stops if s['lat'] is None or s['lng'] is None]
+    stops = [s for s in stops if s['lat'] is not None and s['lng'] is not None]
+    if len(stops) < 2:
+        return jsonify({'ok': False, 'error': 'Mindestens 2 Stopps mit Koordinaten nötig für einen Vorschlag.',
+                        'ohne_koordinaten': ohne_koordinaten})
+
+    start_text = (data.get('start') or '').strip()
+    ziel_text  = (data.get('ziel') or '').strip()
+    start_punkt = _geocode_freitext(start_text) if start_text else _homeoffice_punkt(ma_id)
+    if start_punkt == (None, None):
+        start_punkt = None
+    ziel_punkt = _geocode_freitext(ziel_text) if ziel_text else _homeoffice_punkt(ma_id)
+    if ziel_punkt == (None, None):
+        ziel_punkt = None
+
+    coords = [(s['lat'], s['lng']) for s in stops]
+
+    # Mapbox-Straßenrouting versuchen (genauer als Luftlinie), bei fehlendem
+    # Token/zu vielen Punkten/jedem API-Fehler automatisch auf die Luftlinien-
+    # Berechnung zurückfallen – das Feature darf nie hart fehlschlagen.
+    mapbox_token_vorhanden = bool(os.environ.get('MAPBOX_ACCESS_TOKEN', '').strip())
+    anzahl_punkte = len(coords) + (1 if start_punkt else 0) + (1 if (ziel_punkt and ziel_punkt != start_punkt) else 0)
+    order = None
+    verfahren = 'luftlinie'
+    zu_viele_fuer_mapbox = mapbox_token_vorhanden and anzahl_punkte > MAPBOX_MAX_PUNKTE
+    if mapbox_token_vorhanden and not zu_viele_fuer_mapbox:
+        order = _route_optimieren_mapbox(coords, start_coord=start_punkt, ende_coord=ziel_punkt)
+        if order is not None:
+            verfahren = 'strasse'
+    if order is None:
+        order = _route_optimieren(coords, start_coord=start_punkt, ende_coord=ziel_punkt)
+        verfahren = 'luftlinie'
+
+    return jsonify({
+        'ok': True,
+        'reihenfolge': [stops[i]['tp_id'] for i in order],
+        'namen': [stops[i]['name'] for i in order],
+        'start_gefunden': start_punkt is not None,
+        'ziel_gefunden': ziel_punkt is not None,
+        'ohne_koordinaten': ohne_koordinaten,
+        'verfahren': verfahren,
+        'zu_viele_fuer_strassenrouting': zu_viele_fuer_mapbox,
+    })
+
+
+@app.route('/api/tourenplanung/route-anwenden', methods=['POST'])
+@login_required
+def api_route_anwenden():
+    """Übernimmt eine vorgeschlagene Reihenfolge – schreibt dieselben
+    tagesplan.reihenfolge-Werte, die auch die Auf/Ab-Pfeile setzen."""
+    data = request.get_json(silent=True) or {}
+    tp_ids = data.get('reihenfolge')
+    if not tp_ids or not isinstance(tp_ids, list):
+        return jsonify({'ok': False, 'error': 'Keine Reihenfolge übergeben'}), 400
+    try:
+        tp_ids = [int(x) for x in tp_ids]
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'Ungültige IDs'}), 400
+
+    ph = ','.join('?' * len(tp_ids))
+    rows = query(f"SELECT id, mitarbeiter_id FROM tagesplan WHERE id IN ({ph})", tp_ids)
+    gefunden = {r['id'] for r in rows}
+    if gefunden != set(tp_ids):
+        return jsonify({'ok': False, 'error': 'Ungültige oder nicht mehr vorhandene Stopps'}), 400
+    eigentuemer = {r['mitarbeiter_id'] for r in rows}
+    if eigentuemer - {session['user_id']} and session.get('rolle') not in ('admin', 'verkaufsleiter'):
+        return jsonify({'ok': False, 'error': 'Keine Berechtigung'}), 403
+
+    for idx, tp_id in enumerate(tp_ids, start=1):
+        execute("UPDATE tagesplan SET reihenfolge=? WHERE id=?", (idx, tp_id))
+    return jsonify({'ok': True})
+
+
+@app.route('/api/tourenplanung/letzter-stopp-vortag')
+@login_required
+def api_letzter_stopp_vortag():
+    """Für den 'Wie gestern'-Button: letzter Stopp des Vortages als Textadresse,
+    damit sie ins Start-Feld übernommen werden kann (wird beim Berechnen wie
+    jede andere Freitext-Adresse geocodiert)."""
+    datum = (request.args.get('datum') or '').strip()
+    try:
+        ma_id = int(request.args.get('mitarbeiter_id') or session['user_id'])
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'Ungültige Mitarbeiter-ID'}), 400
+    if ma_id != session['user_id'] and session.get('rolle') not in ('admin', 'verkaufsleiter'):
+        return jsonify({'ok': False, 'error': 'Keine Berechtigung'}), 403
+    try:
+        d = date.fromisoformat(datum)
+    except ValueError:
+        return jsonify({'ok': False, 'error': 'Ungültiges Datum'}), 400
+
+    vortag = (d - timedelta(days=1)).isoformat()
+    row = query(
+        "SELECT v.name, v.strasse, v.plz, v.ort FROM tagesplan tp "
+        "JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id "
+        "WHERE tp.mitarbeiter_id=? AND tp.datum=? AND COALESCE(tp.geloescht,0)=0 "
+        "ORDER BY tp.reihenfolge DESC, tp.id DESC LIMIT 1",
+        (ma_id, vortag), one=True
+    )
+    if not row:
+        return jsonify({'ok': False, 'error': f'Kein Stopp am {vortag} gefunden.'})
+    adresse = ', '.join(filter(None, [row['strasse'], ' '.join(filter(None, [row['plz'], row['ort']]))]))
+    return jsonify({'ok': True, 'name': row['name'], 'adresse': adresse})
 
 
 @app.route('/api/verkaufsstelle/<int:vs_id>/aktivitaeten')

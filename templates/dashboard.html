@@ -804,6 +804,180 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
   </div>
 </div>
 
+<!-- Routenvorschlag: reine Vorschlags-Funktion (Luftlinien-Distanz, optional Mapbox-
+     Straßenroute falls MAPBOX_ACCESS_TOKEN gesetzt), ändert nichts an der DB bis
+     explizit "Übernehmen" geklickt wird. Start/Ziel-Felder sind pro Berechnung frei
+     überschreibbar und werden nicht gespeichert. -->
+<div class="card mb-3" style="border-color:#d4dce8">
+  <div class="card-body py-2 px-3">
+    <div class="d-flex align-items-center gap-2 mb-2">
+      <i class="bi bi-signpost-split" style="color:#1a3a5c"></i>
+      <span class="fw-semibold" style="color:#1a3a5c;font-size:.85rem">Route vorschlagen</span>
+    </div>
+    <div class="row g-2 mb-2">
+      <div class="col-6">
+        <label class="form-label mb-1" style="font-size:.72rem;color:#777">Start</label>
+        <input type="text" id="routeStart" class="form-control form-control-sm"
+               placeholder="Homeoffice (Standard)" style="font-size:.82rem">
+      </div>
+      <div class="col-6">
+        <label class="form-label mb-1" style="font-size:.72rem;color:#777">Ziel</label>
+        <input type="text" id="routeZiel" class="form-control form-control-sm"
+               placeholder="Homeoffice (Standard)" style="font-size:.82rem">
+      </div>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <button type="button" id="routeWieGesternBtn" class="btn btn-sm btn-outline-secondary" style="font-size:.8rem">
+        <i class="bi bi-arrow-counterclockwise me-1"></i>Wie gestern
+      </button>
+      <button type="button" id="routeVorschlagBtn" class="btn btn-sm" style="background:#2e6da4;color:#fff;font-size:.8rem">
+        <i class="bi bi-route me-1"></i>Route vorschlagen
+      </button>
+    </div>
+    <div id="routeVorschlagErgebnis" class="mt-2 d-none">
+      <div class="p-2 rounded-3" style="background:#f0f6ff;border:1px solid #cfe0f5">
+        <div class="small fw-semibold mb-1" style="color:#1a3a5c">
+          Vorschlag: <span id="routeVerfahrenBadge" class="badge" style="font-size:.68rem"></span>
+        </div>
+        <ol id="routeVorschlagListe" class="mb-2 ps-3" style="font-size:.82rem"></ol>
+        <div id="routeVorschlagHinweis" class="small text-muted mb-2"></div>
+        <div class="d-flex gap-2">
+          <button type="button" id="routeUebernehmenBtn" class="btn btn-sm btn-success" style="font-size:.78rem">
+            <i class="bi bi-check-lg me-1"></i>Übernehmen
+          </button>
+          <button type="button" id="routeVerwerfenBtn" class="btn btn-sm btn-outline-secondary" style="font-size:.78rem">
+            Verwerfen
+          </button>
+        </div>
+      </div>
+    </div>
+    <div id="routeVorschlagFehler" class="small text-danger mt-2 d-none"></div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const startInp   = document.getElementById('routeStart');
+  const zielInp    = document.getElementById('routeZiel');
+  const wieGesternBtn = document.getElementById('routeWieGesternBtn');
+  const vorschlagBtn  = document.getElementById('routeVorschlagBtn');
+  const ergebnisBox   = document.getElementById('routeVorschlagErgebnis');
+  const ergebnisListe = document.getElementById('routeVorschlagListe');
+  const ergebnisHinweis = document.getElementById('routeVorschlagHinweis');
+  const fehlerBox     = document.getElementById('routeVorschlagFehler');
+  const uebernehmenBtn = document.getElementById('routeUebernehmenBtn');
+  const verwerfenBtn   = document.getElementById('routeVerwerfenBtn');
+  if (!vorschlagBtn) return;
+
+  let letzterVorschlag = null;
+
+  function aktuellesDatum() {
+    return document.getElementById('repDatumHidden')?.value || '{{ today_str }}';
+  }
+
+  wieGesternBtn.addEventListener('click', function() {
+    fehlerBox.classList.add('d-none');
+    fetch(`/api/tourenplanung/letzter-stopp-vortag?datum=${aktuellesDatum()}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok) {
+          startInp.value = data.adresse || data.name;
+        } else {
+          fehlerBox.textContent = data.error || 'Kein Stopp am Vortag gefunden.';
+          fehlerBox.classList.remove('d-none');
+        }
+      })
+      .catch(() => {
+        fehlerBox.textContent = 'Verbindungsfehler.';
+        fehlerBox.classList.remove('d-none');
+      });
+  });
+
+  vorschlagBtn.addEventListener('click', function() {
+    fehlerBox.classList.add('d-none');
+    ergebnisBox.classList.add('d-none');
+    vorschlagBtn.disabled = true;
+    const orig = vorschlagBtn.innerHTML;
+    vorschlagBtn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Berechne…';
+    fetch('/api/tourenplanung/route-vorschlag', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({datum: aktuellesDatum(), start: startInp.value, ziel: zielInp.value})
+    })
+    .then(r => r.json())
+    .then(data => {
+      vorschlagBtn.disabled = false;
+      vorschlagBtn.innerHTML = orig;
+      if (!data.ok) {
+        fehlerBox.textContent = data.error || 'Vorschlag konnte nicht berechnet werden.';
+        fehlerBox.classList.remove('d-none');
+        return;
+      }
+      letzterVorschlag = data.reihenfolge;
+      ergebnisListe.innerHTML = data.namen.map(n => `<li>${n}</li>`).join('');
+      const verfahrenBadge = document.getElementById('routeVerfahrenBadge');
+      if (data.verfahren === 'strasse') {
+        verfahrenBadge.textContent = 'Straßenroute';
+        verfahrenBadge.style.background = '#d1e7dd';
+        verfahrenBadge.style.color = '#0f5132';
+      } else {
+        verfahrenBadge.textContent = 'Luftlinie';
+        verfahrenBadge.style.background = '#e2e3e5';
+        verfahrenBadge.style.color = '#41464b';
+      }
+      const hinweise = [];
+      if (!data.start_gefunden) hinweise.push('Start konnte nicht ermittelt werden – ohne festen Startpunkt sortiert.');
+      if (!data.ziel_gefunden) hinweise.push('Ziel konnte nicht ermittelt werden – ohne festen Zielpunkt sortiert.');
+      if (data.zu_viele_fuer_strassenrouting) hinweise.push('Zu viele Stopps für Straßenrouting (max. 12 inkl. Start/Ziel) – Luftlinien-Vorschlag verwendet.');
+      if (data.ohne_koordinaten && data.ohne_koordinaten.length) {
+        hinweise.push(`Ohne Koordinaten, nicht einsortiert: ${data.ohne_koordinaten.join(', ')}`);
+      }
+      ergebnisHinweis.textContent = hinweise.join(' ');
+      ergebnisHinweis.classList.toggle('d-none', hinweise.length === 0);
+      ergebnisBox.classList.remove('d-none');
+    })
+    .catch(() => {
+      vorschlagBtn.disabled = false;
+      vorschlagBtn.innerHTML = orig;
+      fehlerBox.textContent = 'Verbindungsfehler.';
+      fehlerBox.classList.remove('d-none');
+    });
+  });
+
+  uebernehmenBtn.addEventListener('click', function() {
+    if (!letzterVorschlag) return;
+    uebernehmenBtn.disabled = true;
+    fetch('/api/tourenplanung/route-anwenden', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({reihenfolge: letzterVorschlag})
+    })
+    .then(r => r.json())
+    .then(data => {
+      uebernehmenBtn.disabled = false;
+      if (data.ok) {
+        ergebnisBox.classList.add('d-none');
+        letzterVorschlag = null;
+        window.refreshTagesplanListe();
+      } else {
+        fehlerBox.textContent = data.error || 'Übernehmen fehlgeschlagen.';
+        fehlerBox.classList.remove('d-none');
+      }
+    })
+    .catch(() => {
+      uebernehmenBtn.disabled = false;
+      fehlerBox.textContent = 'Verbindungsfehler.';
+      fehlerBox.classList.remove('d-none');
+    });
+  });
+
+  verwerfenBtn.addEventListener('click', function() {
+    letzterVorschlag = null;
+    ergebnisBox.classList.add('d-none');
+  });
+})();
+</script>
+
 <script>
 // Lädt den Tagesplan-Abschnitt (#tagesplanListe) neu, ohne die ganze Seite neu zu
 // laden – nach dem Hinzufügen eines Stops per AJAX. Die Buttons innerhalb der Liste
