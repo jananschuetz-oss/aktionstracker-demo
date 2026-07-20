@@ -4888,6 +4888,56 @@ def admin_demo_cleanup():
     return redirect(url_for('admin'))
 
 
+def _geo_ausreisser_finden(min_gruppe=3, schwelle_km=50):
+    """Findet Verkaufsstellen, deren Koordinaten weit von den übrigen VS desselben
+    Landkreis-Werts entfernt liegen – fängt sowohl echte Geocoding-Fehler als auch
+    falsch getippte landkreis-Werte ab. Referenzpunkt je Landkreis ist der Median
+    der eigenen Gruppe (robust gegen einzelne Ausreißer), nur für Gruppen mit
+    mindestens min_gruppe Mitgliedern."""
+    import statistics
+    rows = query("""
+        SELECT id, name, ort, strasse, landkreis, lat, lng
+        FROM verkaufsstelle
+        WHERE aktiv=1 AND lat IS NOT NULL AND lng IS NOT NULL
+          AND landkreis IS NOT NULL AND landkreis != ''
+    """)
+    gruppen = {}
+    for r in rows:
+        gruppen.setdefault(r['landkreis'], []).append(r)
+
+    def _distanz_km(lat1, lng1, lat2, lng2):
+        dlat = math.radians(lat2 - lat1)
+        dlng = math.radians(lng2 - lng1)
+        a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlng/2)**2
+        return 6371 * 2 * math.asin(math.sqrt(a))
+
+    ausreisser = []
+    for landkreis, mitglieder in gruppen.items():
+        if len(mitglieder) < min_gruppe:
+            continue
+        zentrum_lat = statistics.median(m['lat'] for m in mitglieder)
+        zentrum_lng = statistics.median(m['lng'] for m in mitglieder)
+        for m in mitglieder:
+            km = _distanz_km(zentrum_lat, zentrum_lng, m['lat'], m['lng'])
+            if km > schwelle_km:
+                ausreisser.append({
+                    'id': m['id'], 'name': m['name'], 'ort': m['ort'], 'strasse': m['strasse'],
+                    'landkreis': landkreis, 'lat': m['lat'], 'lng': m['lng'], 'km_abweichung': round(km, 1),
+                })
+    ausreisser.sort(key=lambda x: -x['km_abweichung'])
+    return ausreisser
+
+
+@app.route('/admin/geo-ausreisser')
+@admin_required
+def admin_geo_ausreisser():
+    """Geo-Ausreißer-Prüfung (Kernfunktion): auf Abruf statt per E-Mail-Scheduler –
+    listet Verkaufsstellen, deren Koordinaten weit außerhalb ihrer Landkreis-Gruppe
+    liegen (Geocoding-Fehler oder falscher Landkreis-Wert)."""
+    ausreisser = _geo_ausreisser_finden()
+    return render_template('geo_ausreisser.html', ausreisser=ausreisser)
+
+
 @app.route('/admin')
 @admin_required
 def admin():

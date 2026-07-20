@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% block title %}Geo-Ausreißer – {{ company_short }} – Aktions Tracker{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start flex-wrap gap-2">
+  <div>
+    <h1><i class="bi bi-geo-alt-fill me-2"></i>Geo-Ausreißer</h1>
+    <p>Verkaufsstellen, deren Koordinaten mehr als 50 km vom Zentrum ihres Landkreises abweichen – meist Geocoding-Fehler oder ein falsch getippter Landkreis-Wert</p>
+  </div>
+  <a href="{{ url_for('admin') }}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left me-1"></i>Zurück zum Admin-Panel
+  </a>
+</div>
+
+{% if ausreisser %}
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Verkaufsstelle</th>
+          <th>Adresse</th>
+          <th>Landkreis</th>
+          <th class="text-end">Abweichung</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in ausreisser %}
+        <tr>
+          <td class="fw-semibold">{{ a.name }}</td>
+          <td class="text-muted small">{{ a.strasse or '–' }}{% if a.ort %}, {{ a.ort }}{% endif %}</td>
+          <td>{{ a.landkreis }}</td>
+          <td class="text-end">
+            <span class="badge" style="background:#f8d7da;color:#721c24">{{ a.km_abweichung }} km</span>
+          </td>
+          <td class="text-end">
+            <a href="{{ url_for('karte') }}?vs={{ a.id }}" class="btn btn-outline-secondary btn-sm" target="_blank">
+              <i class="bi bi-map me-1"></i>Auf Karte ansehen
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="card">
+  <div class="card-body text-center py-5 text-muted">
+    <i class="bi bi-check-circle" style="font-size:2rem"></i>
+    <p class="mt-2 mb-0">Keine Geo-Ausreißer gefunden.</p>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
