@@ -3620,7 +3620,12 @@ def api_letzter_besuch(vs_id):
 @app.route('/api/offene-bestellungen/<int:vs_id>')
 @login_required
 def api_offene_bestellungen(vs_id):
-    """Offene (noch nicht aufgebaute/stornierte) Bestellungen dieser Station."""
+    """Offene (noch nicht aufgebaute/stornierte) Bestellungen dieser Station. Zugriff nur
+    fürs eigene Gebiet (Rep) bzw. Team (VKL) – hatte bisher gar keine Prüfung (Bugreport
+    2026-07-20, von Arco portiert: ließ sich für jede beliebige Verkaufsstelle firmenweit
+    abrufen)."""
+    if not _verkaufsstelle_im_eigenen_gebiet(vs_id):
+        return jsonify({'error': 'Kein Zugriff'}), 403
     rows = query('''
         SELECT a.id, a.datum, m.name AS mitarbeiter
         FROM aktivitaet a
@@ -6685,7 +6690,29 @@ def service_worker():
 @app.route('/uploads/<path:filename>')
 @login_required
 def serve_upload(filename):
-    from flask import send_from_directory
+    """Fotos sind ausschließlich an aktivitaet.foto_pfad(_2/_3) verknüpft – Zugriff daher
+    auf die zugehörige Aktivität geprüft: Rep nur eigene, VKL nur Team, Admin alles. Vorher
+    ohne jede Prüfung abrufbar, sobald der (vorhersehbare) Dateiname bekannt war
+    (Bugreport 2026-07-20, von Arco portiert)."""
+    from flask import send_from_directory, abort
+    akt = query(
+        "SELECT mitarbeiter_id FROM aktivitaet WHERE foto_pfad=? OR foto_pfad_2=? OR foto_pfad_3=?",
+        (filename, filename, filename), one=True
+    )
+    if not akt:
+        abort(404)
+    rolle = session.get('rolle')
+    if rolle != 'admin':
+        if rolle == 'verkaufsleiter' and session.get('team_id'):
+            erlaubt = query(
+                "SELECT 1 FROM mitarbeiter WHERE id=? AND team_id=?",
+                (akt['mitarbeiter_id'], session['team_id']), one=True
+            )
+            if not erlaubt:
+                abort(403)
+        elif rolle != 'verkaufsleiter':
+            if akt['mitarbeiter_id'] != session.get('user_id'):
+                abort(403)
     return send_from_directory(UPLOAD_FOLDER, filename)
 
 
@@ -6694,19 +6721,16 @@ def serve_upload(filename):
 @app.route('/api/verkaufsstellen')
 @login_required
 def api_verkaufsstellen():
-    """Freitext-Suche für die Verkaufsstellen-Auswahl in Neue Aktivität. Homeoffice-
-    Einträge sind wie überall sonst ausgeblendet – außer für Admin/VKL (Team-Übersicht)
-    und für den Eigentümer selbst (eigener Homeoffice-Stopp)."""
+    """Freitext-Suche für die Verkaufsstellen-Auswahl in Neue Aktivität. Nutzt denselben
+    Gebiets-Scope wie die eigene Verkaufsstellen-Liste (_verkaufsstellen_liste_sql) – Rep:
+    eigene Zuordnung, VKL: Team bzw. alle ohne eigenes Team, Admin: alle. Vorher ohne jede
+    Einschränkung für Reps (Bugreport 2026-07-20, von Arco portiert: lieferte den
+    kompletten firmenweiten Kundenstamm statt nur das eigene Gebiet)."""
     q = request.args.get('q', '')
-    like = f'%{q}%'
-    if session.get('rolle') in ('admin', 'verkaufsleiter'):
-        where_zusatz = ""
-        params = (like,)
-    else:
-        where_zusatz = " AND (homeoffice_mitarbeiter_id IS NULL OR homeoffice_mitarbeiter_id = ?)"
-        params = (like, session['user_id'])
+    from_sql, where_sql, params, distinct = _verkaufsstellen_liste_sql(suche=q)
+    sel = "SELECT DISTINCT" if distinct else "SELECT"
     rows = query(
-        "SELECT id, name, ort, typ FROM verkaufsstelle WHERE aktiv=1 AND name LIKE ?" + where_zusatz + " ORDER BY name LIMIT 20",
+        f"{sel} v.id, v.name, v.ort, v.typ {from_sql} {where_sql} ORDER BY v.name LIMIT 20",
         params
     )
     return jsonify([dict(r) for r in rows])
@@ -8877,6 +8901,24 @@ def api_karte_geocode():
     })
 
 
+def _ma_ids_gebietsscope(ma_ids_angefragt):
+    """Erzwingt den Mitarbeiter-Gebiets-Scope serverseitig, statt dem Client-Parameter
+    'ma' blind zu vertrauen (Bugreport 2026-07-20, von Arco portiert: /api/karte/heatmap
+    und /api/karte/besuche-zeitraum lieferten bei leerem/weggelassenem ma-Parameter
+    firmenweite Daten statt nur das eigene Gebiet). Rep: immer nur die eigene ID,
+    unabhängig vom Client-Wert. VKL mit Team: Client-Auswahl auf Team-Mitglieder
+    beschränkt (leer/ungültig → ganzes Team). Admin bzw. VKL ohne Team: unverändert."""
+    rolle = session.get('rolle')
+    if rolle == 'rep':
+        return [str(session['user_id'])]
+    if rolle == 'verkaufsleiter' and session.get('team_id'):
+        team_ids = {str(r['id']) for r in query(
+            "SELECT id FROM mitarbeiter WHERE team_id=?", (session['team_id'],))}
+        gefiltert = [m for m in ma_ids_angefragt if m in team_ids]
+        return gefiltert if gefiltert else sorted(team_ids)
+    return ma_ids_angefragt
+
+
 @app.route('/api/karte/heatmap')
 @login_required
 def api_karte_heatmap():
@@ -8885,6 +8927,7 @@ def api_karte_heatmap():
     jahr       = request.args.get('jahr', date.today().year, type=int)
     ma_raw     = request.args.get('ma', '', type=str)
     ma_ids     = [x.strip() for x in ma_raw.split(',') if x.strip()] if ma_raw else []
+    ma_ids     = _ma_ids_gebietsscope(ma_ids)
     monate_raw = request.args.get('monate', '', type=str)
     monate_ids = [int(x.strip()) for x in monate_raw.split(',') if x.strip()] if monate_raw else []
     # betreuung (alle Aktivitäten) | aufbauten | volumen (Einheiten) | offene_bestellungen
@@ -8966,6 +9009,7 @@ def api_karte_besuche_zeitraum():
     monate_ids = [int(x.strip()) for x in monate_raw.split(',') if x.strip()] if monate_raw else []
     ma_raw     = request.args.get('ma', '', type=str)
     ma_ids     = [x.strip() for x in ma_raw.split(',') if x.strip()] if ma_raw else []
+    ma_ids     = _ma_ids_gebietsscope(ma_ids)
 
     conds  = ["strftime('%Y', a.datum) = ?"]
     params = [str(jahr)]
