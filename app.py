@@ -24,6 +24,7 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
 from PIL import Image
 import urllib.request
 import urllib.parse
@@ -34,7 +35,17 @@ import holidays as _holidays_lib
 import re
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'aktionstracker_geheim_xK9m')
+_SECRET_KEY = os.environ.get('SECRET_KEY')
+if not _SECRET_KEY:
+    # Kein Fallback: ein fest im Code stehender Schlüssel wäre für jeden mit
+    # Repo-Zugriff einsehbar und würde erlauben, Session-Cookies (inkl. Admin-
+    # Rolle) selbst zu signieren. Lieber der Start scheitert, als dass die App
+    # mit einem kompromittierten Schlüssel läuft.
+    raise RuntimeError(
+        "SECRET_KEY fehlt in der Umgebung – App wird aus Sicherheitsgründen nicht gestartet. "
+        "Lokal: .env mit SECRET_KEY=<zufälliger Wert> anlegen. Produktion: Railway-Variable setzen."
+    )
+app.secret_key = _SECRET_KEY
 
 # Flask setzt den Logger in Produktion (debug=False) standardmäßig auf WARNING – dadurch
 # wären sämtliche app.logger.info()-Meldungen (Wochenbericht/Monatsbericht/Export-Status
@@ -56,7 +67,14 @@ LOGO_VERSION = '3'  # cache-bust
 COMPANY_NAME   = os.environ.get('COMPANY_NAME',   'Ihre Firma GmbH')
 COMPANY_SHORT  = os.environ.get('COMPANY_SHORT',  'Demo')
 LOGO_URL       = os.environ.get('LOGO_URL',       '')    # externe Bild-URL oder leer → lokale Datei
-ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123')
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD')
+if not ADMIN_PASSWORD:
+    # Kein Fallback aus demselben Grund wie bei SECRET_KEY: ein im Code stehendes
+    # Standardpasswort wäre bei jedem vergessenen Deployment sofort erratbar.
+    raise RuntimeError(
+        "ADMIN_PASSWORD fehlt in der Umgebung – App wird aus Sicherheitsgründen nicht gestartet. "
+        "Lokal: .env mit ADMIN_PASSWORD=<eigenes Passwort> anlegen. Produktion: Railway-Variable setzen."
+    )
 EXPORT_EMAIL   = os.environ.get('EXPORT_EMAIL',   '')        # E-Mail für automatischen 4-Wochen-Export
 KARTE_MODUS    = os.environ.get('KARTE_MODUS',   'basis')   # 'aus' | 'basis' | 'heatmap'
 TOUREN_MODUS   = os.getenv('TOUREN_MODUS', 'aus')             # 'aus' | 'an'
@@ -781,6 +799,17 @@ def init_db():
             # bei ALTER TABLE ADD COLUMN keinen nicht-konstanten DEFAULT) – wird stattdessen
             # explizit bei den beiden nutzerseitigen INSERT INTO vertretung gesetzt.
             "ALTER TABLE vertretung ADD COLUMN erstellt_am TEXT",
+            # Login-Sperre nach Fehlversuchen (2026-07-21): fehlgeschlagene_logins zählt
+            # falsche Passworteingaben in Folge, wird bei jedem erfolgreichen Login auf 0
+            # zurückgesetzt. konto_gesperrt greift nach 3 Fehlversuchen für normale
+            # Mitarbeiter-Accounts und bleibt bestehen, bis Admin/VKL das Passwort neu setzt
+            # (admin_mitarbeiter_passwort) – bewusst kein Selbst-Reset über "Passwort
+            # vergessen", damit ein gesperrtes Konto wirklich über die Leitung läuft.
+            # gesperrt_bis ist nur für den ADMIN-Meta-Account relevant (zeitbasierte
+            # Sperre statt "wer sperrt den Admin frei" – siehe login()).
+            "ALTER TABLE mitarbeiter ADD COLUMN fehlgeschlagene_logins INTEGER DEFAULT 0",
+            "ALTER TABLE mitarbeiter ADD COLUMN konto_gesperrt INTEGER DEFAULT 0",
+            "ALTER TABLE mitarbeiter ADD COLUMN gesperrt_bis TEXT",
         ]:
             try:
                 db.execute(migration)
@@ -858,14 +887,19 @@ def init_db():
         except Exception:
             pass
 
-        # Admin + Verkaufsleiter (Passwort via ENV ADMIN_PASSWORD konfigurierbar)
-        db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Administrator', 'ADMIN', 'admin', ?)", (ADMIN_PASSWORD,))
-        db.execute("UPDATE mitarbeiter SET passwort=? WHERE kuerzel='ADMIN'", (ADMIN_PASSWORD,))
+        # Admin + Demo-Leitung + Verkaufsleiter (Passwörter via ENV konfigurierbar). Nur
+        # (neu) hashen, wenn nötig – sonst würde jeder Neustart ein evtl. schon migriertes
+        # Hash-Passwort wieder mit dem ENV-Klartext überschreiben (siehe login()).
+        def _seed_passwort(kuerzel, name, rolle, klartext_pw):
+            row = db.execute("SELECT passwort FROM mitarbeiter WHERE kuerzel=?", (kuerzel,)).fetchone()
+            if not row or not _ist_passwort_hash(row['passwort']) or not check_password_hash(row['passwort'], klartext_pw):
+                pw_hash = generate_password_hash(klartext_pw)
+                db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES (?,?,?,?)", (name, kuerzel, rolle, pw_hash))
+                db.execute("UPDATE mitarbeiter SET passwort=? WHERE kuerzel=?", (pw_hash, kuerzel))
+        _seed_passwort('ADMIN', 'Administrator', 'admin', ADMIN_PASSWORD)
         # Demo Leitung (Login: Demo) – einziger Demo-GF-Zugang für Interessenten
-        db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Demo Leitung', 'Demo', 'admin', ?)", (os.environ.get('DEMO_PASSWORT', 'demo2026'),))
-        db.execute("UPDATE mitarbeiter SET passwort=? WHERE kuerzel='Demo'", (os.environ.get('DEMO_PASSWORT', 'demo2026'),))
-        db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, rolle, passwort) VALUES ('Verkaufsleiter', 'VKL', 'verkaufsleiter', ?)", (DEFAULT_PASSWORD,))
-        db.execute("UPDATE mitarbeiter SET passwort=? WHERE kuerzel='VKL'", (DEFAULT_PASSWORD,))
+        _seed_passwort('Demo', 'Demo Leitung', 'admin', os.environ.get('DEMO_PASSWORT', 'demo2026'))
+        _seed_passwort('VKL', 'Verkaufsleiter', 'verkaufsleiter', DEFAULT_PASSWORD)
 
         # Beispiel-Mitarbeiter (nur bei INIT_DEMO_USERS=true) – 4 Reps + 1 VKL
         if os.environ.get('INIT_DEMO_USERS', 'true').lower() == 'true':
@@ -876,8 +910,7 @@ def init_db():
                 ('Lisa Fischer',  'LF', DEFAULT_PASSWORD),
             ]
             for name, kuerzel, pw in reps:
-                db.execute("INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, passwort) VALUES (?, ?, ?)", (name, kuerzel, pw))
-                db.execute("UPDATE mitarbeiter SET passwort=? WHERE kuerzel=?", (pw, kuerzel))
+                _seed_passwort(kuerzel, name, 'rep', pw)
             # KH deaktivieren falls aus Altbestand vorhanden
             db.execute("UPDATE mitarbeiter SET aktiv=0 WHERE kuerzel='KH'")
 
@@ -1943,6 +1976,23 @@ def health():
 
 # ─── Routes: Auth ─────────────────────────────────────────────────────────────
 
+_PASSWORT_HASH_PRAEFIXE = ('pbkdf2:', 'scrypt:')
+
+def _ist_passwort_hash(wert):
+    return bool(wert) and wert.startswith(_PASSWORT_HASH_PRAEFIXE)
+
+def _password_ok(gespeichert, eingabe):
+    """True wenn eingabe zum gespeicherten Passwort passt. Erkennt sowohl
+    gehashte (werkzeug, ab 2026-07-21) als auch alte Klartext-Passwörter
+    (Bestand vor diesem Feature) – Klartext wird bei erfolgreichem Login
+    andernorts automatisch nachträglich gehasht (Lazy-Migration)."""
+    if _ist_passwort_hash(gespeichert):
+        return check_password_hash(gespeichert, eingabe)
+    return gespeichert == eingabe
+
+LOGIN_MAX_VERSUCHE = 3
+ADMIN_SPERRE_MINUTEN = 15
+
 @app.route('/', methods=['GET', 'POST'])
 def login():
     if 'user_id' in session:
@@ -1952,21 +2002,46 @@ def login():
         email_input = request.form.get('email', '').strip()
         passwort    = request.form.get('passwort', '').strip()
 
-        # ADMIN-Direktlogin: Passwort aus ENV, DB-unabhängig
+        # ADMIN-Direktlogin: Passwort aus ENV, DB-unabhängig. Der Account wird trotzdem
+        # als mitarbeiter-Zeile geführt (für session/Anzeige) – init_db() legt sie beim
+        # Start an, daher existiert sie hier immer schon.
         _admin_pw = ADMIN_PASSWORD.strip()
-        if email_input.upper() == 'ADMIN' and passwort == _admin_pw:
+        if email_input.upper() == 'ADMIN':
             db = get_db()
-            db.execute("INSERT OR IGNORE INTO mitarbeiter (name,kuerzel,rolle,passwort) VALUES ('Administrator','ADMIN','admin',?)", (_admin_pw,))
-            db.execute("UPDATE mitarbeiter SET passwort=? WHERE kuerzel='ADMIN'", (_admin_pw,))
-            db.commit()
             admin = db.execute("SELECT * FROM mitarbeiter WHERE kuerzel='ADMIN'").fetchone()
-            if admin:
-                session.permanent = True
-                session['user_id'] = admin['id']
-                session['name']    = admin['name']
-                session['kuerzel'] = admin['kuerzel']
-                session['rolle']   = admin['rolle']
-                return redirect(url_for('dashboard'))
+            _admin_gesperrt_bis = admin['gesperrt_bis'] if admin and 'gesperrt_bis' in admin.keys() else None
+            if _admin_gesperrt_bis and datetime.now().isoformat() < _admin_gesperrt_bis:
+                _rest_min = max(1, int((datetime.fromisoformat(_admin_gesperrt_bis) - datetime.now()).total_seconds() // 60) + 1)
+                flash(f'Zu viele Fehlversuche. Admin-Login ist noch ca. {_rest_min} Minute(n) gesperrt.', 'danger')
+                return render_template('login.html')
+            if secrets.compare_digest(passwort, _admin_pw):
+                # Passwort-Hash nur neu berechnen, wenn nötig (Hashing ist bewusst langsam –
+                # nicht bei jedem Login unnötig wiederholen).
+                if not admin or not _ist_passwort_hash(admin['passwort']) or not check_password_hash(admin['passwort'], _admin_pw):
+                    _admin_pw_hash = generate_password_hash(_admin_pw)
+                    db.execute("INSERT OR IGNORE INTO mitarbeiter (name,kuerzel,rolle,passwort) VALUES ('Administrator','ADMIN','admin',?)", (_admin_pw_hash,))
+                    db.execute("UPDATE mitarbeiter SET passwort=? WHERE kuerzel='ADMIN'", (_admin_pw_hash,))
+                    db.commit()
+                    admin = db.execute("SELECT * FROM mitarbeiter WHERE kuerzel='ADMIN'").fetchone()
+                if admin:
+                    db.execute("UPDATE mitarbeiter SET fehlgeschlagene_logins=0, gesperrt_bis=NULL WHERE id=?", (admin['id'],))
+                    db.commit()
+                    session.permanent = True
+                    session['user_id'] = admin['id']
+                    session['name']    = admin['name']
+                    session['kuerzel'] = admin['kuerzel']
+                    session['rolle']   = admin['rolle']
+                    return redirect(url_for('dashboard'))
+            elif admin:
+                _versuche = (admin['fehlgeschlagene_logins'] or 0) + 1
+                if _versuche >= LOGIN_MAX_VERSUCHE:
+                    _bis = (datetime.now() + timedelta(minutes=ADMIN_SPERRE_MINUTEN)).isoformat()
+                    db.execute("UPDATE mitarbeiter SET fehlgeschlagene_logins=?, gesperrt_bis=? WHERE id=?", (_versuche, _bis, admin['id']))
+                    db.commit()
+                    flash(f'Zu viele Fehlversuche. Admin-Login ist {ADMIN_SPERRE_MINUTEN} Minuten gesperrt.', 'danger')
+                    return render_template('login.html')
+                db.execute("UPDATE mitarbeiter SET fehlgeschlagene_logins=? WHERE id=?", (_versuche, admin['id']))
+                db.commit()
 
         # Normale Login-Logik für alle anderen (E-Mail, Kürzel oder vollständiger Name)
         user = query("SELECT * FROM mitarbeiter WHERE LOWER(email) = LOWER(?)", (email_input,), one=True)
@@ -1974,20 +2049,41 @@ def login():
             user = query("SELECT * FROM mitarbeiter WHERE UPPER(kuerzel) = UPPER(?)", (email_input,), one=True)
         if not user:
             user = query("SELECT * FROM mitarbeiter WHERE LOWER(name) = LOWER(?)", (email_input,), one=True)
-        if user and user['passwort'] == passwort:
-            session.permanent  = True          # läuft nach PERMANENT_SESSION_LIFETIME ab
-            session['user_id'] = user['id']
-            session['name']    = user['name']
-            session['kuerzel'] = user['kuerzel']
-            session['rolle']   = user['rolle']
-            session['team_id'] = user['team_id'] if 'team_id' in user.keys() else None
-            session['muss_passwort_aendern'] = bool(user['muss_passwort_aendern'] if 'muss_passwort_aendern' in user.keys() else 0)
-            # Karte-Benachrichtigungen werden NICHT in die Session geschrieben (kann beliebig groß
-            # werden und sprengt sonst die Session-Cookie über das 4KB-Browser-Limit – die
-            # Anzeige erfolgt stattdessen live aus der DB via context_processor, siehe inject_now()).
-            if session['muss_passwort_aendern']:
-                return redirect(url_for('erstes_passwort'))
-            return redirect(url_for('dashboard'))
+
+        # ADMIN wurde bereits oben vollständig behandelt (Erfolg/Sperre/Fehlversuch-Zähler
+        # via ENV-Passwort) – hier nur noch die normalen Mitarbeiter-Accounts.
+        if user and user['kuerzel'] != 'ADMIN':
+            if user['konto_gesperrt']:
+                flash('Dieses Konto ist nach zu vielen Fehlversuchen gesperrt. Bitte an die Verkaufsleitung/Admin wenden – das Passwort muss dort neu gesetzt werden.', 'danger')
+                return render_template('login.html')
+
+            if _password_ok(user['passwort'], passwort):
+                # Lazy-Migration: Klartext-Passwort beim ersten erfolgreichen Login hashen.
+                if not _ist_passwort_hash(user['passwort']):
+                    execute("UPDATE mitarbeiter SET passwort=? WHERE id=?", (generate_password_hash(passwort), user['id']))
+                execute("UPDATE mitarbeiter SET fehlgeschlagene_logins=0 WHERE id=?", (user['id'],))
+                session.permanent  = True          # läuft nach PERMANENT_SESSION_LIFETIME ab
+                session['user_id'] = user['id']
+                session['name']    = user['name']
+                session['kuerzel'] = user['kuerzel']
+                session['rolle']   = user['rolle']
+                session['team_id'] = user['team_id'] if 'team_id' in user.keys() else None
+                session['muss_passwort_aendern'] = bool(user['muss_passwort_aendern'] if 'muss_passwort_aendern' in user.keys() else 0)
+                # Karte-Benachrichtigungen werden NICHT in die Session geschrieben (kann beliebig
+                # groß werden und sprengt sonst die Session-Cookie über das 4KB-Browser-Limit –
+                # die Anzeige erfolgt stattdessen live aus der DB via context_processor, siehe
+                # inject_now()).
+                if session['muss_passwort_aendern']:
+                    return redirect(url_for('erstes_passwort'))
+                return redirect(url_for('dashboard'))
+
+            _versuche = (user['fehlgeschlagene_logins'] or 0) + 1
+            if _versuche >= LOGIN_MAX_VERSUCHE:
+                execute("UPDATE mitarbeiter SET fehlgeschlagene_logins=?, konto_gesperrt=1 WHERE id=?", (_versuche, user['id']))
+                flash('Konto nach 3 Fehlversuchen gesperrt. Bitte an die Verkaufsleitung/Admin wenden.', 'danger')
+                return render_template('login.html')
+            execute("UPDATE mitarbeiter SET fehlgeschlagene_logins=? WHERE id=?", (_versuche, user['id']))
+
         flash('Ungültige E-Mail-Adresse oder falsches Passwort.', 'danger')
 
     return render_template('login.html')
@@ -2061,14 +2157,14 @@ def passwort_reset(token):
     if request.method == 'POST':
         neues_pw = request.form.get('passwort', '').strip()
         bestaet  = request.form.get('passwort2', '').strip()
-        if len(neues_pw) < 6:
-            flash('Passwort muss mindestens 6 Zeichen haben.', 'danger')
+        if len(neues_pw) < 8:
+            flash('Passwort muss mindestens 8 Zeichen haben.', 'danger')
             return render_template('passwort_reset.html', token=token, name=ma['name'])
         if neues_pw != bestaet:
             flash('Passwörter stimmen nicht überein.', 'danger')
             return render_template('passwort_reset.html', token=token, name=ma['name'])
         execute("UPDATE mitarbeiter SET passwort=?, reset_token=NULL, reset_token_ablauf=NULL WHERE id=?",
-                (neues_pw, ma['id']))
+                (generate_password_hash(neues_pw), ma['id']))
         flash('Passwort erfolgreich geändert! Bitte jetzt anmelden.', 'success')
         return redirect(url_for('login'))
     return render_template('passwort_reset.html', token=token, name=ma['name'])
@@ -2093,7 +2189,7 @@ def erstes_passwort():
             return render_template('erstes_passwort.html')
         execute(
             'UPDATE mitarbeiter SET passwort=?, muss_passwort_aendern=0 WHERE id=?',
-            (neues_pw, session['user_id'])
+            (generate_password_hash(neues_pw), session['user_id'])
         )
         session['muss_passwort_aendern'] = False
         flash('Passwort erfolgreich gesetzt! Willkommen.', 'success')
@@ -5126,7 +5222,7 @@ def admin_mitarbeiter_neu():
                 return redirect(redirect_target)
         new_id = execute(
             "INSERT OR IGNORE INTO mitarbeiter (name, kuerzel, passwort, email, rolle, muss_passwort_aendern) VALUES (?,?,?,?,?,1)",
-            (name, kuerzel, passwort, email, rolle)
+            (name, kuerzel, generate_password_hash(passwort), email, rolle)
         )
         # VKL: neuen Rep direkt dem eigenen Team zuordnen
         if is_vkl and session.get('team_id') and new_id:
@@ -5296,11 +5392,14 @@ def admin_mitarbeiter_passwort(ma_id):
             flash('Keine Berechtigung für diesen Mitarbeiter.', 'danger')
             return redirect(redirect_target)
     neues_pw = request.form.get('passwort', '').strip()
-    if len(neues_pw) < 4:
-        flash('Passwort muss mindestens 4 Zeichen haben.', 'danger')
+    if len(neues_pw) < 8:
+        flash('Passwort muss mindestens 8 Zeichen haben.', 'danger')
         return redirect(redirect_target)
     muss_aendern = 1 if request.form.get('muss_passwort_aendern') else 0
-    execute("UPDATE mitarbeiter SET passwort=?, muss_passwort_aendern=? WHERE id=?", (neues_pw, muss_aendern, ma_id))
+    execute(
+        "UPDATE mitarbeiter SET passwort=?, muss_passwort_aendern=?, konto_gesperrt=0, fehlgeschlagene_logins=0 WHERE id=?",
+        (generate_password_hash(neues_pw), muss_aendern, ma_id)
+    )
     if muss_aendern:
         flash(f'Passwort für „{ma["name"]}" wurde geändert – er/sie muss bei der nächsten Anmeldung ein eigenes Passwort festlegen.', 'success')
     else:
@@ -5316,7 +5415,10 @@ def admin_mitarbeiter_passwort_alle_zuruecksetzen():
     Festlegung eines eigenen Passworts."""
     rows = query("SELECT id, name FROM mitarbeiter WHERE UPPER(kuerzel) NOT IN ('ADMIN', 'DEMO')")
     for r in rows:
-        execute("UPDATE mitarbeiter SET passwort=?, muss_passwort_aendern=1 WHERE id=?", (DEFAULT_PASSWORD, r['id']))
+        execute(
+            "UPDATE mitarbeiter SET passwort=?, muss_passwort_aendern=1, konto_gesperrt=0, fehlgeschlagene_logins=0 WHERE id=?",
+            (generate_password_hash(DEFAULT_PASSWORD), r['id'])
+        )
     flash(f'Passwort für {len(rows)} Mitarbeiter auf das Standard-Passwort zurückgesetzt – Passwort-Wechsel beim nächsten Login erzwungen.', 'success')
     return redirect(url_for('admin'))
 
@@ -5447,14 +5549,14 @@ def profil_passwort():
     neues_pw  = request.form.get('neues_passwort', '').strip()
     neues_pw2 = request.form.get('neues_passwort2', '').strip()
     user = query("SELECT * FROM mitarbeiter WHERE id=?", (session['user_id'],), one=True)
-    if user['passwort'] != altes_pw:
+    if not _password_ok(user['passwort'], altes_pw):
         flash('Aktuelles Passwort ist falsch.', 'danger')
-    elif len(neues_pw) < 4:
-        flash('Neues Passwort muss mindestens 4 Zeichen haben.', 'danger')
+    elif len(neues_pw) < 8:
+        flash('Neues Passwort muss mindestens 8 Zeichen haben.', 'danger')
     elif neues_pw != neues_pw2:
         flash('Passwörter stimmen nicht überein.', 'danger')
     else:
-        execute("UPDATE mitarbeiter SET passwort=? WHERE id=?", (neues_pw, session['user_id']))
+        execute("UPDATE mitarbeiter SET passwort=? WHERE id=?", (generate_password_hash(neues_pw), session['user_id']))
         flash('Passwort erfolgreich geändert.', 'success')
     return redirect(request.referrer or url_for('dashboard'))
 
@@ -6151,7 +6253,7 @@ def admin_import_excel():
                 stats['ma_skip'] += 1
             else:
                 execute("INSERT INTO mitarbeiter (name, kuerzel, rolle, passwort, email) VALUES (?,?,?,?,?)",
-                        (name, kuerzel, rolle, passwort, email))
+                        (name, kuerzel, rolle, generate_password_hash(passwort), email))
                 stats['ma_neu'] += 1
 
     # ── Blatt Verkaufsstellen ──────────────────────────────────────────────────
