@@ -40,6 +40,11 @@
       <i class="bi bi-file-earmark-excel me-1"></i>Excel Export
     </a>
     {% endif %}
+    {% if is_manager and tanken_modus %}
+    <a href="{{ url_for('tanken_report') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-fuel-pump me-1"></i>Tanken-Report
+    </a>
+    {% endif %}
   </div>
 </div>
 

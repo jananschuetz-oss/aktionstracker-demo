@@ -1133,6 +1133,9 @@ document.getElementById('modalRolle').addEventListener('show.bs.modal', function
               <option value="Hotel">Hotel</option>
               <option value="Verein">Verein</option>
               <option value="Sonstiges">Sonstiges</option>
+              {% if tanken_modus %}
+              <option value="Firmenwagen-Tanken">Firmenwagen-Tanken (Sonderkategorie)</option>
+              {% endif %}
             </select>
           </div>
           <div class="mb-3">
@@ -1204,6 +1207,9 @@ document.getElementById('modalRolle').addEventListener('show.bs.modal', function
               <option value="Hotel">Hotel</option>
               <option value="Verein">Verein</option>
               <option value="Sonstiges">Sonstiges</option>
+              {% if tanken_modus %}
+              <option value="Firmenwagen-Tanken">Firmenwagen-Tanken (Sonderkategorie)</option>
+              {% endif %}
             </select>
           </div>
           <div class="mb-3">

@@ -72,6 +72,10 @@
     <i class="bi bi-house-fill me-1"></i>Homeoffice-Tag — nur Notiz und Uhrzeit sind nötig, Foto ist optional.
   </div>
 
+  <div class="alert d-none mb-4" id="tankenHinweis" style="background:#fff8ec;border:1px solid #c8860a;color:#7a5306">
+    <i class="bi bi-fuel-pump-fill me-1"></i>Firmenwagen-Tanken — bitte den Tankbeleg als Foto hochladen (Pflicht), Notiz optional.
+  </div>
+
   {% if bestellung_info %}
   <div class="card mb-4" style="border-color:#2e6da4;background:#f0f6ff">
     <div class="card-body py-3 px-3">
@@ -155,6 +159,42 @@
                   data-bs-toggle="modal" data-bs-target="#modalNeueVS">
             <i class="bi bi-plus-circle me-1"></i>Neu anlegen
           </button>
+        </div>
+      </div>
+
+      <div class="card mb-0 mt-3 d-none" id="tankDatenCard">
+        <div class="card-header"><i class="bi bi-receipt me-2"></i>Tankbeleg-Daten</div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-6 col-md-3">
+              <label class="form-label">Tankdatum <span class="text-danger">*</span></label>
+              <input type="date" name="tank_datum" id="tankDatum" class="form-control" value="{{ heute }}">
+            </div>
+            <div class="col-6 col-md-3">
+              <label class="form-label">Kennzeichen <span class="text-danger">*</span></label>
+              <input type="text" name="tank_kennzeichen" id="tankKennzeichen" class="form-control" placeholder="z.B. DEG AZ 188">
+            </div>
+            <div class="col-6 col-md-2">
+              <label class="form-label">Kraftstoffsorte <span class="text-danger">*</span></label>
+              <select name="tank_kraftstoffsorte" id="tankKraftstoffsorte" class="form-select">
+                <option value="">Bitte wählen</option>
+                <option value="Diesel">Diesel</option>
+                <option value="Benzin">Benzin</option>
+                <option value="Super">Super</option>
+              </select>
+            </div>
+            <div class="col-6 col-md-2">
+              <label class="form-label">Menge (Liter) <span class="text-danger">*</span></label>
+              <input type="text" inputmode="decimal" name="tank_liter" id="tankLiter" class="form-control" placeholder="z.B. 71,21">
+            </div>
+            <div class="col-6 col-md-2">
+              <label class="form-label">Kilometerstand <span class="text-danger">*</span></label>
+              <input type="text" inputmode="numeric" name="tank_km_stand" id="tankKmStand" class="form-control" placeholder="z.B. 92456">
+            </div>
+          </div>
+          <p class="text-muted small mb-0 mt-2">
+            <i class="bi bi-info-circle me-1"></i>Fahrer und Ort werden automatisch aus Ihrem Login und der gewählten Tankstelle übernommen.
+          </p>
         </div>
       </div>
 
@@ -536,10 +576,47 @@ function updateHomeofficeUI() {
     if (stern) stern.style.display = 'none';
     if (pHint) pHint.textContent = '(optional)';
   } else {
-    if (typCard) typCard.style.display = '';
+    if (!isTankenAktiv() && typCard) typCard.style.display = '';
     if (hinweis)  hinweis.classList.add('d-none');
-    setTyp(document.getElementById('aktionstyp').value || 'Aufbau');
+    if (!isTankenAktiv()) setTyp(document.getElementById('aktionstyp').value || 'Aufbau');
   }
+}
+
+// ── Firmenwagen-Tanken: geteilte Sonderkategorie → reduziertes Formular, Foto bleibt
+// Pflicht (Tankbeleg muss hochgeladen werden), anders als bei Homeoffice. ───────────
+const TANKEN_VS_IDS = {{ tanken_vs_ids | tojson }};
+function isTankenAktiv() {
+  return TANKEN_VS_IDS.includes(parseInt(document.getElementById('vsId').value, 10));
+}
+function updateTankenUI() {
+  const tanken   = isTankenAktiv();
+  const typCard  = document.getElementById('typCard');
+  const hinweis  = document.getElementById('tankenHinweis');
+  const tankCard = document.getElementById('tankDatenCard');
+  if (tanken) {
+    setTyp('Besuch');
+    if (typCard)  typCard.style.display = 'none';
+    if (hinweis)  hinweis.classList.remove('d-none');
+    if (tankCard) tankCard.classList.remove('d-none');
+  } else {
+    if (hinweis)  hinweis.classList.add('d-none');
+    if (tankCard) tankCard.classList.add('d-none');
+    if (!isHomeofficeAktiv() && typCard) typCard.style.display = '';
+  }
+}
+
+// ── Tankbeleg-Daten: alle 5 Felder Pflicht, wenn Tanken aktiv ──────────────────
+function tankDatenVollstaendig() {
+  if (!isTankenAktiv()) return true;
+  const kennzeichen = document.getElementById('tankKennzeichen').value.trim();
+  const sorte       = document.getElementById('tankKraftstoffsorte').value;
+  const liter       = parseFloat(document.getElementById('tankLiter').value.replace(',', '.'));
+  const kmStand     = document.getElementById('tankKmStand').value;
+  return !!document.getElementById('tankDatum').value
+    && !!kennzeichen
+    && ['Diesel', 'Benzin', 'Super'].includes(sorte)
+    && !isNaN(liter) && liter > 0
+    && kmStand !== '' && parseInt(kmStand, 10) >= 0;
 }
 
 // ── KONZEPT-V2: Aktivitätstyp steuert die sichtbaren Felder ────────────────────
@@ -840,6 +917,7 @@ function vsSelect(id, label) {
   vsDropdown.style.display = 'none';
   vsClear.classList.remove('d-none');
   updateHomeofficeUI();
+  updateTankenUI();
   if (isHomeofficeAktiv()) {
     document.getElementById('vsZonenContainer').style.display = 'none';
   } else {
@@ -858,6 +936,7 @@ function vsClearSelection() {
   document.getElementById('vsZonenContainer').style.display = 'none';
   document.getElementById('erledigtIds').value = '';
   updateHomeofficeUI();
+  updateTankenUI();
   vsSearch.focus();
 }
 
@@ -948,9 +1027,11 @@ document.getElementById('aktivForm').addEventListener('submit', function(e) {
     vsSearch.scrollIntoView({behavior:'smooth', block:'center'});
     return;
   }
-  // KONZEPT-V2: Foto nur beim Aufbau Pflicht (sichtbar prüfen statt still blockieren)
+  // KONZEPT-V2: Foto nur beim Aufbau Pflicht (sichtbar prüfen statt still blockieren) –
+  // außer bei Firmenwagen-Tanken, da dort trotz aktionstyp='Besuch' weiter ein Foto
+  // (Tankbeleg) nötig ist.
   const typ = document.getElementById('aktionstyp').value;
-  if (typ === 'Aufbau' && !hatFoto()) {
+  if ((typ === 'Aufbau' || isTankenAktiv()) && !hatFoto()) {
     e.preventDefault();
     const block = document.getElementById('fotoBlock');
     let hint = document.getElementById('fotoPflichtFehler');
@@ -958,10 +1039,26 @@ document.getElementById('aktivForm').addEventListener('submit', function(e) {
       hint = document.createElement('div');
       hint.id = 'fotoPflichtFehler';
       hint.className = 'alert alert-danger py-2 mt-2 mb-0';
-      hint.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>Beim <strong>Aufbau</strong> ist ein Foto Pflicht. Bitte Kamera oder Galerie nutzen.';
+      hint.innerHTML = isTankenAktiv()
+        ? '<i class="bi bi-exclamation-triangle me-1"></i>Bitte den Tankbeleg als Foto hochladen.'
+        : '<i class="bi bi-exclamation-triangle me-1"></i>Beim <strong>Aufbau</strong> ist ein Foto Pflicht. Bitte Kamera oder Galerie nutzen.';
       block.appendChild(hint);
     }
     block.scrollIntoView({behavior:'smooth', block:'center'});
+    return;
+  }
+  if (!tankDatenVollstaendig()) {
+    e.preventDefault();
+    const tankCard = document.getElementById('tankDatenCard');
+    let hint = document.getElementById('tankDatenFehler');
+    if (!hint) {
+      hint = document.createElement('div');
+      hint.id = 'tankDatenFehler';
+      hint.className = 'alert alert-danger py-2 mt-2 mb-0';
+      hint.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>Bitte alle Tankbeleg-Daten vollständig ausfüllen.';
+      tankCard.appendChild(hint);
+    }
+    tankCard.scrollIntoView({behavior:'smooth', block:'center'});
   }
 });
 vsSearch.addEventListener('input', function() { vsSearch.classList.remove('is-invalid'); });
@@ -1114,6 +1211,7 @@ document.getElementById('aktivForm').addEventListener('submit', async function(e
 setTyp('{{ preselect_typ }}');
 {% endif %}
 updateHomeofficeUI();
+updateTankenUI();
 
 // Uhrzeiten auf 5-Minuten-Schritte runden (iOS ignoriert step="300")
 (function() {

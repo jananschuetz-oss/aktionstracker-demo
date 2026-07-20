@@ -60,6 +60,7 @@ EXPORT_EMAIL   = os.environ.get('EXPORT_EMAIL',   '')        # E-Mail für autom
 KARTE_MODUS    = os.environ.get('KARTE_MODUS',   'basis')   # 'aus' | 'basis' | 'heatmap'
 TOUREN_MODUS   = os.getenv('TOUREN_MODUS', 'aus')             # 'aus' | 'an'
 ARBEITSZEIT_MODUS = os.getenv('ARBEITSZEIT_MODUS', 'aus') == 'an'  # Zusatzmodul, standardmäßig aus (Add-on)
+TANKEN_MODUS   = os.getenv('TANKEN_MODUS', 'aus') == 'an'  # Firmenwagen-Tanken-Sonderkategorie, standardmäßig aus (Add-on)
 UNIT_LABEL       = os.environ.get('UNIT_LABEL',      'Einheiten')  # Mengenbezeichnung z.B. 'Kisten', 'Kartons', 'Paletten'
 MAX_MITARBEITER  = int(os.environ.get('MAX_MITARBEITER', 0))  # 0 = kein Limit (nicht konfiguriert)
 DEFAULT_PASSWORD = os.environ.get('DEFAULT_PASSWORD', 'demo123')  # Standard-Passwort für neue Mitarbeiter
@@ -136,6 +137,7 @@ def inject_now():
         'karte_modus':      KARTE_MODUS,
         'touren_modus':     TOUREN_MODUS,
         'arbeitszeit_modus': ARBEITSZEIT_MODUS,
+        'tanken_modus':     TANKEN_MODUS,
         'unit_label':       UNIT_LABEL,
         'max_mitarbeiter':  MAX_MITARBEITER,
         'default_password': DEFAULT_PASSWORD,
@@ -759,6 +761,14 @@ def init_db():
             "ALTER TABLE displayposition ADD COLUMN entschieden_von INTEGER",
             "ALTER TABLE displayposition ADD COLUMN entschieden_am TEXT",
             "ALTER TABLE displayposition ADD COLUMN mitarbeiter_gesehen INTEGER DEFAULT 1",
+            # Firmenwagen-Tanken (Kernfunktion, standardmäßig per TANKEN_MODUS-Env-Var
+            # deaktiviert): Pflichtfelder aus dem Tankbeleg, damit die spätere Erfassung
+            # nicht mehr im Nachhinein per Fotoauswertung nachgetragen werden muss.
+            "ALTER TABLE aktivitaet ADD COLUMN tank_datum TEXT",
+            "ALTER TABLE aktivitaet ADD COLUMN tank_kennzeichen TEXT",
+            "ALTER TABLE aktivitaet ADD COLUMN tank_kraftstoffsorte TEXT",
+            "ALTER TABLE aktivitaet ADD COLUMN tank_liter REAL",
+            "ALTER TABLE aktivitaet ADD COLUMN tank_km_stand INTEGER",
         ]:
             try:
                 db.execute(migration)
@@ -3464,6 +3474,12 @@ def neue_aktivitaet():
             "SELECT id FROM verkaufsstelle WHERE homeoffice_mitarbeiter_id=?", (session['user_id'],)
         )]
 
+    # Firmenwagen-Tanken: geteilte Sonderkategorie (nicht personengebunden wie Homeoffice) –
+    # unconditional, da für alle Mitarbeiter unabhängig vom eigenen Gebiet sichtbar.
+    tanken_vs_ids = [
+        r['id'] for r in query("SELECT id FROM verkaufsstelle WHERE typ='Firmenwagen-Tanken' AND aktiv=1")
+    ]
+
     # Mitarbeiter und VKL sehen nur ihre zugeordneten Verkaufsstellen (wenn Zuordnung gesetzt)
     if session.get('rolle') in ('rep', 'verkaufsleiter'):
         assigned = query(
@@ -3529,34 +3545,77 @@ def neue_aktivitaet():
             "SELECT homeoffice_mitarbeiter_id FROM verkaufsstelle WHERE id=?", (vs_id,), one=True
         ) if vs_id and vs_id.isdigit() else None
         is_homeoffice = bool(_vs_homeoffice_check and _vs_homeoffice_check['homeoffice_mitarbeiter_id'])
-        if is_homeoffice:
+        # Firmenwagen-Tanken: wie Homeoffice ein reduziertes Formular (kein Bestellung/
+        # Aufbau-Typ), aber Foto bleibt Pflicht (Tankbeleg).
+        _vs_typ_check = query(
+            "SELECT typ FROM verkaufsstelle WHERE id=?", (vs_id,), one=True
+        ) if vs_id and vs_id.isdigit() else None
+        is_tanken = bool(_vs_typ_check and _vs_typ_check['typ'] == 'Firmenwagen-Tanken')
+        if is_homeoffice or is_tanken:
             aktionstyp = 'Besuch'
 
         von_uhrzeit = request.form.get('von_uhrzeit', '').strip()
         bis_uhrzeit = request.form.get('bis_uhrzeit', '').strip()
         foto_files = [f for f in request.files.getlist('fotos') if f and f.filename][:3]
-        # KONZEPT-V2: Foto ist nur beim Aufbau Pflicht
-        if aktionstyp == 'Aufbau' and not foto_files:
-            flash('Bitte ein Foto hochladen – beim Aufbau ist das Foto Pflicht.', 'danger')
+        # KONZEPT-V2: Foto ist nur beim Aufbau Pflicht – außer bei Firmenwagen-Tanken,
+        # da dort trotz aktionstyp='Besuch' bewusst weiter ein Foto (Tankbeleg) nötig ist.
+        if (aktionstyp == 'Aufbau' or is_tanken) and not foto_files:
+            _foto_meldung = 'Bitte den Tankbeleg als Foto hochladen.' if is_tanken \
+                else 'Bitte ein Foto hochladen – beim Aufbau ist das Foto Pflicht.'
+            flash(_foto_meldung, 'danger')
             return render_template('neue_aktivitaet.html',
                 verkaufsstellen=verkaufsstellen, biersorten=biersorten,
                 displaysorte=displaysorte, vertretungs_gruppen=vertretungs_gruppen,
                 heute=date.today().isoformat(), min_datum=min_datum,
-                homeoffice_vs_ids=homeoffice_vs_ids)
+                homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids)
+
+        # Firmenwagen-Tanken: Pflichtfelder aus dem Tankbeleg (Tankdatum, Kennzeichen,
+        # Kraftstoffsorte, Menge, Kilometerstand) – ermöglichen den Tanken-Report ohne
+        # manuelles Nachschlagen im Foto.
+        tank_datum           = request.form.get('tank_datum', '').strip()
+        tank_kennzeichen     = request.form.get('tank_kennzeichen', '').strip()
+        tank_kraftstoffsorte = request.form.get('tank_kraftstoffsorte', '').strip()
+        tank_liter_str       = request.form.get('tank_liter', '').strip()
+        tank_km_stand_str    = request.form.get('tank_km_stand', '').strip()
+        tank_liter    = None
+        tank_km_stand = None
+        tank_felder_fehlen = False
+        if is_tanken:
+            if not (tank_datum and tank_kennzeichen and tank_kraftstoffsorte in ('Diesel', 'Benzin', 'Super')):
+                tank_felder_fehlen = True
+            try:
+                tank_liter = float(tank_liter_str.replace(',', '.'))
+                if tank_liter <= 0:
+                    tank_felder_fehlen = True
+            except ValueError:
+                tank_felder_fehlen = True
+            try:
+                tank_km_stand = int(tank_km_stand_str)
+                if tank_km_stand < 0:
+                    tank_felder_fehlen = True
+            except ValueError:
+                tank_felder_fehlen = True
+        if tank_felder_fehlen:
+            flash('Bitte alle Tankbeleg-Daten vollständig ausfüllen (Tankdatum, Kennzeichen, Kraftstoffsorte, Menge, Kilometerstand).', 'danger')
+            return render_template('neue_aktivitaet.html',
+                verkaufsstellen=verkaufsstellen, biersorten=biersorten,
+                displaysorte=displaysorte, vertretungs_gruppen=vertretungs_gruppen,
+                heute=date.today().isoformat(), min_datum=min_datum,
+                homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids)
 
         if not datum or not vs_id:
             flash('Datum und Verkaufsstelle sind Pflichtfelder.', 'danger')
             return render_template('neue_aktivitaet.html',
                 verkaufsstellen=verkaufsstellen, biersorten=biersorten,
                 displaysorte=displaysorte, heute=date.today().isoformat(),
-                min_datum=min_datum, homeoffice_vs_ids=homeoffice_vs_ids)
+                min_datum=min_datum, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids)
 
         if is_rep and min_datum and datum < min_datum:
             flash('Aktivitäten können nur für die aktuelle Woche eingetragen werden.', 'danger')
             return render_template('neue_aktivitaet.html',
                 verkaufsstellen=verkaufsstellen, biersorten=biersorten,
                 displaysorte=displaysorte, heute=date.today().isoformat(),
-                min_datum=min_datum, homeoffice_vs_ids=homeoffice_vs_ids)
+                min_datum=min_datum, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids)
 
         # Displaypositionen sammeln. Freigabe-Workflow: zielrelevante (Tier-1) Typen starten
         # als "offen" und fließen erst nach VKL-Freigabe in anzahl_displays ein (s.
@@ -3594,8 +3653,9 @@ def neue_aktivitaet():
 
         bestell_status = 'offen' if aktionstyp == 'Bestellung' else None
         akt_id = execute(
-            "INSERT INTO aktivitaet (datum, mitarbeiter_id, verkaufsstelle_id, anzahl_displays, notizen, foto_pfad, foto_pfad_2, foto_pfad_3, aktionstyp, bestell_status, von_uhrzeit, bis_uhrzeit) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            (datum, session['user_id'], vs_id, anzahl_displays, notizen, foto_pfad, foto_pfad_2, foto_pfad_3, aktionstyp, bestell_status, von_uhrzeit or None, bis_uhrzeit or None)
+            "INSERT INTO aktivitaet (datum, mitarbeiter_id, verkaufsstelle_id, anzahl_displays, notizen, foto_pfad, foto_pfad_2, foto_pfad_3, aktionstyp, bestell_status, von_uhrzeit, bis_uhrzeit, tank_datum, tank_kennzeichen, tank_kraftstoffsorte, tank_liter, tank_km_stand) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (datum, session['user_id'], vs_id, anzahl_displays, notizen, foto_pfad, foto_pfad_2, foto_pfad_3, aktionstyp, bestell_status, von_uhrzeit or None, bis_uhrzeit or None,
+             tank_datum or None, tank_kennzeichen or None, tank_kraftstoffsorte or None, tank_liter, tank_km_stand)
         )
 
         # Displaypositionen speichern – zielrelevante (Tier-1) Typen starten als "offen" und
@@ -3703,7 +3763,7 @@ def neue_aktivitaet():
         heute=date.today().isoformat(), preselect_vs=preselect_vs,
         preselect_typ=preselect_typ,
         bestellung_id=bestellung_id, bestellung_info=bestellung_info,
-        tagesplan_heute=tagesplan_heute, homeoffice_vs_ids=homeoffice_vs_ids)
+        tagesplan_heute=tagesplan_heute, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids)
 
 
 @app.route('/aktivitaeten')
@@ -4280,6 +4340,102 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id: int = N
 
 
 # ─── Route: Excel Export ──────────────────────────────────────────────────────
+
+def _build_tanken_excel_bytes(von: str, bis: str, monat_label: str) -> bytes:
+    """Excel-Liste aller Tankungen im Zeitraum: Tankdatum, Kennzeichen, Kraftstoffsorte,
+    Menge, Kilometerstand (aus dem Tankbeleg) + Mitarbeiter, Notiz, Beleg-Anzahl."""
+    rows = query(
+        "SELECT a.datum, m.name AS mitarbeiter, m.kuerzel, a.notizen, "
+        "       a.tank_datum, a.tank_kennzeichen, a.tank_kraftstoffsorte, "
+        "       a.tank_liter, a.tank_km_stand, "
+        "       (CASE WHEN a.foto_pfad IS NOT NULL AND a.foto_pfad != '' THEN 1 ELSE 0 END "
+        "        + CASE WHEN a.foto_pfad_2 IS NOT NULL AND a.foto_pfad_2 != '' THEN 1 ELSE 0 END "
+        "        + CASE WHEN a.foto_pfad_3 IS NOT NULL AND a.foto_pfad_3 != '' THEN 1 ELSE 0 END) AS anzahl_belege "
+        "FROM aktivitaet a "
+        "JOIN mitarbeiter m ON m.id = a.mitarbeiter_id "
+        "JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id "
+        "WHERE v.typ = 'Firmenwagen-Tanken' AND a.datum BETWEEN ? AND ? "
+        "ORDER BY a.datum, m.name",
+        (von, bis)
+    )
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Tankungen"
+
+    HEADER_FILL = PatternFill("solid", fgColor="c8860a")
+    HEADER_FONT = Font(bold=True, color="FFFFFF", size=11)
+    TITLE_FONT  = Font(bold=True, size=14, color="1a3a5c")
+    CENTER      = Alignment(horizontal='center', vertical='center')
+    BORDER      = Border(
+        left=Side(style='thin', color='CCCCCC'), right=Side(style='thin', color='CCCCCC'),
+        top=Side(style='thin', color='CCCCCC'), bottom=Side(style='thin', color='CCCCCC'),
+    )
+
+    ws.column_dimensions['A'].width = 12
+    ws.column_dimensions['B'].width = 22
+    ws.column_dimensions['C'].width = 14
+    ws.column_dimensions['D'].width = 14
+    ws.column_dimensions['E'].width = 10
+    ws.column_dimensions['F'].width = 14
+    ws.column_dimensions['G'].width = 40
+    ws.column_dimensions['H'].width = 12
+
+    ws.merge_cells('A1:H1')
+    ws['A1'] = f"Firmenwagen-Tankungen – {monat_label}"
+    ws['A1'].font = TITLE_FONT
+    ws['A1'].alignment = CENTER
+
+    headers = ['Tankdatum', 'Mitarbeiter', 'Kennzeichen', 'Kraftstoffsorte', 'Menge (Ltr.)', 'Kilometerstand', 'Notiz', 'Belege (Fotos)']
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=2, column=col, value=h)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.alignment = CENTER
+        cell.border = BORDER
+
+    for i, row in enumerate(rows):
+        r = i + 3
+        ws.cell(r, 1, row['tank_datum'] or row['datum'])
+        ws.cell(r, 2, f"{row['mitarbeiter']} ({row['kuerzel']})")
+        ws.cell(r, 3, row['tank_kennzeichen'] or '')
+        ws.cell(r, 4, row['tank_kraftstoffsorte'] or '')
+        ws.cell(r, 5, row['tank_liter'] or '')
+        ws.cell(r, 6, row['tank_km_stand'] or '')
+        ws.cell(r, 7, row['notizen'] or '')
+        ws.cell(r, 8, row['anzahl_belege'])
+        for c in range(1, 9):
+            ws.cell(r, c).border = BORDER
+
+    if not rows:
+        ws.cell(3, 1, 'Keine Tankungen in diesem Zeitraum.')
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.read()
+
+
+@app.route('/tanken-report')
+@manager_required
+def tanken_report():
+    """Firmenwagen-Tanken-Report (Kernfunktion): Excel-Download der Tankungen für einen
+    wählbaren Monat. Nur relevant, wenn TANKEN_MODUS aktiviert ist."""
+    if not TANKEN_MODUS:
+        flash('Firmenwagen-Tanken ist nicht aktiviert.', 'danger')
+        return redirect(url_for('dashboard'))
+    jahr  = request.args.get('jahr', date.today().year, type=int)
+    monat = request.args.get('monat', date.today().month, type=int)
+    von   = date(jahr, monat, 1)
+    bis   = date(jahr + 1, 1, 1) - timedelta(days=1) if monat == 12 else date(jahr, monat + 1, 1) - timedelta(days=1)
+    _monat_namen = ['Januar','Februar','März','April','Mai','Juni',
+                    'Juli','August','September','Oktober','November','Dezember']
+    monat_label = f"{_monat_namen[monat - 1]} {jahr}"
+    data  = _build_tanken_excel_bytes(von.isoformat(), bis.isoformat(), monat_label)
+    fname = f"Tankungen_{jahr}-{monat:02d}.xlsx"
+    return send_file(io.BytesIO(data), as_attachment=True, download_name=fname,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
 
 @app.route('/export/excel')
 @manager_required
