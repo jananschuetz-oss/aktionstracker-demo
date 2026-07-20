@@ -45,6 +45,11 @@
       <i class="bi bi-fuel-pump me-1"></i>Tanken-Report
     </a>
     {% endif %}
+    {% if is_manager and gratisware_modus %}
+    <a href="{{ url_for('gratisware_report') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-gift me-1"></i>Gratisware-Report
+    </a>
+    {% endif %}
   </div>
 </div>
 

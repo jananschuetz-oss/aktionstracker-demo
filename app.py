@@ -61,6 +61,7 @@ KARTE_MODUS    = os.environ.get('KARTE_MODUS',   'basis')   # 'aus' | 'basis' | 
 TOUREN_MODUS   = os.getenv('TOUREN_MODUS', 'aus')             # 'aus' | 'an'
 ARBEITSZEIT_MODUS = os.getenv('ARBEITSZEIT_MODUS', 'aus') == 'an'  # Zusatzmodul, standardmäßig aus (Add-on)
 TANKEN_MODUS   = os.getenv('TANKEN_MODUS', 'aus') == 'an'  # Firmenwagen-Tanken-Sonderkategorie, standardmäßig aus (Add-on)
+GRATISWARE_MODUS = os.getenv('GRATISWARE_MODUS', 'aus') == 'an'  # Gratisware-Report, standardmäßig aus (Add-on)
 UNIT_LABEL       = os.environ.get('UNIT_LABEL',      'Einheiten')  # Mengenbezeichnung z.B. 'Kisten', 'Kartons', 'Paletten'
 MAX_MITARBEITER  = int(os.environ.get('MAX_MITARBEITER', 0))  # 0 = kein Limit (nicht konfiguriert)
 DEFAULT_PASSWORD = os.environ.get('DEFAULT_PASSWORD', 'demo123')  # Standard-Passwort für neue Mitarbeiter
@@ -138,6 +139,7 @@ def inject_now():
         'touren_modus':     TOUREN_MODUS,
         'arbeitszeit_modus': ARBEITSZEIT_MODUS,
         'tanken_modus':     TANKEN_MODUS,
+        'gratisware_modus': GRATISWARE_MODUS,
         'unit_label':       UNIT_LABEL,
         'max_mitarbeiter':  MAX_MITARBEITER,
         'default_password': DEFAULT_PASSWORD,
@@ -769,6 +771,10 @@ def init_db():
             "ALTER TABLE aktivitaet ADD COLUMN tank_kraftstoffsorte TEXT",
             "ALTER TABLE aktivitaet ADD COLUMN tank_liter REAL",
             "ALTER TABLE aktivitaet ADD COLUMN tank_km_stand INTEGER",
+            # Gratisware (Kernfunktion, standardmäßig per GRATISWARE_MODUS-Env-Var
+            # deaktiviert): eigene Kisten-Produkte (Verleger/Kofferraum), gesondert von der
+            # regulären Bestellmenge im Gratisware-Report auswertbar.
+            "ALTER TABLE biersorte ADD COLUMN ist_gratisware INTEGER DEFAULT 0",
         ]:
             try:
                 db.execute(migration)
@@ -905,6 +911,19 @@ def init_db():
 
         db.commit()
 
+        # Gratisware-Produkte (Verleger/Kofferraum) – eigene Kisten-Posten, gesondert von
+        # der regulären Kistenware ausgewertet (ist_gratisware=1). Idempotent. Muss NACH der
+        # obigen Demo-Produkte-Seedung laufen, sonst würde die "Tabelle leer?"-Prüfung dort
+        # durch diese beiden Zeilen fälschlich als "schon befüllt" erkannt und die
+        # Demo-Produkte (A–F) würden nie angelegt.
+        for _gw_name in ('Gratisware Verleger', 'Gratisware Kofferraum'):
+            if not db.execute("SELECT 1 FROM biersorte WHERE name=?", (_gw_name,)).fetchone():
+                db.execute(
+                    "INSERT INTO biersorte (name, einheit, ist_gratisware) VALUES (?, 'Kiste', 1)",
+                    (_gw_name,)
+                )
+        db.commit()
+
         # Beispieldaten einfügen wenn DB noch leer
         if not db.execute("SELECT 1 FROM aktivitaet LIMIT 1").fetchone():
             seed_demo_data_relativ(db)
@@ -928,7 +947,7 @@ def init_db():
         # Bestellpositionen nachfüllen wenn Tabelle leer aber Bestellungen existieren
         if not db.execute("SELECT 1 FROM bestellposition LIMIT 1").fetchone():
             import random as _rnd
-            _biere = db.execute("SELECT id FROM biersorte WHERE aktiv=1").fetchall()
+            _biere = db.execute("SELECT id FROM biersorte WHERE aktiv=1 AND COALESCE(ist_gratisware,0)=0").fetchall()
             _bier_ids = [b['id'] for b in _biere]
             if _bier_ids:
                 _best_akt = db.execute(
@@ -1123,7 +1142,7 @@ def init_db():
             import random as _rnd_juni
             _rnd_juni.seed(20260601)
             _reps_juni = db.execute("SELECT id FROM mitarbeiter WHERE rolle='rep'").fetchall()
-            _biere_juni = [r['id'] for r in db.execute("SELECT id FROM biersorte WHERE aktiv=1").fetchall()]
+            _biere_juni = [r['id'] for r in db.execute("SELECT id FROM biersorte WHERE aktiv=1 AND COALESCE(ist_gratisware,0)=0").fetchall()]
             _NOTIZEN_J = ['', '', '', '',
                           'Sonderaktion vereinbart', 'Kunde sehr zufrieden',
                           'Neues Kuehlregal besprochen', 'Stammkunde, laeuft sehr gut',
@@ -1421,7 +1440,7 @@ def seed_demo_data_relativ(db):
 
     reps    = db.execute("SELECT id, kuerzel FROM mitarbeiter WHERE rolle='rep' AND aktiv=1").fetchall()
     stellen = db.execute("SELECT id, typ FROM verkaufsstelle WHERE aktiv=1").fetchall()
-    biere   = db.execute("SELECT id FROM biersorte WHERE aktiv=1").fetchall()
+    biere   = db.execute("SELECT id FROM biersorte WHERE aktiv=1 AND COALESCE(ist_gratisware,0)=0").fetchall()
     bier_ids = [b['id'] for b in biere]
 
     # Unterschiedliche Performance-Profile für Ranking-Demo
@@ -3528,6 +3547,8 @@ def neue_aktivitaet():
             vertretungs_gruppen.append({'name': vtr['abwesender_name'], 'vs': extra})
 
     biersorten      = query("SELECT * FROM biersorte      WHERE aktiv=1 ORDER BY name")
+    if not GRATISWARE_MODUS:
+        biersorten = [b for b in biersorten if not b['ist_gratisware']]
     displaysorte    = query("SELECT * FROM displaysorte   WHERE aktiv=1 ORDER BY name")
 
     if request.method == 'POST':
@@ -4433,6 +4454,94 @@ def tanken_report():
     monat_label = f"{_monat_namen[monat - 1]} {jahr}"
     data  = _build_tanken_excel_bytes(von.isoformat(), bis.isoformat(), monat_label)
     fname = f"Tankungen_{jahr}-{monat:02d}.xlsx"
+    return send_file(io.BytesIO(data), as_attachment=True, download_name=fname,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+def _build_gratisware_report_excel(von_str: str, bis_str: str) -> bytes:
+    """Eine Zeile je Besuch mit Gratisware Verleger und/oder Kofferraum im gegebenen
+    Zeitraum."""
+    rows = query('''
+        SELECT a.datum, m.name AS mitarbeiter,
+               v.name AS verkaufsstelle, v.strasse, v.plz, v.ort, v.lieferant, v.kundennummer,
+               COALESCE(SUM(CASE WHEN bs.name='Gratisware Verleger'   THEN bp.kisten_anzahl ELSE 0 END), 0) AS verleger,
+               COALESCE(SUM(CASE WHEN bs.name='Gratisware Kofferraum' THEN bp.kisten_anzahl ELSE 0 END), 0) AS kofferraum,
+               GROUP_CONCAT(
+                   CASE WHEN COALESCE(bs.ist_gratisware,0)=0 THEN bs.name || ' × ' || bp.kisten_anzahl END,
+                   ', '
+               ) AS bestellung
+        FROM aktivitaet a
+        JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
+        JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id
+        JOIN bestellposition bp ON bp.aktivitaet_id = a.id
+        JOIN biersorte bs ON bs.id = bp.biersorte_id
+        WHERE a.aktionstyp='Bestellung' AND a.datum BETWEEN ? AND ?
+        GROUP BY a.id
+        HAVING verleger > 0 OR kofferraum > 0
+        ORDER BY a.datum, m.name
+    ''', (von_str, bis_str))
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Gratisware"
+
+    HEADER_FILL = PatternFill("solid", fgColor="1a3a5c")
+    HEADER_FONT = Font(bold=True, color="FFFFFF", size=11)
+    BORDER = Border(
+        left=Side(style='thin', color='CCCCCC'), right=Side(style='thin', color='CCCCCC'),
+        top=Side(style='thin', color='CCCCCC'), bottom=Side(style='thin', color='CCCCCC'),
+    )
+    CENTER = Alignment(horizontal='center', vertical='center')
+
+    headers = ['Besuchstag', 'Mitarbeiter', 'Verkaufsstelle', 'Straße', 'PLZ', 'Ort',
+                'Lieferant', 'Kundennummer',
+                'Gratisware Verleger', 'Gratisware Kofferraum', 'Bestellung (Produkt × Kisten)']
+    widths  = [12, 20, 28, 26, 8, 18, 18, 14, 16, 18, 45]
+    for col, (h, w) in enumerate(zip(headers, widths), 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.alignment = CENTER
+        cell.border = BORDER
+        ws.column_dimensions[get_column_letter(col)].width = w
+
+    for r, row in enumerate(rows, start=2):
+        werte = [
+            datetime.strptime(row['datum'], '%Y-%m-%d').strftime('%d.%m.%Y'),
+            row['mitarbeiter'], row['verkaufsstelle'], row['strasse'] or '', row['plz'] or '',
+            row['ort'] or '', row['lieferant'] or '', row['kundennummer'] or '',
+            row['verleger'], row['kofferraum'], row['bestellung'] or '',
+        ]
+        for col, wert in enumerate(werte, 1):
+            cell = ws.cell(row=r, column=col, value=wert)
+            cell.border = BORDER
+            if col in (9, 10):
+                cell.alignment = CENTER
+
+    if not rows:
+        ws.cell(row=2, column=1, value="Keine Besuche mit Gratisware im gewählten Zeitraum.")
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.read()
+
+
+@app.route('/gratisware-report')
+@manager_required
+def gratisware_report():
+    """Gratisware-Report (Kernfunktion): Excel-Download aller Besuche mit Gratisware
+    Verleger/Kofferraum für einen wählbaren Monat. Nur relevant, wenn GRATISWARE_MODUS
+    aktiviert ist."""
+    if not GRATISWARE_MODUS:
+        flash('Gratisware-Report ist nicht aktiviert.', 'danger')
+        return redirect(url_for('dashboard'))
+    jahr  = request.args.get('jahr', date.today().year, type=int)
+    monat = request.args.get('monat', date.today().month, type=int)
+    von   = date(jahr, monat, 1)
+    bis   = date(jahr + 1, 1, 1) - timedelta(days=1) if monat == 12 else date(jahr, monat + 1, 1) - timedelta(days=1)
+    data  = _build_gratisware_report_excel(von.isoformat(), bis.isoformat())
+    fname = f"Gratisware_Report_{jahr}-{monat:02d}.xlsx"
     return send_file(io.BytesIO(data), as_attachment=True, download_name=fname,
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
@@ -7103,7 +7212,7 @@ def _do_demo_woche_nachfuellen(force=False):
     db      = get_db()
     reps    = db.execute("SELECT id FROM mitarbeiter WHERE rolle='rep'").fetchall()
     stellen = db.execute("SELECT id, typ FROM verkaufsstelle WHERE aktiv=1").fetchall()
-    biere   = db.execute("SELECT id FROM biersorte WHERE aktiv=1").fetchall()
+    biere   = db.execute("SELECT id FROM biersorte WHERE aktiv=1 AND COALESCE(ist_gratisware,0)=0").fetchall()
     bier_ids = [b['id'] for b in biere]
 
     # Bereits Daten für diese Woche? → überspringen (außer manueller Force)
