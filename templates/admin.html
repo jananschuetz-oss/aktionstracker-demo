@@ -143,8 +143,17 @@
                       style="display:inline"
                       onsubmit="return confirm('Mitarbeiter „{{ m.name }}" wirklich löschen?\n\nNur möglich wenn keine Aktivitäten vorhanden.')">
                   <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"
-                          title="Löschen">
+                          title="Löschen (nur ohne Aktivitäten)">
                     <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+                <form method="POST"
+                      action="{{ url_for('admin_mitarbeiter_anonymisieren', ma_id=m.id) }}"
+                      style="display:inline"
+                      onsubmit="return confirm('Mitarbeiter „{{ m.name }}" anonymisieren?\n\nName, E-Mail und Wohnort werden entfernt und das Konto deaktiviert. Geschäftsdaten (Aktivitäten, Bestellungen) bleiben zur Auswertung erhalten, aber ohne Personenbezug. Nicht umkehrbar.')">
+                  <button type="submit" class="btn btn-outline-secondary btn-sm py-0 px-1"
+                          title="Anonymisieren (DSGVO-Löschanfrage bei bestehenden Aktivitäten)">
+                    <i class="bi bi-person-x"></i>
                   </button>
                 </form>
                 {% endif %}

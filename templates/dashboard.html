@@ -1967,7 +1967,7 @@ if (bierData.length > 0) {
           html += '<div class="mt-1"><span style="color:#6c757d">Displays:</span> ' + data.displays.map(function(d) { return d.name + ' \xD7' + d.anzahl; }).join(', ') + '</div>';
         }
         if (data.notizen) {
-          html += '<div class="mt-1"><i class="bi bi-chat-left-text me-1" style="color:#6c757d"></i>' + data.notizen + '</div>';
+          html += '<div class="mt-1"><i class="bi bi-chat-left-text me-1" style="color:#6c757d"></i>' + escapeHtml(data.notizen) + '</div>';
         }
         if (!html) html = '<span class="text-muted" style="font-size:.8rem">Besuch erfasst – keine Bestellung/Notiz</span>';
         pane.innerHTML = html;

@@ -869,6 +869,15 @@
   </div>
 </div>
 <script>
+// Escaped Freitext (z.B. Notizen), bevor er per innerHTML in die Seite eingesetzt wird –
+// verhindert Stored-XSS über Freitextfelder (Bugreport 2026-07-21). Global verfügbar,
+// da dieses Script vor dem "scripts"-Block der Kindtemplates lädt.
+function escapeHtml(text) {
+  var div = document.createElement('div');
+  div.textContent = text == null ? '' : String(text);
+  return div.innerHTML;
+}
+
 function openHistorie(vsId, vsName) {
   if (!vsId) return;
   const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('historieModal'));
@@ -893,13 +902,13 @@ function openHistorie(vsId, vsName) {
       const rows = data.data.map(a => {
         const disp  = a.anzahl_displays ? `<span style="font-size:.78rem;color:#6c757d"><i class="bi bi-display me-1"></i>${a.anzahl_displays} Display${a.anzahl_displays != 1 ? 's' : ''}</span>` : '';
         const best  = a.bestellungen   ? `<span style="font-size:.78rem;color:#2c7a7b"><i class="bi bi-box-seam me-1"></i>${a.bestellungen} {{ unit_label }}</span>` : '';
-        const note  = a.notizen        ? `<div style="font-size:.78rem;color:#6c757d;font-style:italic;margin-top:3px"><i class="bi bi-chat-left-text me-1"></i>${a.notizen}</div>` : '';
+        const note  = a.notizen        ? `<div style="font-size:.78rem;color:#6c757d;font-style:italic;margin-top:3px"><i class="bi bi-chat-left-text me-1"></i>${escapeHtml(a.notizen)}</div>` : '';
         return `<div style="padding:11px 16px;border-bottom:1px solid #f0f4f8">
           <div class="d-flex align-items-start gap-2">
-            <span class="badge flex-shrink-0" style="background:#e8edf3;color:#4a5568;font-size:.74rem;margin-top:2px;white-space:nowrap">${a.datum}</span>
+            <span class="badge flex-shrink-0" style="background:#e8edf3;color:#4a5568;font-size:.74rem;margin-top:2px;white-space:nowrap">${escapeHtml(a.datum)}</span>
             <div style="flex:1;min-width:0">
               <div class="fw-semibold" style="font-size:.88rem;color:#1a3a5c">
-                ${a.aktionstyp} <span style="color:#888;font-weight:400">· ${a.mitarbeiter}</span>
+                ${escapeHtml(a.aktionstyp)} <span style="color:#888;font-weight:400">· ${escapeHtml(a.mitarbeiter)}</span>
               </div>
               <div class="d-flex gap-3 flex-wrap mt-1">${disp}${best}</div>
               ${note}

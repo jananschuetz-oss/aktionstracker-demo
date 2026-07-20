@@ -2240,6 +2240,7 @@ def admin_backup_herunterladen():
         flash('Datenbank nicht gefunden.', 'danger')
         return redirect(url_for('admin'))
     heute = date.today().isoformat()
+    app.logger.info(f"Audit: DB-Backup heruntergeladen von {session.get('kuerzel')} (Mitarbeiter-ID {session.get('user_id')})")
     return send_file(DATABASE, as_attachment=True,
                      download_name=f'brewery_backup_{heute}.db',
                      mimetype='application/x-sqlite3')
@@ -2255,6 +2256,7 @@ def admin_export_jetzt_senden():
         flash('EXPORT_EMAIL ist nicht gesetzt – Export kann nicht versendet werden.', 'danger')
         return redirect(url_for('admin'))
     try:
+        app.logger.info(f"Audit: Manueller Foto-/Excel-Export ausgelöst von {session.get('kuerzel')} (Mitarbeiter-ID {session.get('user_id')}), Versand an {EXPORT_EMAIL}")
         auto_export_job()
         flash(f'Export wurde ausgelöst und an {EXPORT_EMAIL} gesendet.', 'success')
     except Exception as e:
@@ -4166,14 +4168,11 @@ def neue_aktivitaet():
                 komprimiere_foto(foto_file, ziel)
                 foto_pfade[i] = dateiname
             except Exception as exc:
-                app.logger.warning(f"Foto-Komprimierung fehlgeschlagen: {exc}")
-                # Fallback: unkomprimiert speichern
-                ext = foto_file.filename.rsplit('.', 1)[1].lower()
-                dateiname = f"akt_{uuid.uuid4().hex}.{ext}"
-                ziel = os.path.join(UPLOAD_FOLDER, dateiname)
-                foto_file.seek(0)
-                foto_file.save(ziel)
-                foto_pfade[i] = dateiname
+                # Kein Fallback auf ungeprüftes Speichern mehr (Bugreport 2026-07-21):
+                # Image.open() in komprimiere_foto() ist die einzige echte Content-Prüfung,
+                # ob die Datei tatsächlich ein Bild ist – schlägt sie fehl, wird der Upload
+                # übersprungen statt die rohen Bytes unter einer Bild-Endung zu speichern.
+                app.logger.warning(f"Foto-Upload abgelehnt (keine gültige Bilddatei): {exc}")
         foto_pfad, foto_pfad_2, foto_pfad_3 = foto_pfade
 
         bestell_status = 'offen' if aktionstyp == 'Bestellung' else None
@@ -5079,6 +5078,7 @@ def export_excel():
         ma_id = [r['id'] for r in query(f"SELECT id FROM mitarbeiter m WHERE 1=1{_t_m_sql}", _t_m_p)] or [session.get('user_id')]
     data     = _build_excel_bytes(jahr, is_admin=is_admin, mitarbeiter_id=ma_id)
     fname    = f"Aktions_Tracker_{jahr}.xlsx"
+    app.logger.info(f"Audit: Excel-Export {jahr} heruntergeladen von {session.get('kuerzel')} (Mitarbeiter-ID {session.get('user_id')}, Rolle {session.get('rolle')})")
     return send_file(io.BytesIO(data), as_attachment=True, download_name=fname,
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
@@ -5398,11 +5398,48 @@ def admin_mitarbeiter_loeschen(ma_id):
         return redirect(url_for('admin'))
     count = query("SELECT COUNT(*) AS c FROM aktivitaet WHERE mitarbeiter_id=?", (ma_id,), one=True)['c']
     if count > 0:
-        flash(f'„{ma["name"]}" hat noch {count} Aktivität(en) und kann nicht gelöscht werden. '
-              f'Bitte zuerst alle Aktivitäten dieses Mitarbeiters löschen.', 'danger')
+        flash(f'„{ma["name"]}" hat noch {count} Aktivität(en) und kann nicht gelöscht werden, '
+              f'da sonst Geschäftsdaten (Bestellungen/Umsatzhistorie) verloren gehen. '
+              f'Für eine Löschanfrage nach DSGVO stattdessen „Anonymisieren" verwenden.', 'danger')
         return redirect(url_for('admin'))
     execute("DELETE FROM mitarbeiter WHERE id=?", (ma_id,))
     flash(f'Mitarbeiter „{ma["name"]}" wurde gelöscht.', 'success')
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/mitarbeiter/<int:ma_id>/anonymisieren', methods=['POST'])
+@admin_required
+def admin_mitarbeiter_anonymisieren(ma_id):
+    """Löschung nach Art. 17 DSGVO ist bei Mitarbeitern mit Aktivitäten technisch nicht
+    als Hard-Delete möglich (Geschäftsdaten wie Bestellungen/Umsatzhistorie hängen daran,
+    siehe admin_mitarbeiter_loeschen). Diese Route anonymisiert stattdessen alle
+    personenbezogenen Felder (Name, Kürzel, E-Mail, Passwort, Wohnort) – die
+    Geschäftsdaten (Aktivitäten, Bestellungen, Tagespläne) bleiben unter derselben
+    mitarbeiter_id erhalten, sind aber keiner Person mehr zuordenbar. Bugreport
+    2026-07-21: vorher gab es dafür überhaupt keinen Weg, nur den nie greifenden
+    Hard-Delete-Pfad."""
+    ma = query("SELECT * FROM mitarbeiter WHERE id=?", (ma_id,), one=True)
+    if not ma:
+        flash('Mitarbeiter nicht gefunden.', 'danger')
+        return redirect(url_for('admin'))
+    if ma['rolle'] == 'admin':
+        flash('Admin-Konten können nicht anonymisiert werden.', 'danger')
+        return redirect(url_for('admin'))
+    if ma_id == session.get('user_id'):
+        flash('Sie können sich nicht selbst anonymisieren.', 'danger')
+        return redirect(url_for('admin'))
+    platzhalter_name = f'Ehemaliger Mitarbeiter #{ma_id}'
+    platzhalter_kuerzel = f'EX{ma_id}'
+    execute('''
+        UPDATE mitarbeiter SET
+            name=?, kuerzel=?, email=NULL, passwort=?,
+            wohnort_strasse=NULL, wohnort_plz=NULL, wohnort_ort=NULL,
+            reset_token=NULL, reset_token_ablauf=NULL, karte_benachrichtigung=NULL,
+            aktiv=0, konto_gesperrt=1, muss_passwort_aendern=0
+        WHERE id=?
+    ''', (platzhalter_name, platzhalter_kuerzel, generate_password_hash(secrets.token_urlsafe(32)), ma_id))
+    flash(f'„{ma["name"]}" wurde anonymisiert (Name/E-Mail/Wohnort entfernt, Konto deaktiviert). '
+          f'Geschäftsdaten (Aktivitäten, Bestellungen) bleiben zur Auswertung erhalten, sind aber keiner Person mehr zuordenbar.', 'success')
     return redirect(url_for('admin'))
 
 
