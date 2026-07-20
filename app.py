@@ -3120,6 +3120,12 @@ def tourenplanung_neu():
         if is_manager and not eigene_planung:
             return redirect(url_for('tourenplanung', datum=datum))
         return redirect(url_for('dashboard'))
+    # VKL darf nur für Mitarbeiter des eigenen Teams planen (Bugreport 2026-07-21: bislang
+    # ohne Team-Check).
+    if session.get('rolle') == 'verkaufsleiter' and session.get('team_id'):
+        _ma_team = query("SELECT team_id FROM mitarbeiter WHERE id=?", (ma_id,), one=True)
+        if not _ma_team or _ma_team['team_id'] != session.get('team_id'):
+            abort(403)
     for vs_id in vs_ids:
         max_r = query(
             "SELECT COALESCE(MAX(reihenfolge), 0) AS m FROM tagesplan WHERE mitarbeiter_id=? AND datum=?",
@@ -3165,8 +3171,7 @@ def api_tagesplan_stopp_details(tp_id):
     )
     if not row:
         return jsonify({'ok': False, 'error': 'Nicht gefunden'}), 404
-    is_manager = session.get('rolle') in ('admin', 'verkaufsleiter')
-    if not is_manager and row['mitarbeiter_id'] != session['user_id']:
+    if not _mitarbeiter_im_eigenen_team(row['mitarbeiter_id']):
         return jsonify({'ok': False, 'error': 'Kein Zugriff'}), 403
     akt = query(
         "SELECT id, COALESCE(aktionstyp,'Aufbau') AS aktionstyp, notizen, anzahl_displays, "
@@ -3205,7 +3210,7 @@ def tourenplanung_loeschen(tp_id):
     if not row:
         abort(404)
     is_manager = session.get('rolle') in ('admin', 'verkaufsleiter')
-    if not is_manager and row['mitarbeiter_id'] != session['user_id']:
+    if not _mitarbeiter_im_eigenen_team(row['mitarbeiter_id']):
         abort(403)
     if not is_manager and (row['erledigt'] or row['datum'] < date.today().isoformat()):
         abort(403)
@@ -3224,8 +3229,7 @@ def tourenplanung_erledigt(tp_id):
     row = query("SELECT mitarbeiter_id, erledigt FROM tagesplan WHERE id=?", (tp_id,), one=True)
     if not row:
         abort(404)
-    is_manager = session.get('rolle') in ('admin', 'verkaufsleiter')
-    if not is_manager and row['mitarbeiter_id'] != session['user_id']:
+    if not _mitarbeiter_im_eigenen_team(row['mitarbeiter_id']):
         abort(403)
     execute("UPDATE tagesplan SET erledigt=? WHERE id=?", (0 if row['erledigt'] else 1, tp_id))
     return redirect(request.referrer or url_for('dashboard'))
@@ -3246,8 +3250,7 @@ def tourenplanung_reihenfolge(tp_id):
     if not cur:
         return jsonify({'ok': False})
 
-    is_manager = session.get('rolle') in ('admin', 'verkaufsleiter')
-    if not is_manager and cur['mitarbeiter_id'] != session.get('user_id'):
+    if not _mitarbeiter_im_eigenen_team(cur['mitarbeiter_id']):
         return jsonify({'ok': False})
 
     if richtung == 'hoch':
@@ -3757,13 +3760,19 @@ def api_offene_bestellungen(vs_id):
 @app.route('/aktivitaet/<int:akt_id>/stornieren', methods=['POST'])
 @login_required
 def aktivitaet_stornieren(akt_id):
-    """Soft-Close: offene Bestellung ohne Aufbau schließen, mit Grund."""
+    """Soft-Close: offene Bestellung ohne Aufbau schließen, mit Grund. Rep darf nur
+    eigene Bestellungen stornieren, VKL nur die seines Teams (Bugreport 2026-07-21:
+    bislang konnte jeder eingeloggte Nutzer jede Bestellung im System stornieren)."""
     grund = request.form.get('grund', '').strip()
     if grund not in ('Nicht/falsch geliefert', 'Fehleingabe', 'Kunde abgesprungen'):
         return jsonify({'ok': False, 'error': 'Ungültiger Grund'}), 400
+    if session.get('rolle') == 'rep':
+        scope_sql, scope_p = ' AND a.mitarbeiter_id = ?', (session['user_id'],)
+    else:
+        scope_sql, scope_p = _team_ma_clause('a')
     best = query(
-        "SELECT id FROM aktivitaet WHERE id=? AND aktionstyp='Bestellung' "
-        "AND COALESCE(bestell_status,'offen')='offen'", (akt_id,), one=True)
+        f"SELECT a.id FROM aktivitaet a WHERE a.id=? AND a.aktionstyp='Bestellung' "
+        f"AND COALESCE(a.bestell_status,'offen')='offen'{scope_sql}", (akt_id,) + scope_p, one=True)
     if not best:
         return jsonify({'ok': False, 'error': 'Offene Bestellung nicht gefunden'}), 404
     execute("UPDATE aktivitaet SET bestell_status='storniert', storno_grund=?, realisiert_am=datetime('now','localtime') WHERE id=?", (grund, akt_id))
@@ -4424,6 +4433,14 @@ def aktivitaet_bearbeiten(akt_id):
         flash('Aktivität nicht gefunden.', 'danger')
         return redirect(url_for('aktivitaeten_liste'))
 
+    # VKL darf nur Aktivitäten des eigenen Teams bearbeiten (Bugreport 2026-07-21: bislang
+    # ohne Team-Check, konnte also fremde Teams inkl. deren Fotos verändern/löschen).
+    if session.get('rolle') == 'verkaufsleiter' and session.get('team_id'):
+        _besitzer = query("SELECT team_id FROM mitarbeiter WHERE id=?", (a['mitarbeiter_id'],), one=True)
+        if not _besitzer or _besitzer['team_id'] != session.get('team_id'):
+            flash('Keine Berechtigung für diese Aktivität.', 'danger')
+            return redirect(url_for('aktivitaeten_liste'))
+
     datum          = request.form.get('datum', a['datum'])
     vs_id          = request.form.get('verkaufsstelle_id', a['verkaufsstelle_id'], type=int)
     aktionstyp     = request.form.get('aktionstyp', a['aktionstyp'] or 'Aufbau')
@@ -4560,9 +4577,15 @@ def aufbau_gesehen(dp_id):
 
 # ─── Excel-Hilfsfunktion (für Route + Auto-Export) ────────────────────────────
 
-def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id: int = None) -> bytes:
-    """Erstellt die Excel-Auswertung und gibt sie als Bytes zurück."""
+def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id=None) -> bytes:
+    """Erstellt die Excel-Auswertung und gibt sie als Bytes zurück. mitarbeiter_id (nur
+    relevant wenn is_admin=False) akzeptiert sowohl eine einzelne ID (Rep-Eigenexport) als
+    auch eine Liste von IDs (VKL-Team-Export, Bugreport 2026-07-21: VKL bekam bislang trotz
+    is_admin=False Zugriff auf den kompletten unternehmensweiten Export, da export_excel()
+    'admin' und 'verkaufsleiter' beide als is_admin=True behandelte)."""
     wb = openpyxl.Workbook()
+    _ma_ids = tuple(mitarbeiter_id) if isinstance(mitarbeiter_id, (list, tuple, set)) else (mitarbeiter_id,)
+    _ma_ph  = ','.join('?' * len(_ma_ids))
 
     HEADER_FILL = PatternFill("solid", fgColor="1a3a5c")
     SUB_FILL    = PatternFill("solid", fgColor="2e6da4")
@@ -4634,9 +4657,9 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id: int = N
                    COUNT(a.id) AS besuche
             FROM aktivitaet a
             LEFT JOIN {_BP} b ON b.aktivitaet_id = a.id
-            WHERE strftime('%Y', a.datum) = ? AND a.mitarbeiter_id = ?
+            WHERE strftime('%Y', a.datum) = ? AND a.mitarbeiter_id IN ({_ma_ph})
             GROUP BY kw ORDER BY kw
-        ''', (str(jahr), mitarbeiter_id))
+        ''', (str(jahr),) + _ma_ids)
 
     total_disp = total_kist = total_bes = 0
     for i, row in enumerate(kw_data):
@@ -4742,16 +4765,16 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id: int = N
             ORDER BY a.datum DESC
         ''', (str(jahr),))
     else:
-        aktivitaeten = query('''
+        aktivitaeten = query(f'''
             SELECT a.id, a.datum, m.name AS mitarbeiter,
                    v.name AS verkaufsstelle, v.ort, v.typ,
                    a.anzahl_displays, a.notizen
             FROM aktivitaet a
             JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
             JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id
-            WHERE strftime('%Y', a.datum) = ? AND a.mitarbeiter_id = ?
+            WHERE strftime('%Y', a.datum) = ? AND a.mitarbeiter_id IN ({_ma_ph})
             ORDER BY a.datum DESC
-        ''', (str(jahr), mitarbeiter_id))
+        ''', (str(jahr),) + _ma_ids)
 
     r = 3
     for i, a in enumerate(aktivitaeten):
@@ -4825,14 +4848,14 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id: int = N
             GROUP BY bs.id ORDER BY kisten DESC
         ''', (str(jahr),))
     else:
-        bier_data = query('''
+        bier_data = query(f'''
             SELECT bs.name, bs.einheit, SUM(bp.kisten_anzahl) AS kisten
             FROM bestellposition bp
             JOIN biersorte bs ON bs.id = bp.biersorte_id
             JOIN aktivitaet a ON a.id = bp.aktivitaet_id
-            WHERE strftime('%Y', a.datum) = ? AND a.mitarbeiter_id = ?
+            WHERE strftime('%Y', a.datum) = ? AND a.mitarbeiter_id IN ({_ma_ph})
             GROUP BY bs.id ORDER BY kisten DESC
-        ''', (str(jahr), mitarbeiter_id))
+        ''', (str(jahr),) + _ma_ids)
 
     for i, row in enumerate(bier_data):
         r2 = i + 3
@@ -5045,8 +5068,15 @@ def gratisware_report():
 @manager_required
 def export_excel():
     jahr     = request.args.get('jahr', date.today().year, type=int)
-    is_admin = session.get('rolle') in ('admin', 'verkaufsleiter')
-    ma_id    = None if is_admin else session.get('user_id')
+    # Bugreport 2026-07-21: VKL bekam bislang denselben unternehmensweiten Export wie
+    # Admin (is_admin wurde für beide Rollen gleich True gesetzt). VKL exportiert jetzt
+    # nur sein eigenes Team, Admin weiterhin uneingeschränkt.
+    is_admin = session.get('rolle') == 'admin'
+    if is_admin:
+        ma_id = None
+    else:
+        _t_m_sql, _t_m_p = _team_m_clause('m')
+        ma_id = [r['id'] for r in query(f"SELECT id FROM mitarbeiter m WHERE 1=1{_t_m_sql}", _t_m_p)] or [session.get('user_id')]
     data     = _build_excel_bytes(jahr, is_admin=is_admin, mitarbeiter_id=ma_id)
     fname    = f"Aktions_Tracker_{jahr}.xlsx"
     return send_file(io.BytesIO(data), as_attachment=True, download_name=fname,
@@ -8557,6 +8587,25 @@ def _verkaufsstelle_im_eigenen_gebiet(vs_id):
     return False
 
 
+def _mitarbeiter_im_eigenen_team(ma_id):
+    """True wenn ma_id im sichtbaren Verantwortungsbereich des aktuellen Nutzers liegt
+    (Rep: nur sich selbst, VKL: eigenes Team bzw. alle ohne eigenes Team, Admin: immer).
+    Analog zu _verkaufsstelle_im_eigenen_gebiet, aber für Mitarbeiter-bezogene Prüfungen
+    (Tourenplanung/Tagesplan) statt Verkaufsstellen."""
+    rolle = session.get('rolle')
+    if rolle == 'admin':
+        return True
+    if rolle == 'rep':
+        return ma_id == session.get('user_id')
+    if rolle == 'verkaufsleiter':
+        tid = session.get('team_id')
+        if not tid:
+            return True
+        row = query("SELECT 1 FROM mitarbeiter WHERE id=? AND team_id=?", (ma_id, tid), one=True)
+        return bool(row)
+    return False
+
+
 @app.route('/verkaufsstelle/<int:vs_id>/kontakt-aktualisieren', methods=['POST'])
 @login_required
 def verkaufsstelle_kontakt_aktualisieren(vs_id):
@@ -8751,6 +8800,18 @@ def api_karte_zuordnung_aendern():
     )
     alte_ids = {r['mitarbeiter_id'] for r in alte_rows}
 
+    # VKL darf nur innerhalb des eigenen Teams umverteilen (Bugreport 2026-07-21: bislang
+    # konnte ein VKL jede Station – auch aus fremden Teams – jedem beliebigen Mitarbeiter
+    # zuordnen). Admin bleibt uneingeschränkt.
+    if session.get('rolle') == 'verkaufsleiter' and session.get('team_id'):
+        _team_mitglieder = {r['id'] for r in query(
+            "SELECT id FROM mitarbeiter WHERE team_id=?", (session['team_id'],)
+        )}
+        if not neue_ids <= _team_mitglieder:
+            return jsonify({'error': 'Nur Mitarbeiter des eigenen Teams zulässig'}), 403
+        if alte_ids and not (alte_ids & _team_mitglieder):
+            return jsonify({'error': 'Diese Station gehört nicht zu Ihrem Gebiet'}), 403
+
     entfernt     = alte_ids - neue_ids
     hinzugefuegt = neue_ids - alte_ids
 
@@ -8806,6 +8867,17 @@ def api_karte_zuordnung_bulk_aendern():
         if not gueltig:
             return jsonify({'error': 'Ungültiger Mitarbeiter'}), 400
 
+    # VKL darf nur innerhalb des eigenen Teams umverteilen (Bugreport 2026-07-21, siehe
+    # api_karte_zuordnung_aendern). Admin bleibt uneingeschränkt. team_mitglieder=None
+    # bedeutet "kein Scoping nötig" (Admin bzw. VKL ohne Team).
+    team_mitglieder = None
+    if session.get('rolle') == 'verkaufsleiter' and session.get('team_id'):
+        team_mitglieder = {r['id'] for r in db.execute(
+            "SELECT id FROM mitarbeiter WHERE team_id=?", (session['team_id'],)
+        ).fetchall()}
+        if rep_id is not None and rep_id not in team_mitglieder:
+            return jsonify({'error': 'Nur Mitarbeiter des eigenen Teams zulässig'}), 403
+
     heute   = date.today().strftime('%d.%m.%Y')
     ph      = ','.join('?' * len(stelle_ids))
     stellen = db.execute(f"SELECT id, name FROM verkaufsstelle WHERE id IN ({ph})", stelle_ids).fetchall()
@@ -8819,6 +8891,8 @@ def api_karte_zuordnung_bulk_aendern():
             (stelle_id,)
         ).fetchall()
         alte_ids = {r['mitarbeiter_id'] for r in alte_rows}
+        if team_mitglieder is not None and alte_ids and not (alte_ids & team_mitglieder):
+            continue  # Station gehört nicht zum eigenen Gebiet
         neue_ids = {rep_id} if rep_id else set()
 
         entfernt     = alte_ids - neue_ids
