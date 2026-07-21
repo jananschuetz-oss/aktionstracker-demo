@@ -918,7 +918,7 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
         return;
       }
       letzterVorschlag = data.reihenfolge;
-      ergebnisListe.innerHTML = data.namen.map(n => `<li>${n}</li>`).join('');
+      ergebnisListe.innerHTML = data.namen.map(n => `<li>${escapeHtml(n)}</li>`).join('');
       const verfahrenBadge = document.getElementById('routeVerfahrenBadge');
       if (data.verfahren === 'strasse') {
         verfahrenBadge.textContent = 'Straßenroute';
@@ -1037,7 +1037,7 @@ document.addEventListener('DOMContentLoaded', function(){
         <span class="vs-drop-name"
               style="flex:1;font-size:.84rem;color:#1a3a5c;cursor:pointer;min-width:0;
                      overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
-              title="${o.text.replace(/"/g,'&quot;')}">${o.text}</span>
+              title="${o.text.replace(/"/g,'&quot;')}">${escapeHtml(o.text)}</span>
         <button type="button" class="btn btn-sm btn-outline-primary vs-plus flex-shrink-0"
                 data-vs-id="${o.value}" data-vs-name="${o.text.replace(/"/g,'&quot;')}"
                 style="font-size:.72rem;padding:2px 9px" title="Direkt zum Plan hinzufügen">

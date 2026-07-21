@@ -389,7 +389,7 @@ function buildLegende() {
   const el = document.getElementById('legendeInline');
   if (!el) return;
   el.innerHTML = alleReps.map((r, i) =>
-    `<span style="margin-right:.5rem"><i class="bi bi-circle-fill" style="color:${FARBEN[i % FARBEN.length]}"></i> ${r.name}</span>`
+    `<span style="margin-right:.5rem"><i class="bi bi-circle-fill" style="color:${FARBEN[i % FARBEN.length]}"></i> ${escapeHtml(r.name)}</span>`
   ).join('');
 
   // Farb-Badges in den Modal-Checkboxen
@@ -437,7 +437,7 @@ function openStationModal(stelleId) {
   } else {
     zEl.innerHTML = s.zuordnungen.map(r => {
       const farbe = repFarbe(r.id);
-      return `<span class="badge" style="background:${farbe}">${r.name}</span>`;
+      return `<span class="badge" style="background:${farbe}">${escapeHtml(r.name)}</span>`;
     }).join(' ');
   }
 

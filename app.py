@@ -26,6 +26,8 @@ from openpyxl.utils import get_column_letter
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_wtf import CSRFProtect
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from PIL import Image
 import urllib.request
 import urllib.parse
@@ -53,6 +55,11 @@ app.secret_key = _SECRET_KEY
 # Requests aus dem Frontend über den global gepatchten window.fetch in base.html, der
 # das Token als X-CSRFToken-Header anhängt (siehe dortiger Kommentar).
 csrf = CSRFProtect(app)
+
+# IP-basiertes Rate-Limiting (Bugreport 2026-07-21, Mittel): zusätzliche Schutzschicht
+# neben dem konto-basierten Login-Lockout. In-Memory-Storage genügt für das aktuelle
+# Deployment (wenige Gunicorn-Worker, keine Multi-Instanz-Skalierung).
+limiter = Limiter(get_remote_address, app=app, default_limits=['300 per hour'], storage_uri='memory://')
 
 # Flask setzt den Logger in Produktion (debug=False) standardmäßig auf WARNING – dadurch
 # wären sämtliche app.logger.info()-Meldungen (Wochenbericht/Monatsbericht/Export-Status
@@ -84,6 +91,21 @@ def set_security_headers(response):
     response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
     if app.config['SESSION_COOKIE_SECURE']:
         response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    # Content-Security-Policy (Bugreport 2026-07-21, Mittel): bewusst kein striktes
+    # script-src ohne 'unsafe-inline' (viele Inline-Scripts ohne Nonce-System). Blockt
+    # trotzdem das Nachladen von Skripten/Objekten von FREMDEN Domains. connect-src
+    # braucht cdn.jsdelivr.net zusätzlich zu 'self': der Service Worker (static/sw.js)
+    # cached Bootstrap/Chart.js beim Install-Event per cache.addAll() – fetch()-Requests
+    # fallen unter connect-src, nicht unter script-src.
+    response.headers['Content-Security-Policy'] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "font-src 'self' https://cdn.jsdelivr.net; "
+        "img-src 'self' data: https://*.tile.openstreetmap.org; "
+        "connect-src 'self' https://cdn.jsdelivr.net; "
+        "object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+    )
     return response
 
 DATABASE = os.environ.get('DATABASE_PATH', 'brewery.db')
@@ -1718,6 +1740,10 @@ def admin_required(f):
     def decorated(*args, **kwargs):
         if 'user_id' not in session:
             return redirect(url_for('login'))
+        # Bugreport 2026-07-21 (Mittel): muss_passwort_aendern wurde bisher nur von
+        # login_required erzwungen.
+        if session.get('muss_passwort_aendern'):
+            return redirect(url_for('erstes_passwort'))
         if session.get('rolle') != 'admin':
             flash('Zugriff verweigert – nur für die Leitung.', 'danger')
             return redirect(url_for('dashboard'))
@@ -1730,6 +1756,8 @@ def manager_required(f):
     def decorated(*args, **kwargs):
         if 'user_id' not in session:
             return redirect(url_for('login'))
+        if session.get('muss_passwort_aendern'):
+            return redirect(url_for('erstes_passwort'))
         if session.get('rolle') not in ('admin', 'verkaufsleiter'):
             flash('Zugriff verweigert – nur für Leitung und Verkaufsleiter.', 'danger')
             return redirect(url_for('dashboard'))
@@ -2019,8 +2047,13 @@ def _password_ok(gespeichert, eingabe):
 
 LOGIN_MAX_VERSUCHE = 3
 ADMIN_SPERRE_MINUTEN = 15
+# Bugreport 2026-07-21 (Niedrig): fester Dummy-Hash, gegen den bei unbekanntem Login-
+# Namen trotzdem ein check_password_hash() ausgeführt wird, um Timing-basierte
+# Konto-Enumeration zu erschweren (Login funktioniert auch per Kürzel/Klarname).
+_DUMMY_PASSWORT_HASH = generate_password_hash(secrets.token_urlsafe(32))
 
 @app.route('/', methods=['GET', 'POST'])
+@limiter.limit('15 per minute', methods=['POST'])
 def login():
     if 'user_id' in session:
         return redirect(url_for('dashboard'))
@@ -2060,15 +2093,17 @@ def login():
                     session['rolle']   = admin['rolle']
                     return redirect(url_for('dashboard'))
             elif admin:
-                _versuche = (admin['fehlgeschlagene_logins'] or 0) + 1
+                # Bugreport 2026-07-21 (Mittel): atomares SQL-Increment statt Read-Modify-
+                # Write, verhindert Race Condition bei parallelen Requests.
+                db.execute("UPDATE mitarbeiter SET fehlgeschlagene_logins = fehlgeschlagene_logins + 1 WHERE id=?", (admin['id'],))
+                db.commit()
+                _versuche = db.execute("SELECT fehlgeschlagene_logins FROM mitarbeiter WHERE id=?", (admin['id'],)).fetchone()['fehlgeschlagene_logins']
                 if _versuche >= LOGIN_MAX_VERSUCHE:
                     _bis = (datetime.now() + timedelta(minutes=ADMIN_SPERRE_MINUTEN)).isoformat()
-                    db.execute("UPDATE mitarbeiter SET fehlgeschlagene_logins=?, gesperrt_bis=? WHERE id=?", (_versuche, _bis, admin['id']))
+                    db.execute("UPDATE mitarbeiter SET gesperrt_bis=? WHERE id=?", (_bis, admin['id']))
                     db.commit()
                     flash(f'Zu viele Fehlversuche. Admin-Login ist {ADMIN_SPERRE_MINUTEN} Minuten gesperrt.', 'danger')
                     return render_template('login.html')
-                db.execute("UPDATE mitarbeiter SET fehlgeschlagene_logins=? WHERE id=?", (_versuche, admin['id']))
-                db.commit()
 
         # Normale Login-Logik für alle anderen (E-Mail, Kürzel oder vollständiger Name)
         user = query("SELECT * FROM mitarbeiter WHERE LOWER(email) = LOWER(?)", (email_input,), one=True)
@@ -2080,15 +2115,25 @@ def login():
         # ADMIN wurde bereits oben vollständig behandelt (Erfolg/Sperre/Fehlversuch-Zähler
         # via ENV-Passwort) – hier nur noch die normalen Mitarbeiter-Accounts.
         if user and user['kuerzel'] != 'ADMIN':
+            # konto_gesperrt bleibt eine rein manuelle Admin-Sperre – der automatische
+            # Fehlversuchs-Lockout ist seit Bugreport 2026-07-21 (Hoch) zeitbasiert statt
+            # permanent: vorher konnte jeder, der nur ein Kürzel/einen Namen kennt (beides
+            # gültige Login-IDs), ein fremdes Konto mit 3 Fehlversuchen DAUERHAFT
+            # lahmlegen, bis ein Admin manuell entsperrt.
             if user['konto_gesperrt']:
-                flash('Dieses Konto ist nach zu vielen Fehlversuchen gesperrt. Bitte an die Verkaufsleitung/Admin wenden – das Passwort muss dort neu gesetzt werden.', 'danger')
+                flash('Dieses Konto ist gesperrt. Bitte an die Verkaufsleitung/Admin wenden – das Passwort muss dort neu gesetzt werden.', 'danger')
+                return render_template('login.html')
+            _user_gesperrt_bis = user['gesperrt_bis'] if 'gesperrt_bis' in user.keys() else None
+            if _user_gesperrt_bis and datetime.now().isoformat() < _user_gesperrt_bis:
+                _rest_min = max(1, int((datetime.fromisoformat(_user_gesperrt_bis) - datetime.now()).total_seconds() // 60) + 1)
+                flash(f'Zu viele Fehlversuche. Konto ist noch ca. {_rest_min} Minute(n) gesperrt.', 'danger')
                 return render_template('login.html')
 
             if _password_ok(user['passwort'], passwort):
                 # Lazy-Migration: Klartext-Passwort beim ersten erfolgreichen Login hashen.
                 if not _ist_passwort_hash(user['passwort']):
                     execute("UPDATE mitarbeiter SET passwort=? WHERE id=?", (generate_password_hash(passwort), user['id']))
-                execute("UPDATE mitarbeiter SET fehlgeschlagene_logins=0 WHERE id=?", (user['id'],))
+                execute("UPDATE mitarbeiter SET fehlgeschlagene_logins=0, gesperrt_bis=NULL WHERE id=?", (user['id'],))
                 session.permanent  = True          # läuft nach PERMANENT_SESSION_LIFETIME ab
                 session['user_id'] = user['id']
                 session['name']    = user['name']
@@ -2104,12 +2149,18 @@ def login():
                     return redirect(url_for('erstes_passwort'))
                 return redirect(url_for('dashboard'))
 
-            _versuche = (user['fehlgeschlagene_logins'] or 0) + 1
+            # Atomares SQL-Increment (siehe Kommentar beim Admin-Zweig oben).
+            execute("UPDATE mitarbeiter SET fehlgeschlagene_logins = fehlgeschlagene_logins + 1 WHERE id=?", (user['id'],))
+            _versuche = query("SELECT fehlgeschlagene_logins FROM mitarbeiter WHERE id=?", (user['id'],), one=True)['fehlgeschlagene_logins']
             if _versuche >= LOGIN_MAX_VERSUCHE:
-                execute("UPDATE mitarbeiter SET fehlgeschlagene_logins=?, konto_gesperrt=1 WHERE id=?", (_versuche, user['id']))
-                flash('Konto nach 3 Fehlversuchen gesperrt. Bitte an die Verkaufsleitung/Admin wenden.', 'danger')
+                _bis = (datetime.now() + timedelta(minutes=ADMIN_SPERRE_MINUTEN)).isoformat()
+                execute("UPDATE mitarbeiter SET gesperrt_bis=? WHERE id=?", (_bis, user['id']))
+                flash(f'Zu viele Fehlversuche. Konto ist {ADMIN_SPERRE_MINUTEN} Minuten gesperrt.', 'danger')
                 return render_template('login.html')
-            execute("UPDATE mitarbeiter SET fehlgeschlagene_logins=? WHERE id=?", (_versuche, user['id']))
+        elif not user:
+            # Timing-Angleichung gegen Konto-Enumeration (Login funktioniert auch per
+            # Kürzel/Klarname) – Ergebnis wird verworfen.
+            check_password_hash(_DUMMY_PASSWORT_HASH, passwort)
 
         flash('Ungültige E-Mail-Adresse oder falsches Passwort.', 'danger')
 
@@ -2125,6 +2176,7 @@ def logout():
 # ─── Passwort-Reset per E-Mail ────────────────────────────────────────────────
 
 @app.route('/passwort-vergessen', methods=['GET', 'POST'])
+@limiter.limit('5 per minute', methods=['POST'])
 def passwort_vergessen():
     mail_konfiguriert = bool(MAIL_SERVER and MAIL_USERNAME)
     if request.method == 'POST':
@@ -2852,6 +2904,10 @@ def arbeitszeit_uebersicht():
         )
         ma_param = request.args.get('ma', '')
         ma_id = int(ma_param) if ma_param.isdigit() else None
+        # Bugreport 2026-07-21 (Mittel): ma-Parameter kam bisher ungeprüft rein – ein VKL
+        # konnte per ?ma=<fremde-ID> Arbeitszeitdaten außerhalb des eigenen Teams einsehen.
+        if ma_id and not _mitarbeiter_im_eigenen_team(ma_id):
+            ma_id = session['user_id']
 
     # Eigene Ansicht (Mitarbeiter/VKL auf ihre eigenen Daten geschaut) darf für
     # den heutigen Tag selbst bearbeitet werden; Admin darf immer & überall.
@@ -3507,7 +3563,7 @@ def api_route_vorschlag():
         ma_id = int(data.get('mitarbeiter_id') or session['user_id'])
     except (TypeError, ValueError):
         return jsonify({'ok': False, 'error': 'Ungültige Mitarbeiter-ID'}), 400
-    if ma_id != session['user_id'] and session.get('rolle') not in ('admin', 'verkaufsleiter'):
+    if ma_id != session['user_id'] and not _mitarbeiter_im_eigenen_team(ma_id):
         return jsonify({'ok': False, 'error': 'Keine Berechtigung'}), 403
     if not datum:
         return jsonify({'ok': False, 'error': 'Datum fehlt'}), 400
@@ -3584,7 +3640,8 @@ def api_route_anwenden():
     if gefunden != set(tp_ids):
         return jsonify({'ok': False, 'error': 'Ungültige oder nicht mehr vorhandene Stopps'}), 400
     eigentuemer = {r['mitarbeiter_id'] for r in rows}
-    if eigentuemer - {session['user_id']} and session.get('rolle') not in ('admin', 'verkaufsleiter'):
+    fremde = {m for m in eigentuemer if m != session['user_id'] and not _mitarbeiter_im_eigenen_team(m)}
+    if fremde:
         return jsonify({'ok': False, 'error': 'Keine Berechtigung'}), 403
 
     for idx, tp_id in enumerate(tp_ids, start=1):
@@ -3603,7 +3660,7 @@ def api_letzter_stopp_vortag():
         ma_id = int(request.args.get('mitarbeiter_id') or session['user_id'])
     except (TypeError, ValueError):
         return jsonify({'ok': False, 'error': 'Ungültige Mitarbeiter-ID'}), 400
-    if ma_id != session['user_id'] and session.get('rolle') not in ('admin', 'verkaufsleiter'):
+    if ma_id != session['user_id'] and not _mitarbeiter_im_eigenen_team(ma_id):
         return jsonify({'ok': False, 'error': 'Keine Berechtigung'}), 403
     try:
         d = date.fromisoformat(datum)
@@ -3952,6 +4009,28 @@ def api_aktivitaet_offline_sync():
 
     if not datum or not vs_id:
         return jsonify({'ok': False, 'error': 'Datum und Verkaufsstelle fehlen'}), 400
+
+    # Bugreport 2026-07-21 (Hoch): dieser Endpunkt umging bisher die Pflichtfeld-Regeln
+    # von neue_aktivitaet() (Foto-Pflicht, "nur aktuelle Woche"-Datumslimit für Reps) –
+    # ein direkter API-Call (curl/Postman) konnte damit z.B. eine Aktivität ganz ohne
+    # Foto-Nachweis anlegen. Offline-Sync kennt keinen aktionstyp-Parameter (Default ist
+    # 'Aufbau', das striktere Foto-Pflicht hat) – daher hier: Foto Pflicht außer bei
+    # Homeoffice-Verkaufsstellen (einzige Sonderkategorie, die der Offline-Pfad kennt).
+    _vs_check = query(
+        "SELECT homeoffice_mitarbeiter_id FROM verkaufsstelle WHERE id=?", (vs_id,), one=True
+    ) if str(vs_id).isdigit() else None
+    if not _vs_check:
+        return jsonify({'ok': False, 'error': 'Ungültige Verkaufsstelle'}), 400
+    _is_homeoffice = bool(_vs_check['homeoffice_mitarbeiter_id'])
+
+    if session.get('rolle') == 'rep':
+        _heute = date.today()
+        _min_datum = (_heute - timedelta(days=_heute.weekday())).isoformat()
+        if datum < _min_datum:
+            return jsonify({'ok': False, 'error': 'Nur die aktuelle Woche kann eingetragen werden.'}), 400
+
+    if not fotos_b64 and not _is_homeoffice:
+        return jsonify({'ok': False, 'error': 'Foto ist bei dieser Aktivität Pflicht.'}), 400
 
     # Fotos dekodieren, komprimieren und speichern (max. 3)
     foto_pfade = [None, None, None]
@@ -4364,10 +4443,16 @@ def aktivitaeten_liste():
     if not is_manager:
         sql += " AND a.mitarbeiter_id = ?"
         params.append(session['user_id'])
-    elif ma_ids:
-        _ph = ','.join('?' * len(ma_ids))
-        sql += f" AND a.mitarbeiter_id IN ({_ph})"
-        params.extend(ma_ids)
+    else:
+        if ma_ids:
+            _ph = ','.join('?' * len(ma_ids))
+            sql += f" AND a.mitarbeiter_id IN ({_ph})"
+            params.extend(ma_ids)
+        # Bugreport 2026-07-21 (Hoch): fehlte hier komplett – ein VKL mit eigenem Team
+        # sah ohne Filter firmenweit ALLE Aktivitäten aller Teams.
+        _tc_sql, _tc_params = _team_ma_clause('a')
+        sql += _tc_sql
+        params.extend(_tc_params)
 
     if is_manager and vs_ids:
         _ph = ','.join('?' * len(vs_ids))
@@ -4839,8 +4924,8 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id=None) ->
             ws3.cell(r, 1, a['datum'])
             ws3.cell(r, 2, f"KW {kw:02d}")
             ws3.cell(r, 3, a['mitarbeiter'])
-            ws3.cell(r, 4, a['verkaufsstelle'])
-            ws3.cell(r, 5, a['ort'])
+            ws3.cell(r, 4, _excel_formel_sicher(a['verkaufsstelle']))
+            ws3.cell(r, 5, _excel_formel_sicher(a['ort']))
             ws3.cell(r, 6, a['typ'])
             ws3.cell(r, 7, a['anzahl_displays'])
             ws3.cell(r, 8, '–')
@@ -4856,8 +4941,8 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id=None) ->
                 ws3.cell(r, 1, a['datum'] if j == 0 else '')
                 ws3.cell(r, 2, f"KW {kw:02d}" if j == 0 else '')
                 ws3.cell(r, 3, a['mitarbeiter'] if j == 0 else '')
-                ws3.cell(r, 4, a['verkaufsstelle'] if j == 0 else '')
-                ws3.cell(r, 5, a['ort'] if j == 0 else '')
+                ws3.cell(r, 4, _excel_formel_sicher(a['verkaufsstelle']) if j == 0 else '')
+                ws3.cell(r, 5, _excel_formel_sicher(a['ort']) if j == 0 else '')
                 ws3.cell(r, 6, a['typ'] if j == 0 else '')
                 ws3.cell(r, 7, a['anzahl_displays'] if j == 0 else '')
                 ws3.cell(r, 8, pos['name'])
@@ -4983,7 +5068,7 @@ def _build_tanken_excel_bytes(von: str, bis: str, monat_label: str) -> bytes:
         r = i + 3
         ws.cell(r, 1, row['tank_datum'] or row['datum'])
         ws.cell(r, 2, f"{row['mitarbeiter']} ({row['kuerzel']})")
-        ws.cell(r, 3, row['tank_kennzeichen'] or '')
+        ws.cell(r, 3, _excel_formel_sicher(row['tank_kennzeichen'] or ''))
         ws.cell(r, 4, row['tank_kraftstoffsorte'] or '')
         ws.cell(r, 5, row['tank_liter'] or '')
         ws.cell(r, 6, row['tank_km_stand'] or '')
@@ -5485,7 +5570,16 @@ def admin_mitarbeiter_anonymisieren(ma_id):
             aktiv=0, konto_gesperrt=1, muss_passwort_aendern=0
         WHERE id=?
     ''', (platzhalter_name, platzhalter_kuerzel, generate_password_hash(secrets.token_urlsafe(32)), ma_id))
-    flash(f'„{ma["name"]}" wurde anonymisiert (Name/E-Mail/Wohnort entfernt, Konto deaktiviert). '
+    # Bugreport 2026-07-21 (Kritisch): die Anonymisierung vergaß bisher die synthetische
+    # Homeoffice-Verkaufsstelle (admin_mitarbeiter_wohnort) – die enthielt weiterhin
+    # "Homeoffice – <Klarname>" plus volle Wohnadresse, sichtbar in Aktivitäten-Historie,
+    # Karte und Excel-Exports. Jetzt mit-bereinigt.
+    if ma['homeoffice_vs_id']:
+        execute(
+            "UPDATE verkaufsstelle SET name=?, strasse=NULL, plz=NULL, ort=NULL, lat=NULL, lng=NULL, aktiv=0 WHERE id=?",
+            (f'Homeoffice – {platzhalter_name}', ma['homeoffice_vs_id'])
+        )
+    flash(f'„{ma["name"]}" wurde anonymisiert (Name/E-Mail/Wohnort inkl. Homeoffice-Adresse entfernt, Konto deaktiviert). '
           f'Geschäftsdaten (Aktivitäten, Bestellungen) bleiben zur Auswertung erhalten, sind aber keiner Person mehr zuordenbar.', 'success')
     return redirect(url_for('admin'))
 
@@ -5654,6 +5748,45 @@ def admin_mitarbeiter_wohnort(ma_id):
     else:
         flash(f'Wohnort von „{ma["name"]}" aktualisiert.', 'success')
     return redirect(url_for('admin'))
+
+
+@app.route('/profil/meine-daten')
+@login_required
+def profil_meine_daten():
+    """Selbstbedienungs-Auskunft nach Art. 15 DSGVO (Bugreport 2026-07-21, Mittel):
+    bisher war eine strukturierte Auskunft über die eigenen gespeicherten Daten nur
+    manuell per DB-Query durch einen Admin möglich. Passwort-Hash und interne Tokens
+    werden bewusst nicht mit ausgegeben."""
+    uid = session['user_id']
+    ma = query(
+        "SELECT name, kuerzel, email, rolle, wohnort_strasse, wohnort_plz, wohnort_ort, "
+        "urlaubsanspruch_jahr, urlaub_uebertrag_vorjahr FROM mitarbeiter WHERE id=?",
+        (uid,), one=True
+    )
+    aktivitaeten = query(
+        "SELECT a.datum, v.name AS verkaufsstelle, a.notizen "
+        "FROM aktivitaet a JOIN verkaufsstelle v ON v.id=a.verkaufsstelle_id "
+        "WHERE a.mitarbeiter_id=? ORDER BY a.datum DESC", (uid,)
+    )
+    arbeitszeiten = query(
+        "SELECT datum, beginn, ende, pause_minuten FROM arbeitszeit WHERE mitarbeiter_id=? ORDER BY datum DESC",
+        (uid,)
+    )
+    vertretungen = query(
+        "SELECT typ, von, bis, status, grund FROM vertretung WHERE vertreter_id=? OR abwesender_id=? ORDER BY von DESC",
+        (uid, uid)
+    )
+    export = {
+        'stammdaten': dict(ma) if ma else {},
+        'aktivitaeten': [dict(r) for r in aktivitaeten],
+        'arbeitszeiten': [dict(r) for r in arbeitszeiten],
+        'abwesenheiten': [dict(r) for r in vertretungen],
+        'hinweis': 'Auskunft nach Art. 15 DSGVO – automatisiert erzeugt am ' + date.today().isoformat(),
+    }
+    resp = jsonify(export)
+    resp.headers['Content-Disposition'] = f'attachment; filename=meine_daten_{date.today().isoformat()}.json'
+    app.logger.info(f"DSGVO-Selbstauskunft heruntergeladen: user_id={uid}")
+    return resp
 
 
 @app.route('/profil/passwort', methods=['POST'])
@@ -8809,17 +8942,33 @@ def api_karte_daten():
     is_manager = session.get('rolle') in ('admin', 'verkaufsleiter')
 
     if is_manager:
-        stellen = query("""
+        # Bugreport 2026-07-21 (Hoch): fehlte bisher – ein VKL mit eigenem Team bekam
+        # firmenweite Verkaufsstellen-Daten. Unzugeordnete VS bleiben sichtbar (damit sie
+        # zugeordnet werden können), VS die exklusiv einem anderen Team zugeordnet sind
+        # werden ausgeblendet.
+        _team_karte_sql = ""
+        _team_karte_params = []
+        if session.get('rolle') == 'verkaufsleiter' and session.get('team_id'):
+            _team_karte_sql = """ AND (
+                NOT EXISTS (SELECT 1 FROM mitarbeiter_verkaufsstelle mv2 WHERE mv2.verkaufsstelle_id = v.id)
+                OR EXISTS (
+                    SELECT 1 FROM mitarbeiter_verkaufsstelle mv3
+                    JOIN mitarbeiter m3 ON m3.id = mv3.mitarbeiter_id
+                    WHERE mv3.verkaufsstelle_id = v.id AND m3.team_id = ?
+                )
+            )"""
+            _team_karte_params = [session['team_id']]
+        stellen = query(f"""
             SELECT v.id, v.name, v.ort, v.plz, v.typ, v.strasse, v.ansprechpartner, v.landkreis, v.lat, v.lng,
                    v.homeoffice_mitarbeiter_id,
                    GROUP_CONCAT(m.id || ':' || m.name || ':' || m.kuerzel, '|') AS zuordnungen
             FROM verkaufsstelle v
             LEFT JOIN mitarbeiter_verkaufsstelle mv ON mv.verkaufsstelle_id = v.id
             LEFT JOIN mitarbeiter m ON m.id = mv.mitarbeiter_id AND m.rolle IN ('rep', 'verkaufsleiter')
-            WHERE v.aktiv = 1
+            WHERE v.aktiv = 1{_team_karte_sql}
             GROUP BY v.id
             ORDER BY v.name
-        """)
+        """, _team_karte_params)
     else:
         stellen = query("""
             SELECT v.id, v.name, v.ort, v.plz, v.typ, v.strasse, v.ansprechpartner, v.landkreis, v.lat, v.lng,
@@ -9118,6 +9267,7 @@ def _geocode_adresse(strasse, ort, plz=None, timeout=8):
 
 @app.route('/api/karte/geocode', methods=['POST'])
 @manager_required
+@limiter.limit('10 per minute')
 def api_karte_geocode():
     if KARTE_MODUS == 'aus':
         return jsonify({'error': 'Nicht verfügbar'}), 403
@@ -9344,7 +9494,10 @@ except ImportError:
 if __name__ == '__main__':
     init_db()
     port = int(os.environ.get('PORT', 5000))
-    debug = os.environ.get('FLASK_ENV') != 'production'
+    # Bugreport 2026-07-21 (Niedrig): fail-closed statt fail-open – Debug läuft jetzt nur
+    # noch bei explizitem Opt-in. Nur relevant für diesen direkten `python app.py`-Pfad,
+    # Produktion läuft über Gunicorn.
+    debug = os.environ.get('FLASK_ENV', '').strip().lower() == 'development'
     print("\n" + "="*55)
     print("  Aktions Tracker gestartet!")
     print(f"  http://127.0.0.1:{port}")
