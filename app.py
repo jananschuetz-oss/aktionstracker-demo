@@ -3569,7 +3569,7 @@ def api_route_vorschlag():
         return jsonify({'ok': False, 'error': 'Datum fehlt'}), 400
 
     stops = query(
-        "SELECT tp.id AS tp_id, v.name, v.lat, v.lng FROM tagesplan tp "
+        "SELECT tp.id AS tp_id, v.name, v.strasse, v.plz, v.ort, v.lat, v.lng FROM tagesplan tp "
         "JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id "
         "WHERE tp.mitarbeiter_id=? AND tp.datum=? AND COALESCE(tp.geloescht,0)=0 "
         "ORDER BY tp.reihenfolge, tp.id",
@@ -3608,10 +3608,15 @@ def api_route_vorschlag():
         order = _route_optimieren(coords, start_coord=start_punkt, ende_coord=ziel_punkt)
         verfahren = 'luftlinie'
 
+    def _adresse(s):
+        teile = [t for t in [s['strasse'], (f"{s['plz'] or ''} {s['ort'] or ''}").strip()] if t]
+        return ', '.join(teile)
+
     return jsonify({
         'ok': True,
         'reihenfolge': [stops[i]['tp_id'] for i in order],
         'namen': [stops[i]['name'] for i in order],
+        'adressen': [_adresse(stops[i]) for i in order],
         'start_gefunden': start_punkt is not None,
         'ziel_gefunden': ziel_punkt is not None,
         'ohne_koordinaten': ohne_koordinaten,

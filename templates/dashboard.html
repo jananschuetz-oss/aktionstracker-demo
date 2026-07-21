@@ -918,7 +918,10 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
         return;
       }
       letzterVorschlag = data.reihenfolge;
-      ergebnisListe.innerHTML = data.namen.map(n => `<li>${escapeHtml(n)}</li>`).join('');
+      ergebnisListe.innerHTML = data.namen.map((n, i) => {
+        const adresse = (data.adressen && data.adressen[i]) ? data.adressen[i] : '';
+        return `<li>${escapeHtml(n)}${adresse ? `<br><span class="text-muted" style="font-size:.76rem">${escapeHtml(adresse)}</span>` : ''}</li>`;
+      }).join('');
       const verfahrenBadge = document.getElementById('routeVerfahrenBadge');
       if (data.verfahren === 'strasse') {
         verfahrenBadge.textContent = 'Straßenroute';
