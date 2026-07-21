@@ -317,6 +317,7 @@
             <form method="POST" action="{{ url_for('aktivitaet_loeschen', akt_id=a.id) }}"
                   style="display:inline"
                   onsubmit="return confirm('Aktivität wirklich löschen?')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button type="submit" class="btn btn-outline-danger btn-sm">
                 <i class="bi bi-trash"></i>
               </button>
@@ -485,6 +486,7 @@ function filterAnwenden() {
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <form method="POST" id="editForm" action="">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-body">
           <div class="mb-3">
             <label class="form-label small fw-semibold">Datum</label>

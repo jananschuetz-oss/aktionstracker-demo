@@ -7,3 +7,4 @@ Pillow>=10.0.0
 xhtml2pdf>=0.2.11
 holidays>=0.60
 python-dotenv>=1.0.0
+Flask-WTF>=1.2.0

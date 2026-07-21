@@ -25,6 +25,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
+from flask_wtf import CSRFProtect
 from PIL import Image
 import urllib.request
 import urllib.parse
@@ -47,6 +48,12 @@ if not _SECRET_KEY:
     )
 app.secret_key = _SECRET_KEY
 
+# CSRF-Schutz (Bugreport 2026-07-21): global für alle POST/PUT/PATCH/DELETE-Routen.
+# HTML-Formulare bekommen das Token über {{ csrf_token() }} (siehe Templates), Fetch-
+# Requests aus dem Frontend über den global gepatchten window.fetch in base.html, der
+# das Token als X-CSRFToken-Header anhängt (siehe dortiger Kommentar).
+csrf = CSRFProtect(app)
+
 # Flask setzt den Logger in Produktion (debug=False) standardmäßig auf WARNING – dadurch
 # wären sämtliche app.logger.info()-Meldungen (Wochenbericht/Monatsbericht/Export-Status
 # usw.) in den Railway-Logs unsichtbar. Explizit auf INFO heben.
@@ -57,7 +64,27 @@ app.logger.setLevel(_logging.INFO)
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=8)
 app.config['SESSION_COOKIE_HTTPONLY']    = True
 app.config['SESSION_COOKIE_SAMESITE']   = 'Lax'
-app.config['SESSION_COOKIE_SECURE']     = os.environ.get('RAILWAY_ENVIRONMENT') is not None
+# Explizite FORCE_HTTPS-Variable statt ausschließlich der Railway-spezifischen Heuristik
+# (Bugreport 2026-07-21): funktioniert weiterhin ohne Konfiguration auf Railway, gibt aber
+# zusätzlich einen dokumentierten, plattformunabhängigen Schalter für andere Hosts/On-Premise.
+app.config['SESSION_COOKIE_SECURE']     = (
+    os.environ.get('FORCE_HTTPS', '').strip().lower() in ('1', 'true', 'yes')
+    or os.environ.get('RAILWAY_ENVIRONMENT') is not None
+)
+
+# HTTP-Security-Header (Bugreport 2026-07-21): keine strikte Content-Security-Policy, da
+# die App durchgängig Inline-<script>-Blöcke nutzt (kein Nonce-System) – das würde ohne
+# aufwändigen Umbau alle Seiten brechen. Diese Header schützen trotzdem gegen Clickjacking
+# (X-Frame-Options) und MIME-Sniffing-Angriffe (X-Content-Type-Options), ohne Risiko für
+# bestehende Funktionalität.
+@app.after_request
+def set_security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    if app.config['SESSION_COOKIE_SECURE']:
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    return response
 
 DATABASE = os.environ.get('DATABASE_PATH', 'brewery.db')
 LOGO_VERSION = '3'  # cache-bust
@@ -3898,6 +3925,9 @@ def bestellungen_uebersicht():
 
 
 @app.route('/api/aktivitaet/offline-sync', methods=['POST'])
+@csrf.exempt  # Offline-Warteschlange kann lange nach dem Laden der Seite (Token-Alter
+              # unklar bei langer Offline-Zeit) nachsenden; login_required bleibt die
+              # eigentliche Zugriffskontrolle, CSRF-Risiko hier gering (nur eigene Aktivität).
 @login_required
 def api_aktivitaet_offline_sync():
     """Nimmt eine offline gespeicherte Aktivität als JSON (base64-Foto) entgegen."""
@@ -4576,6 +4606,18 @@ def aufbau_gesehen(dp_id):
 
 # ─── Excel-Hilfsfunktion (für Route + Auto-Export) ────────────────────────────
 
+_EXCEL_FORMEL_PRAEFIXE = ('=', '+', '-', '@', '\t', '\r')
+
+def _excel_formel_sicher(wert):
+    """Verhindert Formel-Injection (Bugreport 2026-07-21): Freitext wie das Notizen-Feld
+    landet ungeprüft in Excel-Zellen – ein Rep könnte z.B. '=HYPERLINK(...)' eintragen,
+    das beim Öffnen durch einen Admin als Formel/Link ausgeführt wird statt als Text
+    angezeigt zu werden. Ein führendes Apostroph erzwingt in Excel Text-Interpretation."""
+    if isinstance(wert, str) and wert.startswith(_EXCEL_FORMEL_PRAEFIXE):
+        return "'" + wert
+    return wert
+
+
 def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id=None) -> bytes:
     """Erstellt die Excel-Auswertung und gibt sie als Bytes zurück. mitarbeiter_id (nur
     relevant wenn is_admin=False) akzeptiert sowohl eine einzelne ID (Rep-Eigenexport) als
@@ -4798,7 +4840,7 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id=None) ->
             ws3.cell(r, 7, a['anzahl_displays'])
             ws3.cell(r, 8, '–')
             ws3.cell(r, 9, 0)
-            ws3.cell(r, 10, a['notizen'] or '')
+            ws3.cell(r, 10, _excel_formel_sicher(a['notizen'] or ''))
             for c in range(1, 11):
                 ws3.cell(r, c).border = BORDER
                 if fill:
@@ -4815,7 +4857,7 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id=None) ->
                 ws3.cell(r, 7, a['anzahl_displays'] if j == 0 else '')
                 ws3.cell(r, 8, pos['name'])
                 ws3.cell(r, 9, pos['kisten_anzahl'])
-                ws3.cell(r, 10, a['notizen'] if j == 0 else '')
+                ws3.cell(r, 10, _excel_formel_sicher(a['notizen']) if j == 0 else '')
                 for c in range(1, 11):
                     ws3.cell(r, c).border = BORDER
                     if fill:
@@ -4940,7 +4982,7 @@ def _build_tanken_excel_bytes(von: str, bis: str, monat_label: str) -> bytes:
         ws.cell(r, 4, row['tank_kraftstoffsorte'] or '')
         ws.cell(r, 5, row['tank_liter'] or '')
         ws.cell(r, 6, row['tank_km_stand'] or '')
-        ws.cell(r, 7, row['notizen'] or '')
+        ws.cell(r, 7, _excel_formel_sicher(row['notizen'] or ''))
         ws.cell(r, 8, row['anzahl_belege'])
         for c in range(1, 9):
             ws.cell(r, c).border = BORDER
@@ -8016,6 +8058,18 @@ def einstellungen_wochenbericht():
         aktiv        = 1 if request.form.get('aktiv') else 0
         empfaenger_2 = request.form.get('empfaenger_2', '').strip()
         empfaenger_3 = request.form.get('empfaenger_3', '').strip()
+        # Bugreport 2026-07-21: empfaenger_2/3 waren frei eingebbar, ohne Prüfung, dass es
+        # sich um eine firmeninterne Adresse handelt – ein VKL (die Einstellung ist global,
+        # nicht pro Team) konnte sich damit dauerhaft Team-KPI-Berichte an eine beliebige
+        # externe/private Adresse schicken lassen. Nur noch E-Mails zulassen, die zu einem
+        # bestehenden Mitarbeiter-Account gehören (Admin/VKL/Rep).
+        _bekannte_mails = {r['email'].lower() for r in query(
+            "SELECT email FROM mitarbeiter WHERE email IS NOT NULL AND email != ''"
+        )}
+        for _feld_name, _wert in (('Empfänger 2', empfaenger_2), ('Empfänger 3', empfaenger_3)):
+            if _wert and _wert.lower() not in _bekannte_mails:
+                flash(f'{_feld_name} „{_wert}" ist keine bekannte Mitarbeiter-E-Mail-Adresse im System und wurde nicht übernommen.', 'danger')
+                return redirect(url_for('einstellungen_wochenbericht'))
         execute(
             "UPDATE wochenbericht_config SET aktiv=?, empfaenger_2=?, empfaenger_3=? WHERE id=1",
             (aktiv, empfaenger_2, empfaenger_3)

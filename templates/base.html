@@ -3,7 +3,30 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>{% block title %}Aktions Tracker – {{ company_short }}{% endblock %}</title>
+  <script>
+  // CSRF-Schutz (Bugreport 2026-07-21): window.fetch wird hier einmalig gepatcht, damit
+  // JEDER bestehende fetch()-Aufruf im gesamten Frontend (auch in später geladenen
+  // Dateien wie offline.js) automatisch den X-CSRFToken-Header mitschickt – ohne dass
+  // jede einzelne fetch()-Stelle im Code angepasst werden muss. Nur für
+  // schreibende Methoden und nur für gleiche Origin (kein Header-Leak an Drittanbieter).
+  (function () {
+    var token = document.querySelector('meta[name="csrf-token"]').content;
+    var origFetch = window.fetch;
+    window.fetch = function (input, init) {
+      init = init || {};
+      var method = (init.method || (input && input.method) || 'GET').toUpperCase();
+      var url = typeof input === 'string' ? input : (input && input.url) || '';
+      var sameOrigin = url.startsWith('/') || url.startsWith(window.location.origin);
+      if (sameOrigin && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+        init.headers = new Headers(init.headers || (input && input.headers) || {});
+        if (!init.headers.has('X-CSRFToken')) init.headers.set('X-CSRFToken', token);
+      }
+      return origFetch(input, init);
+    };
+  })();
+  </script>
   <!-- PWA -->
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#1a3a5c">
@@ -451,6 +474,7 @@
       <span class="text-muted">Grund: {{ ab.ablehnungsgrund }}</span>
     </span>
     <form method="POST" action="{{ url_for('aufbau_gesehen', dp_id=ab.dp_id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit" class="btn btn-outline-secondary btn-sm">Verstanden</button>
     </form>
   </div>
@@ -492,6 +516,7 @@
   <div class="modal-dialog modal-sm modal-dialog-centered">
     <div class="modal-content">
       <form method="POST" action="{{ url_for('profil_passwort') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header" style="background:#1a3a5c;color:white">
           <h6 class="modal-title"><i class="bi bi-lock me-2"></i>Passwort ändern</h6>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -555,6 +580,7 @@
           Optional können Sie einen Vertreter wählen, der Aktivitäten für Ihre Stationen eintragen darf.
         </p>
         <form method="POST" action="{{ url_for('profil_vertretung_neu') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div class="mb-2">
             <label class="form-label small fw-bold">Art der Abwesenheit</label>
             <select name="typ" class="form-select form-select-sm">
@@ -614,6 +640,7 @@
           {% if vtr.status != 'bestätigt' %}
           <form method="POST" action="{{ url_for('profil_vertretung_loeschen', vtr_id=vtr.id) }}"
                 onsubmit="return confirm('Eintrag zurücknehmen?')">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1" title="Zurücknehmen">
               <i class="bi bi-trash"></i>
             </button>
@@ -734,6 +761,7 @@
       {% else %}
       <!-- VKL / Admin: bearbeiten erlaubt -->
       <form method="POST" action="{{ url_for('profil_daten') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header" style="background:#1a3a5c;color:white">
           <h6 class="modal-title"><i class="bi bi-person-circle me-2"></i>Meine Daten</h6>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>

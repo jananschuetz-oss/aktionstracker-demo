@@ -67,6 +67,7 @@
           <!-- Aktionen -->
           <div class="col-auto d-flex gap-1">
             <form method="POST" action="{{ url_for('aufbau_freigeben', dp_id=p.dp_id) }}" style="display:inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button type="submit" class="btn btn-success btn-sm">
                 <i class="bi bi-check-lg me-1"></i>Freigeben
               </button>
@@ -97,6 +98,7 @@
 <div class="modal fade" id="ablehnenModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
     <form method="POST" id="ablehnenForm" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="modal-header" style="background:#c0392b;color:white">
         <h6 class="modal-title"><i class="bi bi-x-lg me-2"></i>Aufbau ablehnen</h6>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>

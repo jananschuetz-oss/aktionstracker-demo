@@ -29,6 +29,7 @@
   <div class="modal-dialog">
     <div class="modal-content">
       <form method="POST" action="{{ url_for('tourenplanung_neu') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header" style="background:#1a3a5c;color:white">
           <h6 class="modal-title"><i class="bi bi-plus-lg me-2"></i>Neuer Besuchsplan-Stopp</h6>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -209,6 +210,7 @@
           {% else %}
           <span class="badge flex-shrink-0" style="background:#fff3cd;color:#856404;font-size:.72rem">Offen</span>
           <form method="POST" action="{{ url_for('tourenplanung_loeschen', tp_id=stop.id) }}" class="d-inline ms-1">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-sm btn-outline-danger"
                     style="font-size:.75rem;padding:3px 8px" title="Stop entfernen">
               <i class="bi bi-trash"></i>
@@ -404,6 +406,7 @@
                 {% else %}
                 <span class="badge flex-shrink-0" style="background:#fff3cd;color:#856404;font-size:.72rem">Offen</span>
                 <form method="POST" action="{{ url_for('tourenplanung_loeschen', tp_id=stop.id) }}" class="d-inline ms-1">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit" class="btn btn-sm btn-outline-danger"
                           style="font-size:.75rem;padding:3px 8px" title="Stop entfernen">
                     <i class="bi bi-trash"></i>

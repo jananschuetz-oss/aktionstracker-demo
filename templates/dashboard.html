@@ -285,10 +285,12 @@ document.addEventListener('DOMContentLoaded', function(){
       {% endif %}
       <div class="ms-auto d-flex gap-1">
         <form method="POST" action="{{ url_for('admin_vertretung_bestaetigen', vtr_id=u.id) }}" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-sm btn-success"><i class="bi bi-check-lg me-1"></i>Bestätigen</button>
         </form>
         <form method="POST" action="{{ url_for('admin_vertretung_ablehnen', vtr_id=u.id) }}" style="display:inline"
               onsubmit="return confirm('Urlaubsantrag ablehnen?')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-sm btn-outline-danger" title="Ablehnen"><i class="bi bi-x-lg"></i></button>
         </form>
       </div>
@@ -440,6 +442,7 @@ document.addEventListener('DOMContentLoaded', function(){
         <button type="button" class="btn-close" style="font-size:.75rem" data-bs-dismiss="modal"></button>
       </div>
       <form method="post" action="{{ url_for('tourenplanung_neu') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-body py-3 px-3">
           <div class="fw-semibold mb-3" id="besuchPlanenName" style="color:#1a3a5c;font-size:.88rem"></div>
           <label class="form-label" style="font-size:.82rem;color:#6c757d">Tag auswählen</label>
@@ -671,6 +674,7 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
 <div class="card mb-3">
   <div class="card-body py-3 px-3">
     <form method="POST" action="{{ url_for('tourenplanung_neu') }}" id="stopForm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="mitarbeiter_id" value="{{ session.user_id }}">
 
       <!-- Zeile 1: Datum als Kacheln -->
@@ -1556,6 +1560,7 @@ document.addEventListener('DOMContentLoaded', function(){
           {% endif %}
           {% if not stop.erledigt and stop.datum >= today_str %}
           <form method="POST" action="{{ url_for('tourenplanung_loeschen', tp_id=stop.id) }}" class="d-inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-sm btn-outline-danger"
                     style="font-size:.78rem;padding:5px 9px" title="Stop entfernen">
               <i class="bi bi-trash"></i>
@@ -1660,6 +1665,7 @@ document.addEventListener('DOMContentLoaded', function(){
           <span class="badge flex-shrink-0" style="background:#fff3cd;color:#856404;font-size:.7rem">Offen</span>
           {% if d >= today_str %}
           <form method="POST" action="{{ url_for('tourenplanung_loeschen', tp_id=stop.id) }}" class="d-inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-sm btn-outline-danger"
                     style="font-size:.72rem;padding:2px 7px" title="Stop entfernen">
               <i class="bi bi-trash"></i>
@@ -1691,6 +1697,7 @@ document.addEventListener('DOMContentLoaded', function(){
   <div class="modal-dialog">
     <div class="modal-content">
       <form method="POST" action="{{ url_for('vs_neu_rep') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="next" value="tagesplan">
         <div class="modal-header" style="background:#1a3a5c;color:white">
           <h5 class="modal-title">

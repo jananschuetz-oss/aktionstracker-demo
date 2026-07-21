@@ -142,6 +142,7 @@
                       action="{{ url_for('admin_mitarbeiter_loeschen', ma_id=m.id) }}"
                       style="display:inline"
                       onsubmit="return confirm('Mitarbeiter „{{ m.name }}" wirklich löschen?\n\nNur möglich wenn keine Aktivitäten vorhanden.')">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"
                           title="Löschen (nur ohne Aktivitäten)">
                     <i class="bi bi-trash"></i>
@@ -151,6 +152,7 @@
                       action="{{ url_for('admin_mitarbeiter_anonymisieren', ma_id=m.id) }}"
                       style="display:inline"
                       onsubmit="return confirm('Mitarbeiter „{{ m.name }}" anonymisieren?\n\nName, E-Mail und Wohnort werden entfernt und das Konto deaktiviert. Geschäftsdaten (Aktivitäten, Bestellungen) bleiben zur Auswertung erhalten, aber ohne Personenbezug. Nicht umkehrbar.')">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit" class="btn btn-outline-secondary btn-sm py-0 px-1"
                           title="Anonymisieren (DSGVO-Löschanfrage bei bestehenden Aktivitäten)">
                     <i class="bi bi-person-x"></i>
@@ -247,6 +249,7 @@
                         action="{{ url_for('admin_vs_loeschen', vs_id=vs.id) }}"
                         style="display:inline"
                         onsubmit="return confirm('Verkaufsstelle „{{ vs.name }}" löschen?\n\nHat sie Aktivitäten, wird sie nur deaktiviert.')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"
                             title="Löschen / Deaktivieren">
                       <i class="bi bi-trash"></i>
@@ -256,6 +259,7 @@
                   <form method="POST"
                         action="{{ url_for('admin_vs_reaktivieren', vs_id=vs.id) }}"
                         style="display:inline">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn btn-outline-success btn-sm py-0 px-1"
                             title="Reaktivieren">
                       <i class="bi bi-arrow-counterclockwise"></i>
@@ -306,6 +310,7 @@
               <td class="text-center">
                 <form method="POST" action="{{ url_for('admin_display_tier_umschalten', ds_id=d.id) }}"
                       style="display:inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   {% if d.zaehlt_zur_zielerreichung %}
                     <button type="submit" class="btn btn-success btn-sm py-0 px-2"
                             title="Klicken um auf ‚Auffüllen' umzustellen"
@@ -339,6 +344,7 @@
                 <form method="POST" action="{{ url_for('admin_display_loeschen', ds_id=d.id) }}"
                       style="display:inline"
                       onsubmit="return confirm('Display-Typ „{{ d.name }}" deaktivieren?')">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"
                           title="Deaktivieren">
                     <i class="bi bi-x"></i>
@@ -347,6 +353,7 @@
                 {% else %}
                 <form method="POST" action="{{ url_for('admin_display_reaktivieren', ds_id=d.id) }}"
                       style="display:inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit" class="btn btn-outline-success btn-sm py-0 px-1"
                           title="Reaktivieren">
                     <i class="bi bi-arrow-counterclockwise"></i>
@@ -401,6 +408,7 @@
                       action="{{ url_for('admin_bier_loeschen', b_id=b.id) }}"
                       style="display:inline"
                       onsubmit="return confirm('Produkt „{{ b.name }}" löschen?\n\nHat es Bestellungen, wird es nur deaktiviert.')">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"
                           title="Löschen / Deaktivieren">
                     <i class="bi bi-trash"></i>
@@ -410,6 +418,7 @@
                 <form method="POST"
                       action="{{ url_for('admin_bier_reaktivieren', b_id=b.id) }}"
                       style="display:inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit" class="btn btn-outline-success btn-sm py-0 px-1"
                           title="Reaktivieren">
                     <i class="bi bi-arrow-counterclockwise"></i>
@@ -466,6 +475,7 @@
             </p>
             <form method="POST" action="{{ url_for('admin_import_excel') }}" enctype="multipart/form-data"
                   onsubmit="return confirm('Excel-Datei importieren? Bestehende Einträge bleiben unverändert.')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <div class="input-group">
                 <input type="file" name="datei" class="form-control form-control-sm"
                        accept=".xlsx,.xls" required>
@@ -517,6 +527,7 @@
               Im Zeitraum wird der Mitarbeiter nicht als „inaktiv“ gemeldet. Mit Vertreter kann dieser zusätzlich die Verkaufsstellen des Abwesenden beim Erfassen auswählen.
             </p>
             <form method="POST" action="{{ url_for('admin_vertretung_neu') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <div class="mb-2">
                 <label class="form-label small fw-bold">Abwesender Mitarbeiter</label>
                 <select name="abwesender_id" class="form-select form-select-sm" required>
@@ -551,6 +562,7 @@
             </form>
             <hr class="mt-3 mb-2">
             <form method="POST" action="{{ url_for('admin_urlaubsmail_empfaenger') }}" class="d-flex align-items-end gap-2">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <div class="flex-grow-1">
                 <label class="form-label small fw-bold mb-1">
                   <i class="bi bi-envelope me-1"></i>Urlaubsmail senden an <span class="text-muted fw-normal">(zusätzlich zu VKL &amp; Admin)</span>
@@ -565,6 +577,7 @@
             </form>
             <hr class="mt-3 mb-2">
             <form method="POST" action="{{ url_for('admin_neue_vs_empfaenger') }}" class="d-flex align-items-end gap-2">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <div class="flex-grow-1">
                 <label class="form-label small fw-bold mb-1">
                   <i class="bi bi-shop me-1"></i>Neue Verkaufsstelle melden an <span class="text-muted fw-normal">(Innendienst / Stammdaten)</span>
@@ -597,12 +610,14 @@
                     <td class="align-middle small text-muted">{% if vtr.vertreter %}{{ vtr.vertreter }}{% else %}nur Urlaub{% endif %}</td>
                     <td class="pe-2 text-end align-middle">
                       <form method="POST" action="{{ url_for('admin_vertretung_bestaetigen', vtr_id=vtr.id) }}" style="display:inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="btn btn-success btn-sm">
                           <i class="bi bi-check-lg me-1"></i>Bestätigen
                         </button>
                       </form>
                       <form method="POST" action="{{ url_for('admin_vertretung_ablehnen', vtr_id=vtr.id) }}" style="display:inline"
                             onsubmit="return confirm('Antrag von {{ vtr.abwesender }} ablehnen?')">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="btn btn-outline-danger btn-sm ms-1">
                           <i class="bi bi-x-lg me-1"></i>Ablehnen
                         </button>
@@ -630,10 +645,12 @@
                   <td class="text-center">
                     {% if vtr.status == 'angefragt' %}
                       <form method="POST" action="{{ url_for('admin_vertretung_bestaetigen', vtr_id=vtr.id) }}" style="display:inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="btn btn-success btn-sm py-0 px-1" title="Bestätigen"><i class="bi bi-check-lg"></i></button>
                       </form>
                       <form method="POST" action="{{ url_for('admin_vertretung_ablehnen', vtr_id=vtr.id) }}" style="display:inline"
                             onsubmit="return confirm('Urlaubsantrag ablehnen?')">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="btn btn-outline-warning btn-sm py-0 px-1" title="Ablehnen"><i class="bi bi-x-lg"></i></button>
                       </form>
                     {% elif vtr.status == 'abgelehnt' %}
@@ -645,6 +662,7 @@
                           action="{{ url_for('admin_vertretung_loeschen', vtr_id=vtr.id) }}"
                           style="display:inline"
                           onsubmit="return confirm('Eintrag löschen?')">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                       <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1 ms-1"
                               title="Löschen"><i class="bi bi-trash"></i></button>
                     </form>
@@ -691,6 +709,7 @@
                   <i class="bi bi-pencil"></i>
                 </a>
                 <form method="POST" action="{{ url_for('admin_vs_hinweis_erledigt', hinweis_id=h.id) }}" style="display:inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit" class="btn btn-success btn-sm py-0 px-1" title="Erledigt">
                     <i class="bi bi-check-lg"></i>
                   </button>
@@ -723,6 +742,7 @@
           Schließt alte offene Bestellungen (max. 2 pro Mitarbeiter offen), löscht vergangene Urlaubsanträge und legt neue zukünftige Vertretungen an.
         </p>
         <form method="POST" action="{{ url_for('admin_demo_cleanup') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-warning">
             <i class="bi bi-arrow-clockwise me-2"></i>Demo jetzt bereinigen
           </button>
@@ -750,6 +770,7 @@
         </p>
         <form method="post" action="{{ url_for('admin_mitarbeiter_passwort_alle_zuruecksetzen') }}"
               onsubmit="return confirm('Passwort für ALLE Mitarbeiter auf das Standard-Passwort zurücksetzen und Passwort-Wechsel erzwingen?')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-outline-danger w-100">
             <i class="bi bi-key me-2"></i>Jetzt für alle zurücksetzen
           </button>
@@ -796,6 +817,7 @@
           Hier können Sie den Export jederzeit manuell auslösen.
         </p>
         <form method="post" action="{{ url_for('admin_export_jetzt_senden') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-primary w-100" {% if not export_email %}disabled{% endif %}>
             <i class="bi bi-send me-2"></i>Export jetzt senden
           </button>
@@ -822,6 +844,7 @@
         </p>
         <form method="POST" action="{{ url_for('admin_demo_seed') }}"
               onsubmit="return confirm('Demo-Aktivitäten für die Vorwoche jetzt einfügen?')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn w-100" style="background:#c8860a;color:#fff">
             <i class="bi bi-play-fill me-2"></i>Vorwoche jetzt befüllen
           </button>
@@ -900,6 +923,7 @@
             </div>
             <form method="POST" action="{{ url_for('admin_team_loeschen', team_id=t.id) }}"
                   onsubmit="return confirm('Team „{{ t.name }}" wirklich löschen?\nMitglieder werden keinem Team mehr zugeordnet.')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1" title="Team löschen">
                 <i class="bi bi-trash"></i>
               </button>
@@ -918,6 +942,7 @@
     {% endif %}
 
     <form method="POST" action="{{ url_for('admin_team_neu') }}" class="d-flex gap-2" style="max-width:400px">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="text" name="name" class="form-control" placeholder="Neues Team – z.B. Nord, Süd…" required>
       <button type="submit" class="btn btn-primary btn-sm" style="white-space:nowrap">
         <i class="bi bi-plus me-1"></i>Team anlegen
@@ -976,6 +1001,7 @@
   <div class="modal-dialog">
     <div class="modal-content">
       <form method="POST" action="{{ url_for('admin_mitarbeiter_neu') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header" style="background:#1a3a5c;color:white">
           <h5 class="modal-title"><i class="bi bi-person-plus me-2"></i>Neuer Mitarbeiter</h5>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -1024,6 +1050,7 @@
   <div class="modal-dialog modal-sm">
     <div class="modal-content">
       <form method="POST" id="formRolle">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header" style="background:#1a3a5c;color:white">
           <h6 class="modal-title mb-0"><i class="bi bi-person-gear me-2"></i>Rolle ändern</h6>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -1061,6 +1088,7 @@ document.getElementById('modalRolle').addEventListener('show.bs.modal', function
   <div class="modal-dialog modal-sm">
     <div class="modal-content">
       <form method="POST" id="formName">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header" style="background:#1a3a5c;color:white">
           <h6 class="modal-title mb-0"><i class="bi bi-person-vcard me-2"></i>Name &amp; Kürzel</h6>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -1121,6 +1149,7 @@ document.getElementById('modalRolle').addEventListener('show.bs.modal', function
   <div class="modal-dialog">
     <div class="modal-content">
       <form method="POST" action="{{ url_for('admin_vs_neu') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header" style="background:#2e6da4;color:white">
           <h5 class="modal-title"><i class="bi bi-shop me-2"></i>Neue Verkaufsstelle</h5>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -1195,6 +1224,7 @@ document.getElementById('modalRolle').addEventListener('show.bs.modal', function
   <div class="modal-dialog">
     <div class="modal-content">
       <form method="POST" id="formVSEdit" action="">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header" style="background:#2e6da4;color:white">
           <h5 class="modal-title"><i class="bi bi-pencil me-2"></i>Verkaufsstelle bearbeiten</h5>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -1283,6 +1313,8 @@ document.getElementById('modalVSEdit').addEventListener('show.bs.modal', functio
 // serverseitig statt Client-Filter (siehe api_admin_verkaufsstellen_suche).
 const VS_ADMIN_SEITENGROESSE = {{ vs_admin_seitengroesse }};
 
+const vsAdminCsrfToken = document.querySelector('meta[name="csrf-token"]').content;
+
 function vsAdminEscapeHtml(s) {
   const d = document.createElement('div');
   d.textContent = s || '';
@@ -1308,8 +1340,10 @@ function vsAdminZeileHtml(vs) {
       + '<i class="bi bi-pencil"></i></button>'
       + '<form method="POST" action="/admin/verkaufsstelle/' + vs.id + '/loeschen" style="display:inline" '
       + 'onsubmit="return confirm(\'Verkaufsstelle „' + e(vs.name).replace(/'/g, "&#39;") + '\\u201c löschen?\\n\\nHat sie Aktivitäten, wird sie nur deaktiviert.\')">'
+      + '<input type="hidden" name="csrf_token" value="' + vsAdminCsrfToken + '">'
       + '<button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1" title="Löschen / Deaktivieren"><i class="bi bi-trash"></i></button></form>'
     : '<form method="POST" action="/admin/verkaufsstelle/' + vs.id + '/reaktivieren" style="display:inline">'
+      + '<input type="hidden" name="csrf_token" value="' + vsAdminCsrfToken + '">'
       + '<button type="submit" class="btn btn-outline-success btn-sm py-0 px-1" title="Reaktivieren"><i class="bi bi-arrow-counterclockwise"></i></button></form>';
   return '<tr class="vs-haupt-row"' + (vs.aktiv ? '' : ' style="opacity:.45"') + '>'
     + '<td>' + e(vs.name) + (vs.aktiv ? '' : ' <span class="badge bg-secondary ms-1" style="font-size:.65rem">Inaktiv</span>')
@@ -1352,6 +1386,7 @@ function vsAdminSucheAusfuehren(q) {
   <div class="modal-dialog">
     <div class="modal-content">
       <form method="POST" action="{{ url_for('admin_display_neu') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header" style="background:#1a3a5c;color:white">
           <h5 class="modal-title"><i class="bi bi-display me-2"></i>Neuer Display-Typ</h5>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -1392,6 +1427,7 @@ function vsAdminSucheAusfuehren(q) {
   <div class="modal-dialog">
     <div class="modal-content">
       <form method="POST" action="{{ url_for('admin_bier_neu') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header" style="background:#c8860a;color:white">
           <h5 class="modal-title"><i class="bi bi-box-seam me-2"></i>Neues Produkt</h5>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -1427,6 +1463,7 @@ function vsAdminSucheAusfuehren(q) {
   <div class="modal-dialog">
     <div class="modal-content">
       <form method="POST" action="{{ url_for('admin_display_bearbeiten', ds_id=d.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header" style="background:#1a3a5c;color:white">
           <h5 class="modal-title"><i class="bi bi-pencil me-2"></i>Display-Typ bearbeiten</h5>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -1460,6 +1497,7 @@ function vsAdminSucheAusfuehren(q) {
   <div class="modal-dialog">
     <div class="modal-content">
       <form method="POST" action="{{ url_for('admin_bier_bearbeiten', b_id=b.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header" style="background:#1a3a5c;color:white">
           <h5 class="modal-title"><i class="bi bi-pencil me-2"></i>Produkt bearbeiten</h5>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -1497,6 +1535,7 @@ function vsAdminSucheAusfuehren(q) {
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <form method="POST" action="{{ url_for('admin_mitarbeiter_zuordnung', ma_id=m.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header" style="background:#1a3a5c;color:white">
           <h5 class="modal-title">
             <i class="bi bi-shop me-2"></i>Verkaufsstellen für <strong>{{ m.name }}</strong>
@@ -1563,6 +1602,7 @@ function vsAdminSucheAusfuehren(q) {
   <div class="modal-dialog modal-sm">
     <div class="modal-content">
       <form method="POST" action="{{ url_for('admin_mitarbeiter_email', ma_id=m.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header" style="background:#1a3a5c;color:white">
           <h6 class="modal-title"><i class="bi bi-envelope me-2"></i>E-Mail – {{ m.name }}</h6>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -1592,6 +1632,7 @@ function vsAdminSucheAusfuehren(q) {
   <div class="modal-dialog modal-sm">
     <div class="modal-content">
       <form method="POST" action="{{ url_for('admin_mitarbeiter_team', ma_id=m.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header" style="background:#0d6efd;color:white">
           <h6 class="modal-title"><i class="bi bi-people me-2"></i>Team – {{ m.name }}</h6>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -1628,6 +1669,7 @@ function vsAdminSucheAusfuehren(q) {
   <div class="modal-dialog modal-sm">
     <div class="modal-content">
       <form method="POST" action="{{ url_for('admin_mitarbeiter_urlaubskonto', ma_id=m.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header" style="background:#4a235a;color:white">
           <h6 class="modal-title"><i class="bi bi-calendar2-check me-2"></i>Urlaubskonto – {{ m.name }}</h6>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -1682,6 +1724,7 @@ function vsAdminSucheAusfuehren(q) {
   <div class="modal-dialog modal-sm">
     <div class="modal-content">
       <form method="POST" action="{{ url_for('admin_mitarbeiter_wohnort', ma_id=m.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header" style="background:#1a5276;color:white">
           <h6 class="modal-title"><i class="bi bi-house me-2"></i>Wohnort – {{ m.name }}</h6>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -1725,6 +1768,7 @@ function vsAdminSucheAusfuehren(q) {
   <div class="modal-dialog modal-sm">
     <div class="modal-content">
       <form method="POST" action="{{ url_for('admin_mitarbeiter_passwort', ma_id=m.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header" style="background:#1a3a5c;color:white">
           <h6 class="modal-title"><i class="bi bi-key me-2"></i>Passwort – {{ m.name }}</h6>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>

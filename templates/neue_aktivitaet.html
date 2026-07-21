@@ -8,6 +8,7 @@
 </div>
 
 <form method="POST" id="aktivForm" enctype="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
   {% if tagesplan_heute %}
   <div class="card mb-4" style="border-color:#2c7a7b">
@@ -425,6 +426,7 @@
   <div class="modal-dialog">
     <div class="modal-content">
       <form method="POST" action="{{ url_for('vs_neu_rep') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header" style="background:#2e6da4;color:white">
           <h5 class="modal-title">
             <i class="bi bi-shop me-2"></i>Neue Verkaufsstelle anlegen

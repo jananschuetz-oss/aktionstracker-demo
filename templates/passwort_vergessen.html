@@ -65,6 +65,7 @@
   </p>
 
   <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="mb-4">
       <label class="form-label">
         <i class="bi bi-envelope me-1"></i>E-Mail-Adresse

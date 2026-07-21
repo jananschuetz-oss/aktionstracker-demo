@@ -16,6 +16,7 @@
   {% endwith %}
 
   <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
     <!-- Aktivieren -->
     <div class="card border-0 shadow-sm mb-3">
