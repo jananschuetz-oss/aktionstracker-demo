@@ -219,6 +219,7 @@ def inject_now():
         'offene_aufbauten_freigaben': 0,
         'abgelehnte_aufbauten': [],
         'mein_email': '',
+        'mein_signatur': None,
         'karte_benachrichtigung': None,
         'urlaub_konto': None,
     }
@@ -239,8 +240,9 @@ def inject_now():
                 "SELECT id, name FROM mitarbeiter WHERE rolle IN ('rep','verkaufsleiter') AND id != ? ORDER BY name",
                 (session['user_id'],)
             )
-            _me = query("SELECT email FROM mitarbeiter WHERE id=?", (session['user_id'],), one=True)
+            _me = query("SELECT email, signatur_bild FROM mitarbeiter WHERE id=?", (session['user_id'],), one=True)
             ctx['mein_email'] = (_me['email'] or '') if _me else ''
+            ctx['mein_signatur'] = (_me['signatur_bild'] or None) if _me else None
             # Zähler offener Urlaubsanträge (für Navbar-Markierung der Manager)
             if session.get('rolle') in ('admin', 'verkaufsleiter'):
                 _tc, _tp = _team_m_clause('m')
@@ -859,6 +861,13 @@ def init_db():
             "ALTER TABLE mitarbeiter ADD COLUMN fehlgeschlagene_logins INTEGER DEFAULT 0",
             "ALTER TABLE mitarbeiter ADD COLUMN konto_gesperrt INTEGER DEFAULT 0",
             "ALTER TABLE mitarbeiter ADD COLUMN gesperrt_bis TEXT",
+            # Digitale Signatur (2026-07-21): einmalig hinterlegte Unterschrift pro Mitarbeiter
+            # (als PNG-Data-URI), wird beim Urlaubsantrag sowohl für den Antragsteller als
+            # auch für den genehmigenden VKL/Admin ins PDF eingebettet – kein erneutes
+            # Unterschreiben je Antrag nötig. bestaetigt_von_id hält fest, wer genehmigt hat,
+            # damit dessen Signatur (nicht die eines beliebigen anderen Managers) verwendet wird.
+            "ALTER TABLE mitarbeiter ADD COLUMN signatur_bild TEXT",
+            "ALTER TABLE vertretung ADD COLUMN bestaetigt_von_id INTEGER REFERENCES mitarbeiter(id) ON DELETE SET NULL",
         ]:
             try:
                 db.execute(migration)
@@ -1922,11 +1931,16 @@ def _urlaubsantrag_pdf_bytes(vtr_id: int) -> bytes | None:
     Frei/Sonderurlaub, unbezahlt) haben kein PDF-Pendant und werden hier bewusst nicht
     bedient (kein Papierformular, keine Lohnbüro-Relevanz). Ohne Firmen-Briefkopf, da
     Demo mandantenunabhängig ist. Schlägt nie hart fehl, gibt bei fehlenden Daten nur
-    None zurück (Aufrufer verschickt die Mail dann ohne Anhang)."""
+    None zurück (Aufrufer verschickt die Mail dann ohne Anhang). Trägt seit 2026-07-21 die
+    einmalig hinterlegten Signaturen von Mitarbeiter und Genehmiger ein, sofern beide ihre
+    Unterschrift im Profil hinterlegt haben (siehe profil_signatur) – fehlt eine davon, bleibt
+    der jeweilige Bereich wie bisher unterschriftslos, aber weiterhin digital gültig."""
     vtr = query(
-        '''SELECT v.abwesender_id, v.von, v.bis, v.typ, v.erstellt_am,
-                  m.name AS mitarbeiter_name, m.wohnort_ort, m.bundesland
+        '''SELECT v.abwesender_id, v.von, v.bis, v.typ, v.erstellt_am, v.bestaetigt_von_id,
+                  m.name AS mitarbeiter_name, m.wohnort_ort, m.bundesland, m.signatur_bild AS ma_signatur,
+                  g.name AS genehmiger_name, g.signatur_bild AS genehmiger_signatur
            FROM vertretung v JOIN mitarbeiter m ON m.id = v.abwesender_id
+           LEFT JOIN mitarbeiter g ON g.id = v.bestaetigt_von_id
            WHERE v.id=?''',
         (vtr_id,), one=True
     )
@@ -1948,6 +1962,14 @@ def _urlaubsantrag_pdf_bytes(vtr_id: int) -> bytes | None:
     antrags_datum = _fmt(vtr['erstellt_am']) if vtr['erstellt_am'] else _fmt(date.today().isoformat())
     heute         = date.today().strftime('%d.%m.%Y')
     wohnort       = vtr['wohnort_ort'] or '–'
+
+    def _signatur_html(data_uri):
+        if not data_uri or not data_uri.startswith('data:image/png;base64,'):
+            return ''
+        return f'<img src="{data_uri}" style="height:44px;display:block;margin-top:4px">'
+
+    ma_signatur_html         = _signatur_html(vtr['ma_signatur'])
+    genehmiger_signatur_html = _signatur_html(vtr['genehmiger_signatur'])
 
     html = f'''<!DOCTYPE html>
 <html><head><meta charset="utf-8"></head>
@@ -1973,17 +1995,19 @@ def _urlaubsantrag_pdf_bytes(vtr_id: int) -> bytes | None:
   </table>
 
   <div style="margin-top:28px;font-size:12px;color:#555">{wohnort}, {antrags_datum}</div>
-  <div style="font-size:10px;color:#999">Ort, Datum (Antragstellung)</div>
+  {ma_signatur_html}
+  <div style="font-size:10px;color:#999;margin-top:2px">Ort, Datum, Unterschrift (Antragstellung)</div>
 
   <div style="margin-top:26px;padding-top:16px;border-top:1px solid #ccc;font-size:13px">
     <span style="color:#2d8a4e;font-weight:bold">&#10003;</span> Der Antrag auf Urlaub wird befürwortet / genehmigt.
   </div>
 
   <div style="margin-top:22px;font-size:12px;color:#555">{heute}</div>
-  <div style="font-size:10px;color:#999">Datum (Genehmigung)</div>
+  {genehmiger_signatur_html}
+  <div style="font-size:10px;color:#999;margin-top:2px">Datum, Unterschrift (Genehmigung{', ' + vtr['genehmiger_name'] if vtr['genehmiger_name'] else ''})</div>
 
   <div style="margin-top:32px;padding-top:10px;border-top:1px solid #eee;font-size:10px;color:#999">
-    Automatisch erzeugt vom Aktions Tracker am {heute} &middot; digital genehmigt, ohne Unterschrift gültig.
+    Automatisch erzeugt vom Aktions Tracker am {heute} &middot; digital genehmigt{' mit hinterlegter Unterschrift' if (ma_signatur_html or genehmiger_signatur_html) else ', ohne Unterschrift gültig'}.
   </div>
 </div>
 </body></html>'''
@@ -5835,6 +5859,29 @@ def profil_daten():
     return redirect(request.referrer or url_for('dashboard'))
 
 
+@app.route('/profil/signatur', methods=['POST'])
+@login_required
+def profil_signatur():
+    """Speichert die einmalig hinterlegte Unterschrift (PNG-Data-URI aus dem Canvas-
+    Signaturpad in base.html) am eigenen Mitarbeiter-Datensatz. Wird künftig automatisch
+    in den Urlaubsantrag eingebettet (siehe _urlaubsantrag_pdf_bytes) – kein erneutes
+    Unterschreiben je Antrag nötig. Grobe Plausibilitätsprüfung statt echter Bildvalidierung
+    reicht hier aus, da das Canvas selbst nur PNG-Data-URIs erzeugen kann."""
+    data = request.get_json(silent=True) or {}
+    bild = (data.get('signatur') or '').strip()
+    if not bild.startswith('data:image/png;base64,') or len(bild) > 200_000:
+        return jsonify({'ok': False, 'error': 'Ungültige Signatur.'}), 400
+    execute("UPDATE mitarbeiter SET signatur_bild=? WHERE id=?", (bild, session['user_id']))
+    return jsonify({'ok': True})
+
+
+@app.route('/profil/signatur/loeschen', methods=['POST'])
+@login_required
+def profil_signatur_loeschen():
+    execute("UPDATE mitarbeiter SET signatur_bild=NULL WHERE id=?", (session['user_id'],))
+    return jsonify({'ok': True})
+
+
 @app.route('/faq')
 @login_required
 def faq():
@@ -5988,7 +6035,7 @@ def admin_vertretung_bestaetigen(vtr_id):
     if not _vertretung_team_ok(vtr_id):
         flash('Keine Berechtigung für diesen Antrag.', 'danger')
     else:
-        execute("UPDATE vertretung SET status='bestätigt' WHERE id=?", (vtr_id,))
+        execute("UPDATE vertretung SET status='bestätigt', bestaetigt_von_id=? WHERE id=?", (session['user_id'], vtr_id))
         flash('Urlaub bestätigt.', 'success')
         _send_vertretung_email(vtr_id, 'bestätigt')
     return redirect(request.referrer or url_for('dashboard'))

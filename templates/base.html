@@ -751,6 +751,8 @@
           <div class="fw-semibold">{{ mein_email or '–' }}</div>
         </div>
         <hr class="my-3">
+        {% include 'partials/_signaturpad.html' %}
+        <hr class="my-3">
         <a href="#" class="small text-muted" data-bs-dismiss="modal" data-bs-toggle="modal" data-bs-target="#modalPasswortAendern">
           <i class="bi bi-lock me-1"></i>Passwort ändern →
         </a>
@@ -783,6 +785,8 @@
             <label class="form-label small fw-bold">E-Mail <span class="text-muted fw-normal">(optional)</span></label>
             <input type="email" name="email" class="form-control" value="{{ mein_email or '' }}">
           </div>
+          <hr class="my-3">
+          {% include 'partials/_signaturpad.html' %}
           <hr class="my-3">
           <a href="#" class="small text-muted" data-bs-dismiss="modal" data-bs-toggle="modal" data-bs-target="#modalPasswortAendern">
             <i class="bi bi-lock me-1"></i>Passwort ändern →
