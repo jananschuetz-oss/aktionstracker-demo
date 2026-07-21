@@ -125,6 +125,18 @@ Schlägt eine Route mit 500 fehl → erst fixen, dann pushen.
 
 **Erweiterte Variante (agent-browser):** `./pflichttest_browser.sh` rendert die Routen echt im Browser (Admin + Rep) statt nur den HTTP-Status zu prüfen — fängt damit auch JS-Fehler und kaputte Interaktionen (z.B. Karte, Formulare) die curl nicht sieht. Screenshots landen in `_pflichttest_shots/` (gitignored). Ergänzt den curl-Test, ersetzt ihn nicht (curl bleibt der schnelle erste Check).
 
+## Sicherheits-Konventionen für neue Features
+
+Diese Regeln bei JEDER neuen Route/JEDEM neuen Feature direkt mitdenken, nicht erst bei einem späteren Audit nachbessern:
+
+- **CSRF:** Jedes neue `<form method="POST">` braucht `<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">`. JS-`fetch()`-POSTs brauchen keinen manuellen Header — `window.fetch` ist in `base.html` global gepatcht und hängt `X-CSRFToken` automatisch an (gleiche Origin, schreibende Methoden). Nur bei echten Sonderfällen (z.B. Offline-Sync-Queue mit potenziell sehr altem Token) `@csrf.exempt` einsetzen und in einem Kommentar begründen, warum `login_required`/die eigentliche Zugriffskontrolle das Risiko trotzdem abdeckt.
+- **Autorisierung ist rollenbasiert UND team-/eigentümer-basiert:** Reine Rollenprüfung (`rolle in ('admin','verkaufsleiter')`) reicht bei einer VKL-Route mit einer ID aus URL/Body NICHT — zusätzlich prüfen, ob die betroffene Ressource (Aktivität, Verkaufsstelle, Mitarbeiter, Tagesplan-Eintrag) auch zum eigenen Team/Gebiet gehört (`_team_ma_clause()` / `_team_m_clause()`-Muster). Dieses Muster (Rolle geprüft, Team-Zugehörigkeit vergessen) war die mit Abstand häufigste Schwachstellenklasse in bisherigen Audits — bei Arco explizit gefunden und gefixt, bei Demo von Anfang an mitdenken.
+- **Freitext in Excel-Zellen:** immer durch `_excel_formel_sicher()` schicken, bevor er in `ws.cell(...)` landet (verhindert Formel-Injection über z.B. `=HYPERLINK(...)` in Notizen).
+- **Freie E-Mail-Empfänger-Felder** (Report-Konfiguration o.ä.): niemals ungeprüft speichern — gegen bekannte Mitarbeiter-E-Mails whitelisten (Muster siehe `einstellungen_wochenbericht()`), sonst kann sich jemand dauerhaft interne Berichte an eine private/externe Adresse schicken lassen.
+- **Fehlerantworten an den Client:** nie `str(e)` oder `traceback.format_exc()` in eine JSON-/HTTP-Antwort schreiben — nur `app.logger.error(...)`/`app.logger.warning(...)` mit vollem Trace, dem Client nur eine generische Meldung.
+- **Neue Konfigurations-Flags für Sicherheitsverhalten** (z.B. `FORCE_HTTPS`) immer als explizite, dokumentierte Env-Var einführen statt sich nur auf eine Plattform-Heuristik (`RAILWAY_ENVIRONMENT`) zu verlassen — Heuristik als Fallback behalten, nicht ersetzen.
+- Die globalen HTTP-Security-Header (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, bedingt `Strict-Transport-Security`) laufen zentral über `@app.after_request` — bei neuen Routen nichts zusätzlich nötig.
+
 ## Background Jobs (APScheduler)
 
 All jobs run in Europe/Berlin timezone:

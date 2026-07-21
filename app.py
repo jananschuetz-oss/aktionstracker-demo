@@ -2681,6 +2681,11 @@ def api_tourenplanung_mitarbeiter_verkaufsstellen(ma_id):
     """Verkaufsstellen eines Mitarbeiters für das 'Neuer Stopp'-Formular auf der
     Tourenplanung-Seite (gleiche Logik wie das Rep-Selbstservice-Widget im
     Dashboard, nur für VKL/Admin nutzbar zur Planung für sich selbst oder das Team)."""
+    # Bugreport 2026-07-21 (Niedrig-mittel): ma_id kam bisher ungeprüft rein – ein VKL
+    # konnte durch Hochzählen die zugewiesenen Verkaufsstellen (inkl. Homeoffice-/
+    # Wohnadresse) fremder Mitarbeiter außerhalb des eigenen Teams einsehen.
+    if not _mitarbeiter_im_eigenen_team(ma_id):
+        abort(403)
     assigned = query(
         "SELECT verkaufsstelle_id FROM mitarbeiter_verkaufsstelle WHERE mitarbeiter_id=?", (ma_id,)
     )
