@@ -5226,8 +5226,9 @@ def _build_gratisware_report_excel(von_str: str, bis_str: str) -> bytes:
 
     headers = ['Besuchstag', 'Mitarbeiter', 'Verkaufsstelle', 'Straße', 'PLZ', 'Ort',
                 'Lieferant', 'Kundennummer',
-                'Gratisware Verleger', 'Gratisware Kofferraum', 'Bestellung (Produkt × Kisten)']
-    widths  = [12, 20, 28, 26, 8, 18, 18, 14, 16, 18, 45]
+                'Gratisware Verleger', 'Gratisware Kofferraum', 'Bestellung (Produkt × Kisten)',
+                'Rechnung']
+    widths  = [12, 20, 28, 26, 8, 18, 18, 14, 16, 18, 45, 16]
     for col, (h, w) in enumerate(zip(headers, widths), 1):
         cell = ws.cell(row=1, column=col, value=h)
         cell.fill = HEADER_FILL
@@ -5242,6 +5243,7 @@ def _build_gratisware_report_excel(von_str: str, bis_str: str) -> bytes:
             row['mitarbeiter'], row['verkaufsstelle'], row['strasse'] or '', row['plz'] or '',
             row['ort'] or '', row['lieferant'] or '', row['kundennummer'] or '',
             row['verleger'], row['kofferraum'], row['bestellung'] or '',
+            '',  # Rechnung – manuell nachzutragen, keine Datenquelle in der App
         ]
         for col, wert in enumerate(werte, 1):
             cell = ws.cell(row=r, column=col, value=wert)
