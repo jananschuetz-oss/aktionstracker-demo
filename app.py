@@ -2673,14 +2673,22 @@ def dashboard():
         tagesplan_rep = query('''
             SELECT tp.id, tp.datum, tp.reihenfolge, tp.notiz, tp.erledigt,
                    v.name AS station, v.strasse, v.plz, v.ort, v.id AS vs_id,
-                   v.lieferant, v.ansprechpartner, v.hinweis
+                   v.lieferant, v.ansprechpartner, v.hinweis,
+                   (SELECT a.von_uhrzeit FROM aktivitaet a
+                    WHERE a.mitarbeiter_id = tp.mitarbeiter_id
+                      AND a.verkaufsstelle_id = tp.verkaufsstelle_id
+                      AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1) AS von_uhrzeit,
+                   (SELECT a.bis_uhrzeit FROM aktivitaet a
+                    WHERE a.mitarbeiter_id = tp.mitarbeiter_id
+                      AND a.verkaufsstelle_id = tp.verkaufsstelle_id
+                      AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1) AS bis_uhrzeit
             FROM tagesplan tp
             JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
             WHERE tp.mitarbeiter_id = ?
               AND tp.datum >= ?
               AND tp.datum <= ?
               AND COALESCE(tp.geloescht, 0) = 0
-            ORDER BY tp.datum, tp.reihenfolge, tp.id
+            ORDER BY tp.datum, (von_uhrzeit IS NULL), von_uhrzeit, tp.reihenfolge, tp.id
         ''', (session['user_id'], tp_woche_montag.isoformat(), tp_woche_sonntag.isoformat()))
         # Stationsliste für Self-Service-Formular. Gedeckelt (Performance) – bei
         # sehr vielen aktiven Stationen würde das feste Einbetten ALLER Stationen
@@ -3140,12 +3148,20 @@ def tourenplanung():
                COALESCE(tp.geloescht, 0) AS geloescht, tp.geloescht_am,
                v.name AS station, v.plz, v.ort, v.id AS vs_id,
                v.lieferant, v.ansprechpartner, v.hinweis,
-               m.name AS mitarbeiter, m.kuerzel, m.id AS ma_id
+               m.name AS mitarbeiter, m.kuerzel, m.id AS ma_id,
+               (SELECT a.von_uhrzeit FROM aktivitaet a
+                WHERE a.mitarbeiter_id = tp.mitarbeiter_id
+                  AND a.verkaufsstelle_id = tp.verkaufsstelle_id
+                  AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1) AS von_uhrzeit,
+               (SELECT a.bis_uhrzeit FROM aktivitaet a
+                WHERE a.mitarbeiter_id = tp.mitarbeiter_id
+                  AND a.verkaufsstelle_id = tp.verkaufsstelle_id
+                  AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1) AS bis_uhrzeit
         FROM tagesplan tp
         JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
         JOIN mitarbeiter m ON m.id = tp.mitarbeiter_id
         WHERE tp.datum = ? {_tm_sql.replace('AND', 'AND', 1)}
-        ORDER BY m.name, tp.reihenfolge, tp.id
+        ORDER BY m.name, (von_uhrzeit IS NULL), von_uhrzeit, tp.reihenfolge, tp.id
     ''', (datum,) + _tm_p) if modus == 'tag' else []
 
     # Wochen-Modus
@@ -3165,12 +3181,20 @@ def tourenplanung():
                COALESCE(tp.geloescht, 0) AS geloescht, tp.geloescht_am,
                v.name AS station, v.plz, v.ort, v.id AS vs_id,
                v.lieferant, v.ansprechpartner, v.hinweis,
-               m.name AS mitarbeiter, m.kuerzel, m.id AS ma_id
+               m.name AS mitarbeiter, m.kuerzel, m.id AS ma_id,
+               (SELECT a.von_uhrzeit FROM aktivitaet a
+                WHERE a.mitarbeiter_id = tp.mitarbeiter_id
+                  AND a.verkaufsstelle_id = tp.verkaufsstelle_id
+                  AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1) AS von_uhrzeit,
+               (SELECT a.bis_uhrzeit FROM aktivitaet a
+                WHERE a.mitarbeiter_id = tp.mitarbeiter_id
+                  AND a.verkaufsstelle_id = tp.verkaufsstelle_id
+                  AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1) AS bis_uhrzeit
         FROM tagesplan tp
         JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
         JOIN mitarbeiter m ON m.id = tp.mitarbeiter_id
         WHERE tp.datum >= ? AND tp.datum <= ? {_tm_sql}
-        ORDER BY m.name, tp.datum, tp.reihenfolge, tp.id
+        ORDER BY m.name, tp.datum, (von_uhrzeit IS NULL), von_uhrzeit, tp.reihenfolge, tp.id
     ''', (woche_start.isoformat(), woche_ende.isoformat()) + _tm_p) if modus == 'woche' else []
     urlaub_woche = _urlaub_daten(rep_ids, woche_start.isoformat(), woche_ende.isoformat()) if modus == 'woche' else set()
     urlaub_ganze_woche = {
@@ -4104,6 +4128,25 @@ def api_aktivitaet_offline_sync():
         if kisten > 0:
             execute("INSERT INTO bestellposition (aktivitaet_id, biersorte_id, kisten_anzahl)"
                     " VALUES (?,?,?)", (akt_id, int(bier_id), kisten))
+
+    # Bugreport 2026-07-22: Offline-Sync fasste den Tagesplan bisher gar nicht an – ein
+    # geplanter Stopp blieb offen und ein ungeplanter Stopp wurde nicht nachgetragen,
+    # obwohl die Aktivität selbst korrekt gespeichert wurde. Identische Logik wie im
+    # Online-Pfad (neue_aktivitaet(), siehe dort). Analog zum selben Fix in Arcobräu.
+    execute(
+        "UPDATE tagesplan SET erledigt=1 WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? AND erledigt=0 AND COALESCE(geloescht,0)=0",
+        (session['user_id'], vs_id, datum)
+    )
+    if datum == date.today().isoformat():
+        existing = query(
+            "SELECT id FROM tagesplan WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? AND COALESCE(geloescht,0)=0",
+            (session['user_id'], vs_id, datum), one=True
+        )
+        if not existing:
+            execute(
+                "INSERT INTO tagesplan (mitarbeiter_id, verkaufsstelle_id, datum, erledigt, erstellt_von) VALUES (?,?,?,1,?)",
+                (session['user_id'], vs_id, datum, session['user_id'])
+            )
 
     app.logger.info(f"Offline-Sync: Aktivität {akt_id} für User {session['user_id']} gespeichert")
     return jsonify({'ok': True, 'akt_id': akt_id})
