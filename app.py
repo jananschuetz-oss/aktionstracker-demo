@@ -4547,10 +4547,13 @@ def aktivitaeten_liste():
     # Alle VS für Dropdown (inkl. inaktive – für historische Suche). Gedeckelt wie
     # die Besuchsplanung im Dashboard – bei vielen VS würde das feste Einbetten
     # ALLER Checkboxen die Seite massiv aufblähen.
+    # Auch für Reps geladen (nicht nur is_manager): Reps dürfen seit 2026-07-22 eigene
+    # Aktivitäten vom selben Tag bearbeiten, das Bearbeiten-Modal braucht dafür dieselbe
+    # VS-Auswahl wie VKL/Admin.
     alle_vs = query(
         "SELECT id, name, ort, aktiv FROM verkaufsstelle ORDER BY aktiv DESC, name LIMIT ?",
         (VS_DASHBOARD_SEITENGROESSE,)
-    ) if is_manager else []
+    )
     alle_typen = [r[0] for r in query(
         "SELECT DISTINCT typ FROM verkaufsstelle WHERE typ IS NOT NULL AND typ != '' ORDER BY typ"
     )]
@@ -4572,7 +4575,7 @@ def aktivitaeten_liste():
 @app.route('/aktivitaet/<int:akt_id>/bearbeiten', methods=['POST'])
 @login_required
 def aktivitaet_bearbeiten(akt_id):
-    if session.get('rolle') not in ('admin', 'verkaufsleiter'):
+    if session.get('rolle') not in ('admin', 'verkaufsleiter', 'rep'):
         flash('Keine Berechtigung.', 'danger')
         return redirect(url_for('aktivitaeten_liste'))
 
@@ -4580,6 +4583,13 @@ def aktivitaet_bearbeiten(akt_id):
     if not a:
         flash('Aktivität nicht gefunden.', 'danger')
         return redirect(url_for('aktivitaeten_liste'))
+
+    # Reps dürfen seit 2026-07-22 eigene Aktivitäten komplett bearbeiten – aber nur am
+    # gleichen Tag, an dem die Aktivität stattfand (nicht rückwirkend, nicht im Voraus).
+    if session.get('rolle') == 'rep':
+        if a['mitarbeiter_id'] != session.get('user_id') or a['datum'] != date.today().isoformat():
+            flash('Sie können nur eigene Aktivitäten vom heutigen Tag bearbeiten.', 'danger')
+            return redirect(url_for('aktivitaeten_liste'))
 
     # VKL darf nur Aktivitäten des eigenen Teams bearbeiten (Bugreport 2026-07-21: bislang
     # ohne Team-Check, konnte also fremde Teams inkl. deren Fotos verändern/löschen).

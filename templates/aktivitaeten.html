@@ -299,7 +299,8 @@
                     data-bs-target="#detail_{{ a.id }}">
               <i class="bi bi-chevron-down"></i>
             </button>
-            {% if is_manager %}
+            {% set _eigener_eintrag_heute = (session.rolle == 'rep' and a.mitarbeiter_id == session.user_id and a.datum == now.date().isoformat()) %}
+            {% if is_manager or _eigener_eintrag_heute %}
             <button class="btn btn-outline-primary btn-sm"
                     data-bs-toggle="modal"
                     data-bs-target="#editModal"
@@ -476,8 +477,9 @@ function filterAnwenden() {
 }
 </script>
 
-{% if is_manager %}
-<!-- Aktivität bearbeiten Modal -->
+{% if is_manager or session.rolle == 'rep' %}
+<!-- Aktivität bearbeiten Modal: VKL/Admin für alle (eigenes Team), Reps nur für eigene
+     Aktivitäten vom heutigen Tag (Trigger-Button dafür weiter oben in dieser Datei). -->
 <div class="modal fade" id="editModal" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
