@@ -361,13 +361,13 @@
         <li class="nav-item">
           {% if session.rolle == 'admin' %}
           <a class="nav-link" href="{{ url_for('admin') }}#vertretung"
-             style="font-size:.85rem"><i class="bi bi-person-lines-fill me-1"></i>Urlaub / Vertretung{% if offene_urlaubsantraege and offene_urlaubsantraege > 0 %} <span class="badge bg-danger">{{ offene_urlaubsantraege }}</span>{% endif %}</a>
+             style="font-size:.85rem"><i class="bi bi-person-lines-fill me-1"></i>Urlaub / Anträge{% if offene_urlaubsantraege and offene_urlaubsantraege > 0 %} <span class="badge bg-danger">{{ offene_urlaubsantraege }}</span>{% endif %}</a>
           {% elif session.rolle == 'verkaufsleiter' %}
           <a class="nav-link" href="{{ url_for('team_verwaltung') }}#vertretung"
-             style="font-size:.85rem"><i class="bi bi-person-lines-fill me-1"></i>Urlaub / Vertretung{% if offene_urlaubsantraege and offene_urlaubsantraege > 0 %} <span class="badge bg-danger">{{ offene_urlaubsantraege }}</span>{% endif %}</a>
+             style="font-size:.85rem"><i class="bi bi-person-lines-fill me-1"></i>Urlaub / Anträge{% if offene_urlaubsantraege and offene_urlaubsantraege > 0 %} <span class="badge bg-danger">{{ offene_urlaubsantraege }}</span>{% endif %}</a>
           {% else %}
           <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#modalVertretung"
-             style="font-size:.85rem"><i class="bi bi-person-lines-fill me-1"></i>Urlaub / Vertretung{% if offene_urlaubsantraege and offene_urlaubsantraege > 0 %} <span class="badge bg-danger">{{ offene_urlaubsantraege }}</span>{% endif %}</a>
+             style="font-size:.85rem"><i class="bi bi-person-lines-fill me-1"></i>Urlaub / Anträge{% if offene_urlaubsantraege and offene_urlaubsantraege > 0 %} <span class="badge bg-danger">{{ offene_urlaubsantraege }}</span>{% endif %}</a>
           {% endif %}
         </li>
         {% if session.rolle == 'admin' %}
@@ -551,7 +551,7 @@
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header" style="background:#4a235a;color:white">
-        <h6 class="modal-title"><i class="bi bi-person-lines-fill me-2"></i>Urlaub / Vertretung</h6>
+        <h6 class="modal-title"><i class="bi bi-person-lines-fill me-2"></i>Urlaub / Anträge</h6>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
@@ -583,12 +583,26 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div class="mb-2">
             <label class="form-label small fw-bold">Art der Abwesenheit</label>
-            <select name="typ" class="form-select form-select-sm">
+            <select name="typ" class="form-select form-select-sm" id="vertretungTypSelect" onchange="
+              document.getElementById('vertretungNotizFeld').style.display = (this.value === 'hotel') ? '' : 'none';
+              document.getElementById('vertretungHotelFeld').style.display = (this.value === 'hotel') ? '' : 'none';
+            ">
               <option value="urlaub">Urlaub</option>
               <option value="krankheit">Krankheit</option>
               <option value="sonderurlaub">Sonderurlaub</option>
               <option value="unbezahlt">Unbezahlter Urlaub</option>
+              <option value="hotel">Hotelübernachtung</option>
             </select>
+          </div>
+          <div class="mb-2" id="vertretungHotelFeld" style="display:none">
+            <label class="form-label small fw-bold">Hotel (Name + Adresse)</label>
+            <input type="text" name="hotel_name_adresse" class="form-control form-control-sm" maxlength="200" placeholder="z. B. Hotel Rheinblick, Rheinstr. 5, 56068 Koblenz">
+            <label class="form-label small fw-bold mt-2">Kosten pro Nacht (€)</label>
+            <input type="number" name="hotel_kosten_pro_nacht" class="form-control form-control-sm" step="0.01" min="0" placeholder="z. B. 89.00">
+          </div>
+          <div class="mb-2" id="vertretungNotizFeld" style="display:none">
+            <label class="form-label small fw-bold">Notiz <span class="text-muted fw-normal">(optional)</span></label>
+            <input type="text" name="grund" class="form-control form-control-sm" maxlength="200" placeholder="z. B. Kundentermin, Messe …">
           </div>
           <div class="mb-2">
             <label class="form-label small fw-bold">Vertreter <span class="text-muted fw-normal">(optional)</span></label>
@@ -619,13 +633,14 @@
         </form>
         {% if meine_vertretungen %}
         <hr class="my-3">
-        <div class="small fw-bold text-muted mb-2">Meine Urlaube / Vertretungen:</div>
-        {% set typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'unbezahlt': 'Unbezahlt'} %}
+        <div class="small fw-bold text-muted mb-2">Meine Urlaube / Anträge:</div>
+        {% set typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'unbezahlt': 'Unbezahlt', 'hotel': 'Hotelübernachtung'} %}
         {% for vtr in meine_vertretungen %}
         {% set heute = now.date().isoformat() %}
         <div class="d-flex align-items-center justify-content-between py-1 border-bottom">
           <div class="small">
             <i class="bi bi-person me-1"></i><strong>{{ typ_label.get(vtr.typ, 'Urlaub') }}</strong>
+            {% if vtr.typ == 'hotel' %}<span class="text-muted">– {{ vtr.hotel_name_adresse }} ({{ '%.2f'|format(vtr.hotel_kosten_pro_nacht) }} €/Nacht)</span>{% endif %}
             {% if vtr.vertreter_name %}<span class="text-muted">({{ vtr.vertreter_name }})</span>{% endif %}
             <span class="text-muted ms-2">{{ vtr.von }} – {{ vtr.bis }}</span>
             {% if vtr.status == 'angefragt' %}
@@ -886,6 +901,47 @@
 })();
 </script>
 
+<!-- Vertretung/Urlaub ablehnen mit optionaler Notiz -->
+<div class="modal fade" id="modalVertretungAblehnen" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="POST" id="formVertretungAblehnen">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-header" style="background:#e24b4a;color:white">
+          <h6 class="modal-title"><i class="bi bi-x-circle me-2"></i>Antrag ablehnen</h6>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted mb-2">Antrag von <strong id="vertretungAblehnenName"></strong> ablehnen?</p>
+          <label class="form-label small fw-bold">Grund <span class="text-muted fw-normal">(optional, wird dem Mitarbeiter angezeigt)</span></label>
+          <textarea name="ablehnung_grund" class="form-control form-control-sm" rows="2" maxlength="300" placeholder="z. B. Kein Budget für diesen Zeitraum"></textarea>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-sm btn-danger"><i class="bi bi-x-lg me-1"></i>Ablehnen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+(function() {
+  var modalEl = document.getElementById('modalVertretungAblehnen');
+  if (!modalEl) return;
+  var form = document.getElementById('formVertretungAblehnen');
+  var nameSpan = document.getElementById('vertretungAblehnenName');
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('.vertretung-ablehnen-btn');
+    if (!btn) return;
+    e.preventDefault();
+    form.action = btn.dataset.action;
+    nameSpan.textContent = btn.dataset.name || '';
+    form.ablehnung_grund.value = '';
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+  });
+})();
+</script>
+
 <!-- Verkaufsstelle: Kundenhistorie -->
 <div class="modal fade" id="historieModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg">
@@ -995,10 +1051,10 @@ document.addEventListener('click', function (e) {
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header" style="background:#2e6da4;color:white">
-        <h6 class="modal-title"><i class="bi bi-map me-2"></i>Gebiet aktualisiert</h6>
+        <h6 class="modal-title"><i class="bi bi-bell me-2"></i>Neue Hinweise</h6>
       </div>
       <div class="modal-body">
-        <p class="small text-muted mb-2">Folgende Änderungen wurden an Ihrem Verkaufsgebiet vorgenommen:</p>
+        <p class="small text-muted mb-2">Für Sie liegen folgende Hinweise vor:</p>
         <div class="alert alert-info py-2 px-3 mb-0" style="font-size:.85rem;white-space:pre-line">{{ karte_benachrichtigung }}</div>
       </div>
       <div class="modal-footer py-2">

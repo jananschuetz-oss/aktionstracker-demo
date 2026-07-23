@@ -228,7 +228,8 @@ def inject_now():
             _benachr = query("SELECT karte_benachrichtigung FROM mitarbeiter WHERE id=?", (session['user_id'],), one=True)
             ctx['karte_benachrichtigung'] = (_benachr['karte_benachrichtigung'] if _benachr else None)
             ctx['meine_vertretungen'] = query(
-                '''SELECT v.id, v.von, v.bis, v.status, v.typ, m.name AS vertreter_name
+                '''SELECT v.id, v.von, v.bis, v.status, v.typ, m.name AS vertreter_name,
+                          v.hotel_name_adresse, v.hotel_kosten_pro_nacht
                    FROM vertretung v
                    LEFT JOIN mitarbeiter m ON m.id = v.vertreter_id
                    WHERE v.abwesender_id = ?
@@ -868,6 +869,15 @@ def init_db():
             # damit dessen Signatur (nicht die eines beliebigen anderen Managers) verwendet wird.
             "ALTER TABLE mitarbeiter ADD COLUMN signatur_bild TEXT",
             "ALTER TABLE vertretung ADD COLUMN bestaetigt_von_id INTEGER REFERENCES mitarbeiter(id) ON DELETE SET NULL",
+            # Ablehnungsgrund (2026-07-23): optionale Notiz, die VKL/Admin beim Ablehnen
+            # eines Antrags hinterlegen kann – wird dem Mitarbeiter in der Ablehnungs-Mail
+            # angezeigt.
+            "ALTER TABLE vertretung ADD COLUMN ablehnung_grund TEXT",
+            # Hotelübernachtung (2026-07-23): neuer Antragstyp im Urlaubs-/Vertretungsmodul,
+            # läuft über denselben Genehmigungs-Workflow (VKL/Admin bestätigen), braucht aber
+            # zusätzlich Hotel-Adresse und Kosten pro Nacht für den monatlichen Hotel-Report.
+            "ALTER TABLE vertretung ADD COLUMN hotel_name_adresse TEXT",
+            "ALTER TABLE vertretung ADD COLUMN hotel_kosten_pro_nacht REAL",
         ]:
             try:
                 db.execute(migration)
@@ -1843,6 +1853,45 @@ def _urlaub_daten(ma_ids, start_iso, end_iso):
     return ergebnis
 
 
+def _hotel_naechte(mitarbeiter_ids, ab_datum, bis_datum):
+    """Liefert für jede genehmigte Hotelübernachtung im Zeitraum einen Eintrag pro Nacht,
+    Schlüssel (mitarbeiter_id, erster_tag_der_nacht) – für die "zwischen den Tagen"-Anzeige
+    im eigenen Wochenplan (dashboard.html) und der Besuchsplanung Wochen-Modus
+    (tourenplanung.html). Eine Übernachtung von/bis 13.–14.08. erzeugt genau einen Eintrag
+    mit erster_tag=13.08., ein mehrtägiger Aufenthalt entsprechend einen Eintrag pro Nacht."""
+    if not mitarbeiter_ids:
+        return {}
+    ph = ','.join('?' * len(mitarbeiter_ids))
+    rows = query(
+        f"SELECT abwesender_id, von, bis, hotel_name_adresse, hotel_kosten_pro_nacht FROM vertretung "
+        f"WHERE typ='hotel' AND status='bestätigt' AND abwesender_id IN ({ph}) AND von <= ? AND bis >= ?",
+        tuple(mitarbeiter_ids) + (bis_datum, ab_datum)
+    )
+    ergebnis = {}
+    for r in rows:
+        tag = date.fromisoformat(r['von'])
+        bis_d = date.fromisoformat(r['bis'])
+        while tag < bis_d:
+            ergebnis[(r['abwesender_id'], tag.isoformat())] = {
+                'hotel_name_adresse': r['hotel_name_adresse'],
+                'hotel_kosten_pro_nacht': r['hotel_kosten_pro_nacht'],
+            }
+            tag += timedelta(days=1)
+    return ergebnis
+
+
+def _benachrichtigung_anhaengen(mitarbeiter_id, nachricht):
+    """Hängt eine Zeile an die persönliche In-App-Benachrichtigung des Mitarbeiters an
+    (dasselbe Feld/Modal, das bisher nur für Gebietsänderungen genutzt wurde, siehe
+    api_karte_zuordnung_aendern) – für Hotelübernachtung-Entscheidungen reicht zusätzlich
+    zur E-Mail ein Hinweis in der App, analog zu den bereits sichtbaren Urlaubs-/
+    Vertretungseinträgen."""
+    bestehend = query("SELECT karte_benachrichtigung FROM mitarbeiter WHERE id=?", (mitarbeiter_id,), one=True)
+    alt = bestehend['karte_benachrichtigung'] if bestehend and bestehend['karte_benachrichtigung'] else ''
+    neu = (alt + '\n' + nachricht).strip()
+    execute("UPDATE mitarbeiter SET karte_benachrichtigung=? WHERE id=?", (neu, mitarbeiter_id))
+
+
 _BUNDESLAENDER = {
     'BW': 'Baden-Württemberg', 'BY': 'Bayern', 'BE': 'Berlin', 'BB': 'Brandenburg',
     'HB': 'Bremen', 'HH': 'Hamburg', 'HE': 'Hessen', 'MV': 'Mecklenburg-Vorpommern',
@@ -2660,6 +2709,12 @@ def dashboard():
     urlaub_woche_rep = {
         d: info for (_mid, d), info in _urlaub_daten([session['user_id']], tp_woche_montag.isoformat(), tp_woche_sonntag.isoformat()).items()
     }
+    # Hotelübernachtungen: für den "zwischen den Tagen"-Hinweis im Wochenplan, siehe
+    # _hotel_naechte() – Schlüssel ist hier nur der Tag (ohne Mitarbeiter-ID), da im eigenen
+    # Wochenplan ohnehin nur der eigene Plan gezeigt wird.
+    hotel_naechte_woche_rep = {
+        d: info for (_mid, d), info in _hotel_naechte([session['user_id']], tp_woche_montag.isoformat(), tp_woche_sonntag.isoformat()).items()
+    }
     # Feiertage in der Besuchsplanung anzeigen statt "Kein Plan" – Bundesland des Reps,
     # damit Feiertage korrekt regional zugeordnet sind (analog zur Urlaubskonto-Logik).
     _bundesland_rep = query("SELECT bundesland FROM mitarbeiter WHERE id=?", (session['user_id'],), one=True)
@@ -2746,6 +2801,7 @@ def dashboard():
         alle_verkaufsstellen_rep=alle_verkaufsstellen_rep,
         datum_woche_rep=datum_woche_rep,
         urlaub_woche_rep=urlaub_woche_rep,
+        hotel_naechte_woche_rep=hotel_naechte_woche_rep,
         feiertage_woche_rep=feiertage_woche_rep,
         tp_kw=tp_kw,
         tp_prev_kw=tp_prev_kw,
@@ -3197,6 +3253,11 @@ def tourenplanung():
         ORDER BY m.name, tp.datum, (von_uhrzeit IS NULL), von_uhrzeit, tp.reihenfolge, tp.id
     ''', (woche_start.isoformat(), woche_ende.isoformat()) + _tm_p) if modus == 'woche' else []
     urlaub_woche = _urlaub_daten(rep_ids, woche_start.isoformat(), woche_ende.isoformat()) if modus == 'woche' else set()
+    hotel_naechte_woche = _hotel_naechte(rep_ids, woche_start.isoformat(), woche_ende.isoformat()) if modus == 'woche' else {}
+    # Reps, die diese Woche mindestens eine Übernachtung haben, aber sonst keine Stops –
+    # sonst würde die Detail-Ansicht (und damit der "zwischen den Tagen"-Hinweis) komplett
+    # übersprungen und stattdessen nur "Kein Plan" angezeigt (siehe card-body unten).
+    hotel_naechte_rep_ids = {ma_id for (ma_id, _tag) in hotel_naechte_woche}
     urlaub_ganze_woche = {
         ma_id for ma_id in rep_ids
         if all((ma_id, tag) in urlaub_woche for tag in woche_tage)
@@ -3229,6 +3290,8 @@ def tourenplanung():
         woche_tage=woche_tage,
         plan_woche=plan_woche,
         urlaub_woche=urlaub_woche,
+        hotel_naechte_woche=hotel_naechte_woche,
+        hotel_naechte_rep_ids=hotel_naechte_rep_ids,
         urlaub_ganze_woche=urlaub_ganze_woche,
         feiertag_woche=feiertag_woche,
         prev_woche=(woche_start - timedelta(days=7)).isoformat(),
@@ -4191,6 +4254,15 @@ def neue_aktivitaet():
         r['id'] for r in query("SELECT id FROM verkaufsstelle WHERE typ='Firmenwagen-Tanken' AND aktiv=1")
     ]
 
+    # Verleger (2026-07-23): geteilte Sonderkategorie wie Tanken – reduziertes Formular
+    # (kein Bestellung/Aufbau-Typ, keine Mengen-/Displayauswahl), Foto bleibt Pflicht (die
+    # abgeholten Kisten werden fotografiert). Stattdessen ein einzelnes Pflichtfeld für die
+    # Menge "Gratisware Verleger" (Kistenware), die wie eine normale Bestellposition
+    # gespeichert wird und dadurch automatisch in Gratisware-Auswertung/-Report einfließt.
+    verleger_vs_ids = [
+        r['id'] for r in query("SELECT id FROM verkaufsstelle WHERE typ='Verleger' AND aktiv=1")
+    ]
+
     # Mitarbeiter und VKL sehen nur ihre zugeordneten Verkaufsstellen (wenn Zuordnung gesetzt)
     if session.get('rolle') in ('rep', 'verkaufsleiter'):
         assigned = query(
@@ -4264,23 +4336,32 @@ def neue_aktivitaet():
             "SELECT typ FROM verkaufsstelle WHERE id=?", (vs_id,), one=True
         ) if vs_id and vs_id.isdigit() else None
         is_tanken = bool(_vs_typ_check and _vs_typ_check['typ'] == 'Firmenwagen-Tanken')
-        if is_homeoffice or is_tanken:
+        # Verleger: wie Tanken eine geteilte Sonderkategorie mit reduziertem Formular, aber
+        # Foto bleibt Pflicht (abgeholte Kisten werden fotografiert).
+        is_verleger = bool(_vs_typ_check and _vs_typ_check['typ'] == 'Verleger')
+        if is_homeoffice or is_tanken or is_verleger:
             aktionstyp = 'Besuch'
 
         von_uhrzeit = request.form.get('von_uhrzeit', '').strip()
         bis_uhrzeit = request.form.get('bis_uhrzeit', '').strip()
         foto_files = [f for f in request.files.getlist('fotos') if f and f.filename][:3]
-        # KONZEPT-V2: Foto ist nur beim Aufbau Pflicht – außer bei Firmenwagen-Tanken,
-        # da dort trotz aktionstyp='Besuch' bewusst weiter ein Foto (Tankbeleg) nötig ist.
-        if (aktionstyp == 'Aufbau' or is_tanken) and not foto_files:
-            _foto_meldung = 'Bitte den Tankbeleg als Foto hochladen.' if is_tanken \
-                else 'Bitte ein Foto hochladen – beim Aufbau ist das Foto Pflicht.'
+        # KONZEPT-V2: Foto ist nur beim Aufbau Pflicht – außer bei Firmenwagen-Tanken/Verleger,
+        # da dort trotz aktionstyp='Besuch' bewusst weiter ein Foto (Tankbeleg bzw. abgeholte
+        # Kisten) nötig ist.
+        if (aktionstyp == 'Aufbau' or is_tanken or is_verleger) and not foto_files:
+            if is_tanken:
+                _foto_meldung = 'Bitte den Tankbeleg als Foto hochladen.'
+            elif is_verleger:
+                _foto_meldung = 'Bitte ein Foto der abgeholten Kisten hochladen.'
+            else:
+                _foto_meldung = 'Bitte ein Foto hochladen – beim Aufbau ist das Foto Pflicht.'
             flash(_foto_meldung, 'danger')
             return render_template('neue_aktivitaet.html',
                 verkaufsstellen=verkaufsstellen, biersorten=biersorten,
                 displaysorte=displaysorte, vertretungs_gruppen=vertretungs_gruppen,
                 heute=date.today().isoformat(), min_datum=min_datum,
-                homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids)
+                homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
+                verleger_vs_ids=verleger_vs_ids)
 
         # Firmenwagen-Tanken: Pflichtfelder aus dem Tankbeleg (Tankdatum, Kennzeichen,
         # Kraftstoffsorte, Menge, Kilometerstand) – ermöglichen den Tanken-Report ohne
@@ -4314,21 +4395,47 @@ def neue_aktivitaet():
                 verkaufsstellen=verkaufsstellen, biersorten=biersorten,
                 displaysorte=displaysorte, vertretungs_gruppen=vertretungs_gruppen,
                 heute=date.today().isoformat(), min_datum=min_datum,
-                homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids)
+                homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
+                verleger_vs_ids=verleger_vs_ids)
+
+        # Verleger: einziges Pflichtfeld im reduzierten Formular ist die abgeholte Menge
+        # "Gratisware Verleger" (Kistenware) – wird unten wie eine normale Bestellposition
+        # gespeichert (biersorte "Gratisware Verleger", bereits als ist_gratisware markiert),
+        # damit sie automatisch in Gratisware-Auswertung/-Report einfließt.
+        verleger_kisten = None
+        verleger_kisten_fehlt = False
+        if is_verleger:
+            _vk_str = request.form.get('verleger_kisten', '').strip()
+            try:
+                verleger_kisten = int(_vk_str)
+                if verleger_kisten < 0:
+                    raise ValueError
+            except ValueError:
+                verleger_kisten_fehlt = True
+        if verleger_kisten_fehlt:
+            flash('Bitte die abgeholte Menge „Gratisware Verleger" eintragen.', 'danger')
+            return render_template('neue_aktivitaet.html',
+                verkaufsstellen=verkaufsstellen, biersorten=biersorten,
+                displaysorte=displaysorte, vertretungs_gruppen=vertretungs_gruppen,
+                heute=date.today().isoformat(), min_datum=min_datum,
+                homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
+                verleger_vs_ids=verleger_vs_ids)
 
         if not datum or not vs_id:
             flash('Datum und Verkaufsstelle sind Pflichtfelder.', 'danger')
             return render_template('neue_aktivitaet.html',
                 verkaufsstellen=verkaufsstellen, biersorten=biersorten,
                 displaysorte=displaysorte, heute=date.today().isoformat(),
-                min_datum=min_datum, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids)
+                min_datum=min_datum, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
+                verleger_vs_ids=verleger_vs_ids)
 
         if is_rep and min_datum and datum < min_datum:
             flash('Aktivitäten können nur für die aktuelle Woche eingetragen werden.', 'danger')
             return render_template('neue_aktivitaet.html',
                 verkaufsstellen=verkaufsstellen, biersorten=biersorten,
                 displaysorte=displaysorte, heute=date.today().isoformat(),
-                min_datum=min_datum, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids)
+                min_datum=min_datum, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
+                verleger_vs_ids=verleger_vs_ids)
 
         # Displaypositionen sammeln. Freigabe-Workflow: zielrelevante (Tier-1) Typen starten
         # als "offen" und fließen erst nach VKL-Freigabe in anzahl_displays ein (s.
@@ -4386,6 +4493,17 @@ def neue_aktivitaet():
                 execute(
                     "INSERT INTO bestellposition (aktivitaet_id, biersorte_id, kisten_anzahl) VALUES (?,?,?)",
                     (akt_id, bier['id'], int(menge))
+                )
+
+        # Verleger: abgeholte Menge "Gratisware Verleger" als normale Bestellposition
+        # speichern (mitarbeiter_id der Aktivität = wer die Aktivität erstellt hat, s.o.) –
+        # dadurch automatisch Teil von Gratisware-Auswertung/-Report ohne Sonderlogik dort.
+        if is_verleger and verleger_kisten and verleger_kisten > 0:
+            _verleger_biersorte = query("SELECT id FROM biersorte WHERE name='Gratisware Verleger' AND aktiv=1", one=True)
+            if _verleger_biersorte:
+                execute(
+                    "INSERT INTO bestellposition (aktivitaet_id, biersorte_id, kisten_anzahl) VALUES (?,?,?)",
+                    (akt_id, _verleger_biersorte['id'], verleger_kisten)
                 )
 
         # Optionaler Hinweis an den Admin (z.B. Adress-/Namensänderung der Verkaufsstelle)
@@ -4473,7 +4591,8 @@ def neue_aktivitaet():
         heute=date.today().isoformat(), preselect_vs=preselect_vs,
         preselect_typ=preselect_typ,
         bestellung_id=bestellung_id, bestellung_info=bestellung_info,
-        tagesplan_heute=tagesplan_heute, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids)
+        tagesplan_heute=tagesplan_heute, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
+        verleger_vs_ids=verleger_vs_ids)
 
 
 @app.route('/aktivitaeten')
@@ -5189,6 +5308,160 @@ def tanken_report():
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
+def _build_hotel_excel_bytes(von: str, bis: str, monat_label: str) -> bytes:
+    """Excel-Liste aller genehmigten Hotelübernachtungen mit Checkin (von) im Zeitraum:
+    Mitarbeiter, Zeitraum, Hotel, Nächte, Kosten pro Nacht, Gesamtkosten, Notiz – analog
+    zum Tanken-Report (siehe _build_tanken_excel_bytes)."""
+    rows = query(
+        "SELECT v.von, v.bis, v.hotel_name_adresse, v.hotel_kosten_pro_nacht, v.grund, "
+        "       m.name AS mitarbeiter, m.kuerzel "
+        "FROM vertretung v JOIN mitarbeiter m ON m.id = v.abwesender_id "
+        "WHERE v.typ = 'hotel' AND v.status = 'bestätigt' AND v.von BETWEEN ? AND ? "
+        "ORDER BY v.von, m.name",
+        (von, bis)
+    )
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Hotelübernachtungen"
+
+    HEADER_FILL = PatternFill("solid", fgColor="7d3c98")
+    HEADER_FONT = Font(bold=True, color="FFFFFF", size=11)
+    TITLE_FONT  = Font(bold=True, size=14, color="1a3a5c")
+    CENTER      = Alignment(horizontal='center', vertical='center')
+    BORDER      = Border(
+        left=Side(style='thin', color='CCCCCC'), right=Side(style='thin', color='CCCCCC'),
+        top=Side(style='thin', color='CCCCCC'), bottom=Side(style='thin', color='CCCCCC'),
+    )
+
+    ws.column_dimensions['A'].width = 22
+    ws.column_dimensions['B'].width = 24
+    ws.column_dimensions['C'].width = 40
+    ws.column_dimensions['D'].width = 10
+    ws.column_dimensions['E'].width = 16
+    ws.column_dimensions['F'].width = 16
+    ws.column_dimensions['G'].width = 30
+
+    ws.merge_cells('A1:G1')
+    ws['A1'] = f"Hotelübernachtungen – {monat_label}"
+    ws['A1'].font = TITLE_FONT
+    ws['A1'].alignment = CENTER
+
+    headers = ['Mitarbeiter', 'Zeitraum', 'Hotel', 'Nächte', 'Kosten pro Nacht', 'Gesamtkosten', 'Notiz']
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=2, column=col, value=h)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.alignment = CENTER
+        cell.border = BORDER
+
+    gesamt_kosten_summe = 0
+    for i, row in enumerate(rows):
+        r = i + 3
+        naechte = (date.fromisoformat(row['bis']) - date.fromisoformat(row['von'])).days
+        kosten_pro_nacht = row['hotel_kosten_pro_nacht'] or 0
+        gesamtkosten = round(kosten_pro_nacht * naechte, 2)
+        gesamt_kosten_summe += gesamtkosten
+        ws.cell(r, 1, f"{row['mitarbeiter']} ({row['kuerzel']})")
+        ws.cell(r, 2, f"{row['von']} – {row['bis']}")
+        ws.cell(r, 3, _excel_formel_sicher(row['hotel_name_adresse'] or ''))
+        ws.cell(r, 4, naechte)
+        ws.cell(r, 5, kosten_pro_nacht)
+        ws.cell(r, 6, gesamtkosten)
+        ws.cell(r, 7, _excel_formel_sicher(row['grund'] or ''))
+        for c in range(1, 8):
+            ws.cell(r, c).border = BORDER
+
+    if not rows:
+        ws.cell(3, 1, 'Keine Hotelübernachtungen in diesem Zeitraum.')
+    else:
+        r = len(rows) + 3
+        ws.cell(r, 5, 'Summe:').font = Font(bold=True)
+        ws.cell(r, 6, round(gesamt_kosten_summe, 2)).font = Font(bold=True)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.read()
+
+
+def hotel_report_job():
+    """Monatlicher Report am 1. jeden Monats: Excel-Liste aller genehmigten
+    Hotelübernachtungen des Vormonats. Gleicher Empfängerkreis wie der Monatsexport
+    (EXPORT_EMAIL), analog zu diesem aufgebaut (siehe auto_export_job)."""
+    if not EXPORT_EMAIL:
+        app.logger.info("HOTEL_REPORT: EXPORT_EMAIL nicht gesetzt – übersprungen.")
+        return
+    with app.app_context():
+        try:
+            heute            = date.today()
+            letzter_vormonat = heute.replace(day=1) - timedelta(days=1)
+            erster_vormonat  = letzter_vormonat.replace(day=1)
+            _monat_namen = ['Januar','Februar','März','April','Mai','Juni',
+                            'Juli','August','September','Oktober','November','Dezember']
+            monat_label = f"{_monat_namen[erster_vormonat.month - 1]} {erster_vormonat.year}"
+            von_str     = erster_vormonat.isoformat()
+            bis_str     = letzter_vormonat.isoformat()
+
+            excel_bytes = _build_hotel_excel_bytes(von_str, bis_str, monat_label)
+            anzahl = query(
+                "SELECT COUNT(*) AS n FROM vertretung WHERE typ='hotel' AND status='bestätigt' AND von BETWEEN ? AND ?",
+                (von_str, bis_str), one=True
+            )['n']
+
+            body = f"""
+            <div style="font-family:sans-serif;max-width:600px;color:#222">
+              <h2 style="color:#1a3a5c">Aktions Tracker – Hotelübernachtungen {monat_label}</h2>
+              <p>Sehr geehrte Damen und Herren,</p>
+              <p>anbei erhalten Sie die monatliche Übersicht der genehmigten Hotelübernachtungen für <strong>{monat_label}</strong>.</p>
+              <ul>
+                <li><strong>Excel-Liste:</strong> {anzahl} Übernachtung(en) (Mitarbeiter, Zeitraum, Hotel, Kosten pro Nacht, Gesamtkosten)</li>
+              </ul>
+              <hr style="border:none;border-top:1px solid #eee;margin:1.5rem 0">
+              <p style="font-size:.85em;color:#888">
+                Aktions Tracker · Jan Anschütz · info@aktionstracker.de<br>
+                Automatisch generiert – bitte nicht auf diese E-Mail antworten.
+              </p>
+            </div>
+            """
+
+            attachments = [
+                (f"Hotelübernachtungen_{erster_vormonat.strftime('%Y-%m')}.xlsx", excel_bytes,
+                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+            ]
+
+            ok = send_email_with_attachments(
+                EXPORT_EMAIL,
+                f"Aktions Tracker – Hotelübernachtungen {monat_label}",
+                body,
+                attachments
+            )
+            if ok:
+                app.logger.info(f"HOTEL_REPORT: Gesendet an {EXPORT_EMAIL} ({anzahl} Übernachtung(en), {monat_label})")
+            else:
+                app.logger.error("HOTEL_REPORT: E-Mail-Versand fehlgeschlagen")
+        except Exception as e:
+            app.logger.error(f"HOTEL_REPORT Fehler: {e}", exc_info=True)
+
+
+@app.route('/admin/hotel-report/jetzt-senden', methods=['POST'])
+@login_required
+def admin_hotel_report_jetzt_senden():
+    if session.get('rolle') != 'admin':
+        flash('Keine Berechtigung.', 'danger')
+        return redirect(url_for('dashboard'))
+    if not EXPORT_EMAIL:
+        flash('EXPORT_EMAIL ist nicht gesetzt – Report kann nicht versendet werden.', 'danger')
+        return redirect(url_for('admin'))
+    try:
+        hotel_report_job()
+        flash(f'Hotel-Report wurde ausgelöst und an {EXPORT_EMAIL} gesendet.', 'success')
+    except Exception as e:
+        app.logger.error(f"Manueller Hotel-Report Fehler: {e}", exc_info=True)
+        flash('Hotel-Report fehlgeschlagen – siehe Logs.', 'danger')
+    return redirect(url_for('admin'))
+
+
 def _build_gratisware_report_excel(von_str: str, bis_str: str) -> bytes:
     """Eine Zeile je Besuch mit Gratisware Verleger und/oder Kofferraum im gegebenen
     Zeitraum."""
@@ -5206,7 +5479,7 @@ def _build_gratisware_report_excel(von_str: str, bis_str: str) -> bytes:
         JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id
         JOIN bestellposition bp ON bp.aktivitaet_id = a.id
         JOIN biersorte bs ON bs.id = bp.biersorte_id
-        WHERE a.aktionstyp='Bestellung' AND a.datum BETWEEN ? AND ?
+        WHERE a.aktionstyp IN ('Bestellung','Besuch') AND a.datum BETWEEN ? AND ?
         GROUP BY a.id
         HAVING verleger > 0 OR kofferraum > 0
         ORDER BY a.datum, m.name
@@ -5399,7 +5672,8 @@ def admin():
 
     # Vertretungsregelungen
     vertretungen = query('''
-        SELECT v.id, v.von, v.bis, v.status,
+        SELECT v.id, v.von, v.bis, v.status, v.typ, v.grund,
+               v.hotel_name_adresse, v.hotel_kosten_pro_nacht,
                a.name AS abwesender, r.name AS vertreter
         FROM vertretung v
         JOIN mitarbeiter a ON a.id = v.abwesender_id
@@ -5857,7 +6131,8 @@ def profil_meine_daten():
         (uid,)
     )
     vertretungen = query(
-        "SELECT typ, von, bis, status, grund FROM vertretung WHERE vertreter_id=? OR abwesender_id=? ORDER BY von DESC",
+        "SELECT typ, von, bis, status, grund, hotel_name_adresse, hotel_kosten_pro_nacht "
+        "FROM vertretung WHERE vertreter_id=? OR abwesender_id=? ORDER BY von DESC",
         (uid, uid)
     )
     export = {
@@ -5943,6 +6218,25 @@ def faq():
     return render_template('faq.html')
 
 
+def _hotel_felder_pruefen(typ):
+    """Liest+validiert die Hotelübernachtung-Zusatzfelder aus dem aktuellen request.form.
+    Gibt (hotel_name_adresse, hotel_kosten_pro_nacht, fehlermeldung) zurück – fehlermeldung
+    ist None wenn alles ok bzw. der Typ gar nicht 'hotel' ist (Felder bleiben dann NULL)."""
+    if typ != 'hotel':
+        return None, None, None
+    hotel_name_adresse = request.form.get('hotel_name_adresse', '').strip()
+    kosten_str          = request.form.get('hotel_kosten_pro_nacht', '').strip().replace(',', '.')
+    if not hotel_name_adresse:
+        return None, None, 'Bitte Hotelname und Adresse angeben.'
+    try:
+        kosten = float(kosten_str)
+    except ValueError:
+        return None, None, 'Bitte die Übernachtungskosten pro Nacht angeben.'
+    if kosten <= 0:
+        return None, None, 'Übernachtungskosten pro Nacht müssen größer als 0 sein.'
+    return hotel_name_adresse, kosten, None
+
+
 @app.route('/admin/vertretung/neu', methods=['POST'])
 @manager_required
 def admin_vertretung_neu():
@@ -5954,13 +6248,17 @@ def admin_vertretung_neu():
     bis           = request.form.get('bis', '').strip()
     typ           = request.form.get('typ', 'urlaub').strip()
     grund         = request.form.get('grund', '').strip()
-    if typ not in ('urlaub', 'krankheit', 'sonderurlaub', 'frei_sonderurlaub', 'unbezahlt'):
+    if typ not in ('urlaub', 'krankheit', 'sonderurlaub', 'frei_sonderurlaub', 'unbezahlt', 'hotel'):
         typ = 'urlaub'
     if not all([abwesender_id, von, bis]):
         flash('Abwesender Mitarbeiter, Von und Bis sind Pflichtfelder.', 'danger')
         return redirect(_redir)
     if typ == 'frei_sonderurlaub' and not grund:
         flash('Bitte einen Grund für Frei/Sonderurlaub angeben.', 'danger')
+        return redirect(_redir)
+    hotel_name_adresse, hotel_kosten_pro_nacht, hotel_fehler = _hotel_felder_pruefen(typ)
+    if hotel_fehler:
+        flash(hotel_fehler, 'danger')
         return redirect(_redir)
     if vertreter_id and abwesender_id == vertreter_id:
         flash('Abwesender und Vertreter dürfen nicht dieselbe Person sein.', 'danger')
@@ -5972,10 +6270,12 @@ def admin_vertretung_neu():
             flash('Keine Berechtigung für diesen Mitarbeiter.', 'danger')
             return redirect(_redir)
     execute(
-        "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis, status, typ, grund, erstellt_am) VALUES (?,?,?,?,'bestätigt',?,?,?)",
-        (abwesender_id, vertreter_id, von, bis, typ, grund or None, date.today().isoformat())
+        "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis, status, typ, grund, erstellt_am, "
+        "hotel_name_adresse, hotel_kosten_pro_nacht) VALUES (?,?,?,?,'bestätigt',?,?,?,?,?)",
+        (abwesender_id, vertreter_id, von, bis, typ, grund or None, date.today().isoformat(),
+         hotel_name_adresse, hotel_kosten_pro_nacht)
     )
-    flash('Urlaub / Vertretung gespeichert.', 'success')
+    flash('Urlaub / Antrag gespeichert.', 'success')
     return redirect(_redir)
 
 
@@ -6008,11 +6308,14 @@ def _vertretung_team_ok(vtr_id):
     return False
 
 
-def _send_vertretung_email(vtr_id: int, status: str):
+def _send_vertretung_email(vtr_id: int, status: str, ablehnung_grund: str | None = None):
     """Sendet E-Mail-Benachrichtigung nach Urlaubsentscheidung an Rep + VKL/Admin. Bei
     genehmigtem Urlaub (typ='urlaub') wird zusätzlich der digitale Urlaubsantrag als PDF
     angehängt (siehe _urlaubsantrag_pdf_bytes). Bei fehlgeschlagener PDF-Erzeugung wird
-    die Mail trotzdem ohne Anhang verschickt (kein Blocker für die Benachrichtigung)."""
+    die Mail trotzdem ohne Anhang verschickt (kein Blocker für die Benachrichtigung).
+    ablehnung_grund (2026-07-23): optionale Notiz von VKL/Admin beim Ablehnen, wird dem
+    Mitarbeiter mit angezeigt."""
+    import html
     vtr = query(
         """SELECT v.typ, v.von, v.bis, m.name AS abwesender_name, m.email AS abwesender_email,
                   vt.name AS vertreter_name
@@ -6039,6 +6342,10 @@ def _send_vertretung_email(vtr_id: int, status: str):
         f"<tr><td style='padding:.35rem .7rem;background:#f4f6fa;font-weight:600'>Vertretung</td>"
         f"<td style='padding:.35rem .7rem'>{vtr['vertreter_name']}</td></tr>"
     ) if vtr['vertreter_name'] else ''
+    grund_zeile = (
+        f"<tr><td style='padding:.35rem .7rem;background:#f4f6fa;font-weight:600'>Grund</td>"
+        f"<td style='padding:.35rem .7rem'>{html.escape(ablehnung_grund)}</td></tr>"
+    ) if ablehnung_grund else ''
     body = f"""
     <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto">
       <div style="background:#1a3a5c;color:#fff;padding:1.4rem 1.6rem;border-radius:6px 6px 0 0">
@@ -6052,6 +6359,7 @@ def _send_vertretung_email(vtr_id: int, status: str):
           <tr><td style="padding:.35rem .7rem;background:#f4f6fa;font-weight:600">Zeitraum</td>
               <td style="padding:.35rem .7rem">{vtr['von']} bis {vtr['bis']}</td></tr>
           {vertreter_zeile}
+          {grund_zeile}
         </table>
         {'<p style="color:#555;font-size:.85rem;margin:0 0 1rem"><i>Der ausgefüllte Urlaubsantrag ist als PDF angehängt.</i></p>' if attachments else ''}
         <hr style="border:none;border-top:1px solid #e8e8e8;margin:1rem 0">
@@ -6084,15 +6392,103 @@ def _send_vertretung_email(vtr_id: int, status: str):
                     _versenden(addr)
 
 
+def _send_hotel_email(vtr_id: int, status: str, ablehnung_grund: str | None = None):
+    """Bestätigungs-/Ablehnungs-Mail für Hotelübernachtungen – eigene Vorlage statt der
+    Urlaubsantrag-Mail: eigener Betreff/Titel ("Hotelübernachtung", nicht "Urlaubsantrag"),
+    kein PDF-Anhang (nur für typ='urlaub' gedacht, siehe _send_vertretung_email), dafür
+    Hotel und Kosten pro Nacht in der Übersicht. Gleicher Empfängerkreis wie beim Urlaub
+    (Mitarbeiter + Admin/VKL + konfigurierte Urlaubsmail-Adresse). Der In-App-Hinweis über
+    _benachrichtigung_anhaengen() feuert zusätzlich, siehe die aufrufenden Routen."""
+    import html
+    vtr = query(
+        """SELECT v.von, v.bis, v.hotel_name_adresse, v.hotel_kosten_pro_nacht,
+                  m.name AS abwesender_name, m.email AS abwesender_email
+           FROM vertretung v JOIN mitarbeiter m ON m.id = v.abwesender_id
+           WHERE v.id=?""",
+        (vtr_id,), one=True
+    )
+    if not vtr:
+        return
+    farbe = '#2cc4b0' if status == 'bestätigt' else '#e24b4a'
+    icon  = '✓' if status == 'bestätigt' else '✗'
+    subject = (f"{'Bestätigung' if status == 'bestätigt' else 'Ablehnung'} Hotelübernachtung – "
+               f"{vtr['hotel_name_adresse']} ({vtr['von']} – {vtr['bis']})")
+
+    def _versenden(to):
+        return send_email(to, subject, body)
+
+    kosten_zeile = (
+        f"<tr><td style='padding:.35rem .7rem;background:#f4f6fa;font-weight:600'>Kosten pro Nacht</td>"
+        f"<td style='padding:.35rem .7rem'>{vtr['hotel_kosten_pro_nacht']:.2f} €</td></tr>"
+    ) if vtr['hotel_kosten_pro_nacht'] is not None else ''
+    grund_zeile = (
+        f"<tr><td style='padding:.35rem .7rem;background:#f4f6fa;font-weight:600'>Grund</td>"
+        f"<td style='padding:.35rem .7rem'>{html.escape(ablehnung_grund)}</td></tr>"
+    ) if ablehnung_grund else ''
+    body = f"""
+    <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto">
+      <div style="background:#1a3a5c;color:#fff;padding:1.4rem 1.6rem;border-radius:6px 6px 0 0">
+        <h2 style="margin:0;font-size:1.2rem">Hotelübernachtung <span style="color:{farbe}">{icon} {status}</span></h2>
+      </div>
+      <div style="padding:1.4rem 1.6rem;border:1px solid #e0e0e0;border-top:none;border-radius:0 0 6px 6px">
+        <p style="margin:0 0 1rem">Hallo {vtr['abwesender_name']},</p>
+        <p style="margin:0 0 1rem">deine Hotelübernachtung wurde
+          <strong style="color:{farbe}">{status}</strong>.</p>
+        <table style="width:100%;border-collapse:collapse;margin:0 0 1rem">
+          <tr><td style="padding:.35rem .7rem;background:#f4f6fa;font-weight:600">Zeitraum</td>
+              <td style="padding:.35rem .7rem">{vtr['von']} bis {vtr['bis']}</td></tr>
+          <tr><td style="padding:.35rem .7rem;background:#f4f6fa;font-weight:600">Hotel</td>
+              <td style="padding:.35rem .7rem">{vtr['hotel_name_adresse']}</td></tr>
+          {kosten_zeile}
+          {grund_zeile}
+        </table>
+        <hr style="border:none;border-top:1px solid #e8e8e8;margin:1rem 0">
+        <p style="color:#777;font-size:.82rem;margin:0">
+          Diese Nachricht wurde automatisch vom Aktionstracker gesendet.</p>
+      </div>
+    </div>"""
+
+    gesendet = set()
+    if vtr['abwesender_email']:
+        _versenden(vtr['abwesender_email'])
+        gesendet.add(vtr['abwesender_email'])
+    if status == 'bestätigt':
+        manager_emails = query(
+            "SELECT email FROM mitarbeiter WHERE rolle IN ('admin','verkaufsleiter') AND aktiv=1 AND email IS NOT NULL AND email != ''",
+            ()
+        )
+        for mgr in manager_emails:
+            if mgr['email'] not in gesendet:
+                _versenden(mgr['email'])
+                gesendet.add(mgr['email'])
+        cfg = query("SELECT urlaubsmail_empfaenger FROM wochenbericht_config WHERE id=1", one=True)
+        if cfg and cfg['urlaubsmail_empfaenger']:
+            for addr in [a.strip() for a in cfg['urlaubsmail_empfaenger'].split(',') if a.strip()]:
+                if addr not in gesendet:
+                    _versenden(addr)
+                    gesendet.add(addr)
+
+
 @app.route('/admin/vertretung/<int:vtr_id>/bestaetigen', methods=['POST'])
 @manager_required
 def admin_vertretung_bestaetigen(vtr_id):
     if not _vertretung_team_ok(vtr_id):
         flash('Keine Berechtigung für diesen Antrag.', 'danger')
     else:
+        vtr = query("SELECT typ, von, bis, abwesender_id, hotel_name_adresse FROM vertretung WHERE id=?", (vtr_id,), one=True)
         execute("UPDATE vertretung SET status='bestätigt', bestaetigt_von_id=? WHERE id=?", (session['user_id'], vtr_id))
         flash('Urlaub bestätigt.', 'success')
-        _send_vertretung_email(vtr_id, 'bestätigt')
+        # Hotelübernachtung: eigene Bestätigungs-Mail (_send_hotel_email) statt der
+        # Urlaubsantrag-Vorlage, zusätzlich weiterhin der In-App-Hinweis (beides feuert).
+        if vtr and vtr['typ'] == 'hotel':
+            _send_hotel_email(vtr_id, 'bestätigt')
+            heute = date.today().strftime('%d.%m.%Y')
+            _benachrichtigung_anhaengen(
+                vtr['abwesender_id'],
+                f"{heute}: Ihre Hotelübernachtung ({vtr['von']}–{vtr['bis']}, {vtr['hotel_name_adresse']}) wurde genehmigt."
+            )
+        else:
+            _send_vertretung_email(vtr_id, 'bestätigt')
     return redirect(request.referrer or url_for('dashboard'))
 
 
@@ -6102,9 +6498,19 @@ def admin_vertretung_ablehnen(vtr_id):
     if not _vertretung_team_ok(vtr_id):
         flash('Keine Berechtigung für diesen Antrag.', 'danger')
     else:
-        execute("UPDATE vertretung SET status='abgelehnt' WHERE id=?", (vtr_id,))
+        ablehnung_grund = request.form.get('ablehnung_grund', '').strip()[:300] or None
+        vtr = query("SELECT typ, von, bis, abwesender_id, hotel_name_adresse FROM vertretung WHERE id=?", (vtr_id,), one=True)
+        execute("UPDATE vertretung SET status='abgelehnt', ablehnung_grund=? WHERE id=?", (ablehnung_grund, vtr_id))
         flash('Urlaubsantrag abgelehnt.', 'warning')
-        _send_vertretung_email(vtr_id, 'abgelehnt')
+        if vtr and vtr['typ'] == 'hotel':
+            _send_hotel_email(vtr_id, 'abgelehnt', ablehnung_grund)
+            heute = date.today().strftime('%d.%m.%Y')
+            nachricht = f"{heute}: Ihre Hotelübernachtung ({vtr['von']}–{vtr['bis']}, {vtr['hotel_name_adresse']}) wurde abgelehnt."
+            if ablehnung_grund:
+                nachricht += f" Grund: {ablehnung_grund}"
+            _benachrichtigung_anhaengen(vtr['abwesender_id'], nachricht)
+        else:
+            _send_vertretung_email(vtr_id, 'abgelehnt', ablehnung_grund)
     return redirect(request.referrer or url_for('dashboard'))
 
 
@@ -6189,7 +6595,7 @@ def profil_vertretung_neu():
     bis          = request.form.get('bis', '').strip()
     typ          = request.form.get('typ', 'urlaub').strip()
     grund        = request.form.get('grund', '').strip()
-    if typ not in ('urlaub', 'krankheit', 'sonderurlaub', 'frei_sonderurlaub', 'unbezahlt'):
+    if typ not in ('urlaub', 'krankheit', 'sonderurlaub', 'frei_sonderurlaub', 'unbezahlt', 'hotel'):
         typ = 'urlaub'
     if not all([von, bis]):
         flash('Von und Bis sind Pflichtfelder.', 'danger')
@@ -6197,16 +6603,22 @@ def profil_vertretung_neu():
     if typ == 'frei_sonderurlaub' and not grund:
         flash('Bitte einen Grund für Frei/Sonderurlaub angeben.', 'danger')
         return redirect(request.referrer or url_for('dashboard'))
+    hotel_name_adresse, hotel_kosten_pro_nacht, hotel_fehler = _hotel_felder_pruefen(typ)
+    if hotel_fehler:
+        flash(hotel_fehler, 'danger')
+        return redirect(request.referrer or url_for('dashboard'))
     if vertreter_id and vertreter_id == session['user_id']:
         flash('Sie können sich nicht selbst als Vertreter eintragen.', 'danger')
         return redirect(request.referrer or url_for('dashboard'))
     # VKL/GF tragen ihren eigenen Urlaub direkt bestätigt ein; Reps müssen anfragen.
     _status = 'bestätigt' if session.get('rolle') in ('admin', 'verkaufsleiter') else 'angefragt'
     execute(
-        "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis, status, typ, grund, erstellt_am) VALUES (?,?,?,?,?,?,?,?)",
-        (session['user_id'], vertreter_id, von, bis, _status, typ, grund or None, date.today().isoformat())
+        "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis, status, typ, grund, erstellt_am, "
+        "hotel_name_adresse, hotel_kosten_pro_nacht) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (session['user_id'], vertreter_id, von, bis, _status, typ, grund or None, date.today().isoformat(),
+         hotel_name_adresse, hotel_kosten_pro_nacht)
     )
-    _typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'frei_sonderurlaub': 'Frei/Sonderurlaub', 'unbezahlt': 'Unbezahlter Urlaub'}[typ]
+    _typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'frei_sonderurlaub': 'Frei/Sonderurlaub', 'unbezahlt': 'Unbezahlter Urlaub', 'hotel': 'Hotelübernachtung'}[typ]
     if typ == 'urlaub':
         _tage = _werktage_zaehlen(von, bis, query("SELECT bundesland FROM mitarbeiter WHERE id=?", (session['user_id'],), one=True)['bundesland'])
         _konto = _urlaub_konto(session['user_id'], date.fromisoformat(von).year)
@@ -6975,7 +7387,9 @@ def team_verwaltung():
     # Vertretungen des eigenen Teams
     if is_vkl and session.get('team_id'):
         vertretungen = query("""
-            SELECT v.id, v.von, v.bis, v.status, v.typ, ab.name AS abwesender, vtr.name AS vertreter
+            SELECT v.id, v.von, v.bis, v.status, v.typ, v.grund,
+                   v.hotel_name_adresse, v.hotel_kosten_pro_nacht,
+                   ab.name AS abwesender, vtr.name AS vertreter
             FROM vertretung v
             JOIN mitarbeiter ab  ON ab.id  = v.abwesender_id
             LEFT JOIN mitarbeiter vtr ON vtr.id = v.vertreter_id
@@ -6984,7 +7398,9 @@ def team_verwaltung():
         """, (session['team_id'],))
     else:
         vertretungen = query("""
-            SELECT v.id, v.von, v.bis, v.status, v.typ, ab.name AS abwesender, vtr.name AS vertreter
+            SELECT v.id, v.von, v.bis, v.status, v.typ, v.grund,
+                   v.hotel_name_adresse, v.hotel_kosten_pro_nacht,
+                   ab.name AS abwesender, vtr.name AS vertreter
             FROM vertretung v
             JOIN mitarbeiter ab  ON ab.id  = v.abwesender_id
             LEFT JOIN mitarbeiter vtr ON vtr.id = v.vertreter_id
@@ -7186,7 +7602,7 @@ def api_verkaufsstellen():
     from_sql, where_sql, params, distinct = _verkaufsstellen_liste_sql(suche=q)
     sel = "SELECT DISTINCT" if distinct else "SELECT"
     rows = query(
-        f"{sel} v.id, v.name, v.ort, v.typ {from_sql} {where_sql} ORDER BY v.name LIMIT 20",
+        f"{sel} v.id, v.name, v.strasse, v.plz, v.ort, v.typ {from_sql} {where_sql} ORDER BY v.name LIMIT 200",
         params
     )
     return jsonify([dict(r) for r in rows])
@@ -8855,9 +9271,9 @@ def _verkaufsstellen_liste_sql(suche=None):
         distinct  = False
 
     if suche:
-        where_sql += " AND (v.name LIKE ? OR v.ort LIKE ? OR v.landkreis LIKE ?)"
+        where_sql += " AND (v.name LIKE ? OR v.ort LIKE ? OR v.landkreis LIKE ? OR v.strasse LIKE ? OR v.plz LIKE ?)"
         like = f'%{suche}%'
-        params += [like, like, like]
+        params += [like, like, like, like, like]
 
     return from_sql, where_sql, params, distinct
 
@@ -9583,6 +9999,8 @@ try:
                        id='monatsbericht',     replace_existing=True, timezone='Europe/Berlin')
     _scheduler.add_job(auto_export_job,        'cron', day=1, hour=8, minute=0,
                        id='auto_export',       replace_existing=True, timezone='Europe/Berlin')
+    _scheduler.add_job(hotel_report_job,       'cron', day=1, hour=8, minute=35,
+                       id='hotel_report',      replace_existing=True, timezone='Europe/Berlin')
     _scheduler.add_job(cleanup_alte_fotos,     'cron', day=1, hour=9, minute=0,
                        id='cleanup_fotos',     replace_existing=True, timezone='Europe/Berlin')
     _scheduler.add_job(demo_daily_reset,           'cron', hour=3,  minute=0,
@@ -9594,7 +10012,7 @@ try:
     _scheduler.add_job(demo_tagesplan_fortschritt, 'cron', hour=16, minute=0,
                        id='demo_tp_16',             replace_existing=True, timezone='Europe/Berlin')
     _scheduler.start()
-    app.logger.info("Scheduler gestartet (Backup täglich, Wochenbericht Mo 07:00, Monatsbericht 1. 07:00, Export 1. 08:00, Foto-Cleanup 1. 09:00, Demo-Reset täglich 03:00, Tagesplan-Fortschritt 10/13/16 Uhr)")
+    app.logger.info("Scheduler gestartet (Backup täglich, Wochenbericht Mo 07:00, Monatsbericht 1. 07:00, Export 1. 08:00, Hotel-Report 1. 08:35, Foto-Cleanup 1. 09:00, Demo-Reset täglich 03:00, Tagesplan-Fortschritt 10/13/16 Uhr)")
 except ImportError:
     app.logger.warning("APScheduler nicht installiert – automatische Jobs deaktiviert.")
 

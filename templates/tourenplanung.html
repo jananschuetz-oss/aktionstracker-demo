@@ -127,6 +127,96 @@
     </div>
   </div>
 </div>
+{% if reps|length > 1 %}
+<div class="card-body pt-0 pb-2 d-flex justify-content-end">
+  <div class="dropdown">
+    <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle"
+            data-bs-toggle="dropdown" data-bs-auto-close="outside"
+            id="wpMaFilterBtn" style="min-width:180px;text-align:left">
+      Alle Mitarbeiter
+    </button>
+    <div class="dropdown-menu p-2 shadow" id="wpMaFilterMenu" style="min-width:240px;max-height:320px;overflow-y:auto">
+      <input type="text" class="form-control form-control-sm mb-2" placeholder="Suchen…"
+             oninput="wpFilterDropdownListe(this, '.wp-ma-item')">
+      <div class="form-check py-1 border-bottom mb-1">
+        <input class="form-check-input" type="checkbox" id="wp_ma_alle" checked>
+        <label class="form-check-label fw-semibold" for="wp_ma_alle">Alle auswählen</label>
+      </div>
+      {% for rep in reps %}
+      <div class="form-check py-1 wp-ma-item">
+        <input class="form-check-input wp-ma-cb" type="checkbox" value="{{ rep.id }}" id="wp_ma_{{ rep.id }}" checked>
+        <label class="form-check-label" for="wp_ma_{{ rep.id }}">{{ rep.name }}</label>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+<script>
+(function() {
+  var menu = document.getElementById('wpMaFilterMenu');
+  if (!menu) return;
+  var allesCb    = document.getElementById('wp_ma_alle');
+  var einzelnCbs = document.querySelectorAll('.wp-ma-cb');
+  var btn        = document.getElementById('wpMaFilterBtn');
+  var STORAGE_KEY = 'besuchsplanung_wp_ma_filter';
+
+  function syncAlles() {
+    var n = Array.from(einzelnCbs).filter(function(c) { return c.checked; }).length;
+    allesCb.checked       = einzelnCbs.length > 0 && n === einzelnCbs.length;
+    allesCb.indeterminate = n > 0 && n < einzelnCbs.length;
+    if (n === einzelnCbs.length) {
+      btn.textContent = 'Alle Mitarbeiter';
+    } else if (n === 1) {
+      btn.textContent = Array.from(einzelnCbs).find(function(c) { return c.checked; })
+                          .nextElementSibling.textContent.trim();
+    } else {
+      btn.textContent = n + ' Mitarbeiter';
+    }
+  }
+
+  function applyFilter() {
+    var checked = Array.from(einzelnCbs).filter(function(c) { return c.checked; }).map(function(c) { return c.value; });
+    document.querySelectorAll('.wp-rep-card').forEach(function(card) {
+      card.style.display = checked.includes(card.dataset.repId) ? '' : 'none';
+    });
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(checked)); } catch (e) {}
+  }
+
+  allesCb.onchange = function () {
+    einzelnCbs.forEach(function(cb) { cb.checked = allesCb.checked; });
+    if (!allesCb.checked) einzelnCbs[0] && (einzelnCbs[0].checked = true);
+    syncAlles();
+    applyFilter();
+  };
+  einzelnCbs.forEach(function(cb) {
+    cb.onchange = function () {
+      if (!Array.from(einzelnCbs).some(function(c) { return c.checked; })) this.checked = true;
+      syncAlles();
+      applyFilter();
+    };
+  });
+
+  try {
+    var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+    if (saved && saved.length) {
+      einzelnCbs.forEach(function(cb) { cb.checked = saved.includes(cb.value); });
+    }
+  } catch (e) {}
+  syncAlles();
+  applyFilter();
+})();
+
+function wpFilterDropdownListe(inputEl, itemSelector) {
+  var q    = inputEl.value.toLowerCase().trim();
+  var menu = inputEl.closest('.dropdown-menu');
+  if (!menu) return;
+  menu.querySelectorAll(itemSelector).forEach(function(item) {
+    var text = item.textContent.toLowerCase();
+    item.style.display = (!q || text.includes(q)) ? '' : 'none';
+  });
+}
+</script>
+{% endif %}
 
 <!-- Rep-Liste für den Tag -->
 {% for rep in reps %}
@@ -135,7 +225,7 @@
   {% set del_stops    = alle_stops | selectattr('geloescht') | list %}
   {% set offen_n      = rep_stops | rejectattr('erledigt') | list | length %}
   {% set erledigt_n   = rep_stops | selectattr('erledigt') | list | length %}
-  <div class="card mb-3">
+  <div class="card mb-3 wp-rep-card" data-rep-id="{{ rep.id }}">
     <div class="card-header d-flex justify-content-between align-items-center py-2" style="background:#f0f4f8">
       <span class="fw-semibold" style="color:#1a3a5c">
         <span class="badge me-2" style="background:#1a3a5c">{{ rep.kuerzel }}</span>{{ rep.name }}
@@ -295,6 +385,96 @@
     </a>
   </div>
 </div>
+{% if reps|length > 1 %}
+<div class="card-body pt-0 pb-2 d-flex justify-content-end">
+  <div class="dropdown">
+    <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle"
+            data-bs-toggle="dropdown" data-bs-auto-close="outside"
+            id="wpMaFilterBtn" style="min-width:180px;text-align:left">
+      Alle Mitarbeiter
+    </button>
+    <div class="dropdown-menu p-2 shadow" id="wpMaFilterMenu" style="min-width:240px;max-height:320px;overflow-y:auto">
+      <input type="text" class="form-control form-control-sm mb-2" placeholder="Suchen…"
+             oninput="wpFilterDropdownListe(this, '.wp-ma-item')">
+      <div class="form-check py-1 border-bottom mb-1">
+        <input class="form-check-input" type="checkbox" id="wp_ma_alle" checked>
+        <label class="form-check-label fw-semibold" for="wp_ma_alle">Alle auswählen</label>
+      </div>
+      {% for rep in reps %}
+      <div class="form-check py-1 wp-ma-item">
+        <input class="form-check-input wp-ma-cb" type="checkbox" value="{{ rep.id }}" id="wp_ma_{{ rep.id }}" checked>
+        <label class="form-check-label" for="wp_ma_{{ rep.id }}">{{ rep.name }}</label>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+<script>
+(function() {
+  var menu = document.getElementById('wpMaFilterMenu');
+  if (!menu) return;
+  var allesCb    = document.getElementById('wp_ma_alle');
+  var einzelnCbs = document.querySelectorAll('.wp-ma-cb');
+  var btn        = document.getElementById('wpMaFilterBtn');
+  var STORAGE_KEY = 'besuchsplanung_wp_ma_filter';
+
+  function syncAlles() {
+    var n = Array.from(einzelnCbs).filter(function(c) { return c.checked; }).length;
+    allesCb.checked       = einzelnCbs.length > 0 && n === einzelnCbs.length;
+    allesCb.indeterminate = n > 0 && n < einzelnCbs.length;
+    if (n === einzelnCbs.length) {
+      btn.textContent = 'Alle Mitarbeiter';
+    } else if (n === 1) {
+      btn.textContent = Array.from(einzelnCbs).find(function(c) { return c.checked; })
+                          .nextElementSibling.textContent.trim();
+    } else {
+      btn.textContent = n + ' Mitarbeiter';
+    }
+  }
+
+  function applyFilter() {
+    var checked = Array.from(einzelnCbs).filter(function(c) { return c.checked; }).map(function(c) { return c.value; });
+    document.querySelectorAll('.wp-rep-card').forEach(function(card) {
+      card.style.display = checked.includes(card.dataset.repId) ? '' : 'none';
+    });
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(checked)); } catch (e) {}
+  }
+
+  allesCb.onchange = function () {
+    einzelnCbs.forEach(function(cb) { cb.checked = allesCb.checked; });
+    if (!allesCb.checked) einzelnCbs[0] && (einzelnCbs[0].checked = true);
+    syncAlles();
+    applyFilter();
+  };
+  einzelnCbs.forEach(function(cb) {
+    cb.onchange = function () {
+      if (!Array.from(einzelnCbs).some(function(c) { return c.checked; })) this.checked = true;
+      syncAlles();
+      applyFilter();
+    };
+  });
+
+  try {
+    var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+    if (saved && saved.length) {
+      einzelnCbs.forEach(function(cb) { cb.checked = saved.includes(cb.value); });
+    }
+  } catch (e) {}
+  syncAlles();
+  applyFilter();
+})();
+
+function wpFilterDropdownListe(inputEl, itemSelector) {
+  var q    = inputEl.value.toLowerCase().trim();
+  var menu = inputEl.closest('.dropdown-menu');
+  if (!menu) return;
+  menu.querySelectorAll(itemSelector).forEach(function(item) {
+    var text = item.textContent.toLowerCase();
+    item.style.display = (!q || text.includes(q)) ? '' : 'none';
+  });
+}
+</script>
+{% endif %}
 
 <!-- Rep-Liste für die Woche -->
 {% for rep in reps %}
@@ -303,7 +483,7 @@
   {% set del_stops    = alle_stops | selectattr('geloescht') | list %}
   {% set offen_n      = rep_stops | rejectattr('erledigt') | list | length %}
   {% set erledigt_n   = rep_stops | selectattr('erledigt') | list | length %}
-  <div class="card mb-3">
+  <div class="card mb-3 wp-rep-card" data-rep-id="{{ rep.id }}">
     <div class="card-header d-flex justify-content-between align-items-center py-2" style="background:#f0f4f8">
       <span class="fw-semibold" style="color:#1a3a5c">
         <span class="badge me-2" style="background:#1a3a5c">{{ rep.kuerzel }}</span>{{ rep.name }}
@@ -333,7 +513,7 @@
       </span>
     </div>
     <div class="card-body p-0">
-      {% if rep_stops %}
+      {% if rep_stops or rep.id in hotel_naechte_rep_ids %}
         {% for tag_datum in woche_tage %}
           {% set tag_stops = rep_stops | selectattr('datum', 'equalto', tag_datum) | list %}
           {% set tag_del   = del_stops | selectattr('datum', 'equalto', tag_datum) | list %}
@@ -435,6 +615,12 @@
             </div>
             {% endfor %}
           </div>
+          {% if (rep.id, tag_datum) in hotel_naechte_woche %}
+          {% set _h = hotel_naechte_woche[(rep.id, tag_datum)] %}
+          <div class="d-flex align-items-center gap-2 px-3 py-1" style="font-size:.74rem;color:#7d3c98;background:#faf5fc;border-bottom:1px solid #e9ecef">
+            <i class="bi bi-moon-stars-fill"></i>Übernachtung: {{ _h.hotel_name_adresse }}
+          </div>
+          {% endif %}
         {% endfor %}
       {% else %}
       <div class="py-3 text-center" style="color:#adb5bd;font-size:.85rem">

@@ -148,7 +148,7 @@
 <!-- Vertretungen -->
 <div class="card mb-4" id="vertretung">
   <div class="card-header d-flex justify-content-between align-items-center">
-    <span><i class="bi bi-person-lines-fill me-2"></i>Urlaubs- &amp; Vertretungsregelungen</span>
+    <span><i class="bi bi-person-lines-fill me-2"></i>Urlaubs- &amp; Antragsregelungen</span>
     <button class="btn btn-sm btn-primary" data-bs-toggle="collapse" data-bs-target="#formVertretung">
       <i class="bi bi-plus-lg me-1"></i>Neuer Eintrag
     </button>
@@ -171,11 +171,15 @@
           </div>
           <div class="col-sm-2">
             <label class="form-label fw-semibold">Art</label>
-            <select name="typ" class="form-select">
+            <select name="typ" class="form-select" id="tvTypSelect" onchange="
+              document.getElementById('tvHotelFeld').style.display = (this.value === 'hotel') ? '' : 'none';
+              document.getElementById('tvHotelKostenFeld').style.display = (this.value === 'hotel') ? '' : 'none';
+            ">
               <option value="urlaub">Urlaub</option>
               <option value="krankheit">Krankheit</option>
               <option value="sonderurlaub">Sonderurlaub</option>
               <option value="unbezahlt">Unbezahlt</option>
+              <option value="hotel">Hotelübernachtung</option>
             </select>
           </div>
           <div class="col-sm-3">
@@ -194,6 +198,14 @@
           <div class="col-sm-2">
             <label class="form-label fw-semibold">Bis</label>
             <input type="date" name="bis" class="form-control" required>
+          </div>
+          <div class="col-sm-4" id="tvHotelFeld" style="display:none">
+            <label class="form-label fw-semibold">Hotel (Name + Adresse)</label>
+            <input type="text" name="hotel_name_adresse" class="form-control" maxlength="200" placeholder="z. B. Hotel Rheinblick, Rheinstr. 5, 56068 Koblenz">
+          </div>
+          <div class="col-sm-2" id="tvHotelKostenFeld" style="display:none">
+            <label class="form-label fw-semibold">Kosten/Nacht (€)</label>
+            <input type="number" name="hotel_kosten_pro_nacht" class="form-control" step="0.01" min="0" placeholder="89.00">
           </div>
           <div class="col-sm-2">
             <button type="submit" class="btn btn-success w-100">
@@ -222,12 +234,12 @@
     <div class="table-responsive">
     <table class="table table-sm mb-0">
       <tbody>
-        {% set typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'unbezahlt': 'Unbezahlt'} %}
+        {% set typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'unbezahlt': 'Unbezahlt', 'hotel': 'Hotelübernachtung'} %}
         {% for vtr in offene %}
         <tr>
           <td class="ps-3 align-middle fw-semibold">{{ vtr.abwesender }}</td>
           <td class="align-middle small">{{ vtr.von }} – {{ vtr.bis }}</td>
-          <td class="align-middle small text-muted">{{ typ_label.get(vtr.typ, 'Urlaub') }}{% if vtr.vertreter %} · {{ vtr.vertreter }}{% endif %}</td>
+          <td class="align-middle small text-muted">{{ typ_label.get(vtr.typ, 'Urlaub') }}{% if vtr.typ == 'hotel' %} ({{ vtr.hotel_name_adresse }}, {{ '%.2f'|format(vtr.hotel_kosten_pro_nacht) }} €/Nacht){% endif %}{% if vtr.vertreter %} · {{ vtr.vertreter }}{% endif %}</td>
           <td class="pe-2 text-end align-middle">
             <form method="POST" action="{{ url_for('admin_vertretung_bestaetigen', vtr_id=vtr.id) }}" style="display:inline">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -235,13 +247,11 @@
                 <i class="bi bi-check-lg me-1"></i>Bestätigen
               </button>
             </form>
-            <form method="POST" action="{{ url_for('admin_vertretung_ablehnen', vtr_id=vtr.id) }}" style="display:inline"
-                  onsubmit="return confirm('Antrag von {{ vtr.abwesender }} ablehnen?')">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button type="submit" class="btn btn-sm btn-outline-danger ms-1">
-                <i class="bi bi-x-lg me-1"></i>Ablehnen
-              </button>
-            </form>
+            <button type="button" class="btn btn-sm btn-outline-danger ms-1 vertretung-ablehnen-btn"
+                    data-action="{{ url_for('admin_vertretung_ablehnen', vtr_id=vtr.id) }}"
+                    data-name="{{ vtr.abwesender }}">
+              <i class="bi bi-x-lg me-1"></i>Ablehnen
+            </button>
           </td>
         </tr>
         {% endfor %}
@@ -264,12 +274,12 @@
         </tr>
       </thead>
       <tbody>
-        {% set typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'unbezahlt': 'Unbezahlt'} %}
+        {% set typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'unbezahlt': 'Unbezahlt', 'hotel': 'Hotelübernachtung'} %}
         {% for vtr in vertretungen %}
         {% set today = heute.isoformat() if heute is defined else '' %}
         <tr class="{% if vtr.bis < today %}text-muted{% endif %}">
           <td class="align-middle fw-semibold">{{ vtr.abwesender }}</td>
-          <td class="align-middle">{% if vtr.vertreter %}{{ vtr.vertreter }}{% else %}<span class="badge bg-warning text-dark">{{ typ_label.get(vtr.typ, 'Urlaub') }}</span>{% endif %}</td>
+          <td class="align-middle">{% if vtr.vertreter %}{{ vtr.vertreter }}{% else %}<span class="badge bg-warning text-dark">{{ typ_label.get(vtr.typ, 'Urlaub') }}{% if vtr.typ == 'hotel' %}: {{ vtr.hotel_name_adresse }} ({{ '%.2f'|format(vtr.hotel_kosten_pro_nacht) }} €/Nacht){% endif %}</span>{% endif %}</td>
           <td class="align-middle small">
             {{ vtr.von }} – {{ vtr.bis }}
             {% if vtr.status == 'angefragt' %}
@@ -290,11 +300,9 @@
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button type="submit" class="btn btn-sm btn-success" title="Bestätigen"><i class="bi bi-check-lg"></i></button>
             </form>
-            <form method="POST" action="{{ url_for('admin_vertretung_ablehnen', vtr_id=vtr.id) }}" style="display:inline"
-                  onsubmit="return confirm('Urlaubsantrag ablehnen?')">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button type="submit" class="btn btn-sm btn-outline-warning" title="Ablehnen"><i class="bi bi-x-lg"></i></button>
-            </form>
+            <button type="button" class="btn btn-sm btn-outline-warning vertretung-ablehnen-btn" title="Ablehnen"
+                    data-action="{{ url_for('admin_vertretung_ablehnen', vtr_id=vtr.id) }}"
+                    data-name="{{ vtr.abwesender }}"><i class="bi bi-x-lg"></i></button>
             {% endif %}
             <form method="POST" action="{{ url_for('admin_vertretung_loeschen', vtr_id=vtr.id) }}" style="display:inline"
                   onsubmit="return confirm('Eintrag löschen?')">
@@ -312,7 +320,7 @@
     {% else %}
     <div class="text-center py-4 text-muted">
       <i class="bi bi-calendar-x display-5"></i>
-      <p class="mt-2 mb-0">Keine Urlaubs- oder Vertretungsregelungen vorhanden.</p>
+      <p class="mt-2 mb-0">Keine Urlaubs- oder Antragsregelungen vorhanden.</p>
     </div>
     {% endif %}
   </div>

@@ -516,7 +516,7 @@
   <div class="col-12">
     <div class="card">
       <div class="card-header" style="background:linear-gradient(135deg,#4a235a,#7d3c98);color:white">
-        <i class="bi bi-person-lines-fill me-2"></i>Urlaubs- &amp; Vertretungsregelungen
+        <i class="bi bi-person-lines-fill me-2"></i>Urlaubs- &amp; Antragsregelungen
       </div>
       <div class="card-body">
         <div class="row g-4">
@@ -538,6 +538,24 @@
                 </select>
               </div>
               <div class="mb-2">
+                <label class="form-label small fw-bold">Art der Abwesenheit</label>
+                <select name="typ" class="form-select form-select-sm" id="adminTypSelect" onchange="
+                  document.getElementById('adminHotelFeld').style.display = (this.value === 'hotel') ? '' : 'none';
+                ">
+                  <option value="urlaub">Urlaub</option>
+                  <option value="krankheit">Krankheit</option>
+                  <option value="sonderurlaub">Sonderurlaub</option>
+                  <option value="unbezahlt">Unbezahlter Urlaub</option>
+                  <option value="hotel">Hotelübernachtung</option>
+                </select>
+              </div>
+              <div class="mb-2" id="adminHotelFeld" style="display:none">
+                <label class="form-label small fw-bold">Hotel (Name + Adresse)</label>
+                <input type="text" name="hotel_name_adresse" class="form-control form-control-sm" maxlength="200" placeholder="z. B. Hotel Rheinblick, Rheinstr. 5, 56068 Koblenz">
+                <label class="form-label small fw-bold mt-2">Kosten pro Nacht (€)</label>
+                <input type="number" name="hotel_kosten_pro_nacht" class="form-control form-control-sm" step="0.01" min="0" placeholder="z. B. 89.00">
+              </div>
+              <div class="mb-2">
                 <label class="form-label small fw-bold">Vertreter <span class="text-muted fw-normal">(optional – leer = nur Urlaub)</span></label>
                 <select name="vertreter_id" class="form-select form-select-sm">
                   <option value="">– Niemand (nur Urlaub) –</option>
@@ -557,7 +575,7 @@
                 </div>
               </div>
               <button type="submit" class="btn btn-sm btn-primary w-100">
-                <i class="bi bi-plus-circle me-1"></i>Urlaub / Vertretung anlegen
+                <i class="bi bi-plus-circle me-1"></i>Urlaub / Antrag anlegen
               </button>
             </form>
             <hr class="mt-3 mb-2">
@@ -603,11 +621,15 @@
               </div>
               <table class="table table-sm mb-0">
                 <tbody>
+                  {% set typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'unbezahlt': 'Unbezahlt', 'hotel': 'Hotelübernachtung'} %}
                   {% for vtr in offene %}
                   <tr>
                     <td class="ps-3 align-middle fw-semibold">{{ vtr.abwesender }}</td>
                     <td class="align-middle small">{{ vtr.von }} – {{ vtr.bis }}</td>
-                    <td class="align-middle small text-muted">{% if vtr.vertreter %}{{ vtr.vertreter }}{% else %}nur Urlaub{% endif %}</td>
+                    <td class="align-middle small text-muted">
+                      {% if vtr.vertreter %}{{ vtr.vertreter }}{% else %}{{ typ_label.get(vtr.typ, 'Urlaub') }}{% endif %}
+                      {% if vtr.typ == 'hotel' %}: {{ vtr.hotel_name_adresse }} ({{ '%.2f'|format(vtr.hotel_kosten_pro_nacht) }} €/Nacht){% endif %}
+                    </td>
                     <td class="pe-2 text-end align-middle">
                       <form method="POST" action="{{ url_for('admin_vertretung_bestaetigen', vtr_id=vtr.id) }}" style="display:inline">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -615,13 +637,11 @@
                           <i class="bi bi-check-lg me-1"></i>Bestätigen
                         </button>
                       </form>
-                      <form method="POST" action="{{ url_for('admin_vertretung_ablehnen', vtr_id=vtr.id) }}" style="display:inline"
-                            onsubmit="return confirm('Antrag von {{ vtr.abwesender }} ablehnen?')">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <button type="submit" class="btn btn-outline-danger btn-sm ms-1">
-                          <i class="bi bi-x-lg me-1"></i>Ablehnen
-                        </button>
-                      </form>
+                      <button type="button" class="btn btn-outline-danger btn-sm ms-1 vertretung-ablehnen-btn"
+                              data-action="{{ url_for('admin_vertretung_ablehnen', vtr_id=vtr.id) }}"
+                              data-name="{{ vtr.abwesender }}">
+                        <i class="bi bi-x-lg me-1"></i>Ablehnen
+                      </button>
                     </td>
                   </tr>
                   {% endfor %}
@@ -635,11 +655,12 @@
                 <tr><th>Abwesend</th><th>Vertretung</th><th>Von</th><th>Bis</th><th></th></tr>
               </thead>
               <tbody>
+                {% set typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'unbezahlt': 'Unbezahlt', 'hotel': 'Hotelübernachtung'} %}
                 {% for vtr in vertretungen %}
                 {% set heute = now.date().isoformat() %}
                 <tr {% if vtr.von <= heute <= vtr.bis %}style="background:#f0faf0"{% endif %}>
                   <td>{{ vtr.abwesender }}</td>
-                  <td>{% if vtr.vertreter %}{{ vtr.vertreter }}{% else %}<span class="badge bg-warning text-dark" style="font-size:.62rem">Urlaub</span>{% endif %}</td>
+                  <td>{% if vtr.vertreter %}{{ vtr.vertreter }}{% else %}<span class="badge bg-warning text-dark" style="font-size:.62rem">{{ typ_label.get(vtr.typ, 'Urlaub') }}{% if vtr.typ == 'hotel' %}: {{ vtr.hotel_name_adresse }} ({{ '%.2f'|format(vtr.hotel_kosten_pro_nacht) }} €/Nacht){% endif %}</span>{% endif %}</td>
                   <td><small>{{ vtr.von }}</small></td>
                   <td><small>{{ vtr.bis }}</small></td>
                   <td class="text-center">
@@ -648,11 +669,9 @@
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="btn btn-success btn-sm py-0 px-1" title="Bestätigen"><i class="bi bi-check-lg"></i></button>
                       </form>
-                      <form method="POST" action="{{ url_for('admin_vertretung_ablehnen', vtr_id=vtr.id) }}" style="display:inline"
-                            onsubmit="return confirm('Urlaubsantrag ablehnen?')">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <button type="submit" class="btn btn-outline-warning btn-sm py-0 px-1" title="Ablehnen"><i class="bi bi-x-lg"></i></button>
-                      </form>
+                      <button type="button" class="btn btn-outline-warning btn-sm py-0 px-1 vertretung-ablehnen-btn" title="Ablehnen"
+                              data-action="{{ url_for('admin_vertretung_ablehnen', vtr_id=vtr.id) }}"
+                              data-name="{{ vtr.abwesender }}"><i class="bi bi-x-lg"></i></button>
                     {% elif vtr.status == 'abgelehnt' %}
                       <span class="badge bg-danger" style="font-size:.62rem">Abgelehnt</span>
                     {% elif vtr.von <= heute <= vtr.bis %}
@@ -673,7 +692,7 @@
             </table>
             {% else %}
             <p class="text-muted small text-center py-4 mb-0">
-              <i class="bi bi-calendar-x me-1"></i>Keine Urlaubs- oder Vertretungsregelungen vorhanden
+              <i class="bi bi-calendar-x me-1"></i>Keine Urlaubs- oder Antragsregelungen vorhanden
             </p>
             {% endif %}
           </div>
@@ -826,6 +845,30 @@
           <i class="bi bi-shield-check me-1"></i>
           Enthält Excel-Jahresübersicht + Foto-ZIP des Vormonats.
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hotelübernachtung-Report monatlich -->
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header" style="background:linear-gradient(135deg,#7d3c98,#a569bd)">
+        <i class="bi bi-building me-2"></i>Hotelübernachtung – Report
+      </div>
+      <div class="card-body">
+        <p class="small text-muted mb-3">
+          <i class="bi bi-info-circle me-1"></i>
+          Automatisch am 1. jeden Monats um 08:35 Uhr an
+          <code>{{ export_email or 'nicht konfiguriert' }}</code>:
+          Excel-Liste aller genehmigten Hotelübernachtungen des Vormonats
+          (Mitarbeiter, Zeitraum, Hotel, Kosten pro Nacht, Gesamtkosten).
+        </p>
+        <form method="post" action="{{ url_for('admin_hotel_report_jetzt_senden') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-primary w-100" {% if not export_email %}disabled{% endif %}>
+            <i class="bi bi-send me-2"></i>Hotel-Report jetzt senden
+          </button>
+        </form>
       </div>
     </div>
   </div>
@@ -1191,6 +1234,9 @@ document.getElementById('modalRolle').addEventListener('show.bs.modal', function
               {% if tanken_modus %}
               <option value="Firmenwagen-Tanken">Firmenwagen-Tanken (Sonderkategorie)</option>
               {% endif %}
+              {% if gratisware_modus %}
+              <option value="Verleger">Verleger (Sonderkategorie)</option>
+              {% endif %}
             </select>
           </div>
           <div class="mb-3">
@@ -1265,6 +1311,9 @@ document.getElementById('modalRolle').addEventListener('show.bs.modal', function
               <option value="Sonstiges">Sonstiges</option>
               {% if tanken_modus %}
               <option value="Firmenwagen-Tanken">Firmenwagen-Tanken (Sonderkategorie)</option>
+              {% endif %}
+              {% if gratisware_modus %}
+              <option value="Verleger">Verleger (Sonderkategorie)</option>
               {% endif %}
             </select>
           </div>

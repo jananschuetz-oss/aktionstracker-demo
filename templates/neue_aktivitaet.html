@@ -77,6 +77,10 @@
     <i class="bi bi-fuel-pump-fill me-1"></i>Firmenwagen-Tanken — bitte den Tankbeleg als Foto hochladen (Pflicht), Notiz optional.
   </div>
 
+  <div class="alert d-none mb-4" id="verlegerHinweis" style="background:#fff8ec;border:1px solid #c8860a;color:#7a5306">
+    <i class="bi bi-box-seam-fill me-1"></i>Verleger — bitte die abgeholten Kisten fotografieren (Pflicht) und die Menge unten eintragen.
+  </div>
+
   {% if bestellung_info %}
   <div class="card mb-4" style="border-color:#2e6da4;background:#f0f6ff">
     <div class="card-body py-3 px-3">
@@ -195,6 +199,17 @@
           </div>
           <p class="text-muted small mb-0 mt-2">
             <i class="bi bi-info-circle me-1"></i>Fahrer und Ort werden automatisch aus Ihrem Login und der gewählten Tankstelle übernommen.
+          </p>
+        </div>
+      </div>
+
+      <div class="card mb-0 mt-3 d-none" id="verlegerDatenCard">
+        <div class="card-header"><i class="bi bi-box-seam me-2"></i>Gratisware Verleger</div>
+        <div class="card-body">
+          <label class="form-label">Abgeholte Menge (Kisten) <span class="text-danger">*</span></label>
+          <input type="text" inputmode="numeric" name="verleger_kisten" id="verlegerKisten" class="form-control" placeholder="z.B. 5">
+          <p class="text-muted small mb-0 mt-2">
+            <i class="bi bi-info-circle me-1"></i>Fließt automatisch in die Gratisware-Auswertung und den Gratisware-Report ein.
           </p>
         </div>
       </div>
@@ -578,9 +593,9 @@ function updateHomeofficeUI() {
     if (stern) stern.style.display = 'none';
     if (pHint) pHint.textContent = '(optional)';
   } else {
-    if (!isTankenAktiv() && typCard) typCard.style.display = '';
+    if (!isTankenAktiv() && !isVerlegerAktiv() && typCard) typCard.style.display = '';
     if (hinweis)  hinweis.classList.add('d-none');
-    if (!isTankenAktiv()) setTyp(document.getElementById('aktionstyp').value || 'Aufbau');
+    if (!isTankenAktiv() && !isVerlegerAktiv()) setTyp(document.getElementById('aktionstyp').value || 'Aufbau');
   }
 }
 
@@ -603,7 +618,31 @@ function updateTankenUI() {
   } else {
     if (hinweis)  hinweis.classList.add('d-none');
     if (tankCard) tankCard.classList.add('d-none');
-    if (!isHomeofficeAktiv() && typCard) typCard.style.display = '';
+    if (!isHomeofficeAktiv() && !isVerlegerAktiv() && typCard) typCard.style.display = '';
+  }
+}
+
+// ── Verleger: geteilte Sonderkategorie (Kisten-Abholstelle) → reduziertes Formular wie
+// Tanken (Foto bleibt Pflicht, die abgeholten Kisten werden fotografiert), aber statt
+// Tankbeleg-Daten gibt es ein einzelnes Pflichtfeld für die Menge "Gratisware Verleger". ──
+const VERLEGER_VS_IDS = {{ verleger_vs_ids | tojson }};
+function isVerlegerAktiv() {
+  return VERLEGER_VS_IDS.includes(parseInt(document.getElementById('vsId').value, 10));
+}
+function updateVerlegerUI() {
+  const verleger     = isVerlegerAktiv();
+  const typCard      = document.getElementById('typCard');
+  const hinweis      = document.getElementById('verlegerHinweis');
+  const verlegerCard = document.getElementById('verlegerDatenCard');
+  if (verleger) {
+    setTyp('Besuch');
+    if (typCard)      typCard.style.display = 'none';
+    if (hinweis)       hinweis.classList.remove('d-none');
+    if (verlegerCard)  verlegerCard.classList.remove('d-none');
+  } else {
+    if (hinweis)       hinweis.classList.add('d-none');
+    if (verlegerCard)  verlegerCard.classList.add('d-none');
+    if (!isHomeofficeAktiv() && !isTankenAktiv() && typCard) typCard.style.display = '';
   }
 }
 
@@ -619,6 +658,13 @@ function tankDatenVollstaendig() {
     && ['Diesel', 'Benzin', 'Super'].includes(sorte)
     && !isNaN(liter) && liter > 0
     && kmStand !== '' && parseInt(kmStand, 10) >= 0;
+}
+
+// ── Verleger-Kisten: Pflichtfeld, wenn Verleger aktiv ──────────────────────────
+function verlegerVollstaendig() {
+  if (!isVerlegerAktiv()) return true;
+  const wert = document.getElementById('verlegerKisten').value;
+  return wert !== '' && parseInt(wert, 10) >= 0;
 }
 
 // ── KONZEPT-V2: Aktivitätstyp steuert die sichtbaren Felder ────────────────────
@@ -753,11 +799,13 @@ document.querySelectorAll('.disp-input, .bier-input').forEach(el => {
 // ── VS-Suche ─────────────────────────────────────────────────────────────────
 const VS_DATA = [
   {% for vs in verkaufsstellen %}
-  { id: {{ vs.id }}, label: "{{ vs.name }}{% if vs.strasse %} – {{ vs.strasse }}{% if vs.ort %}, {{ vs.ort }}{% endif %}{% elif vs.ort %} – {{ vs.ort }}{% endif %}{% if vs.typ %} ({{ vs.typ }}){% endif %}", gruppe: null },
+  {%- set srch = (vs.name ~ ' ' ~ (vs.strasse or '') ~ ' ' ~ (vs.plz or '') ~ ' ' ~ (vs.ort or '') ~ ' ' ~ (vs.landkreis or '') ~ ' ' ~ (vs.typ or '') ~ ' ' ~ (vs.lieferant or '')) | lower -%}
+  { id: {{ vs.id }}, label: "{{ vs.name }}{% if vs.strasse %} – {{ vs.strasse }}{% if vs.ort %}, {{ vs.ort }}{% endif %}{% elif vs.ort %} – {{ vs.ort }}{% endif %}{% if vs.typ %} ({{ vs.typ }}){% endif %}", search: {{ srch | tojson }}, gruppe: null },
   {% endfor %}
   {% for gruppe in vertretungs_gruppen %}
     {% for vs in gruppe.vs %}
-  { id: {{ vs.id }}, label: "{{ vs.name }}{% if vs.strasse %} – {{ vs.strasse }}{% if vs.ort %}, {{ vs.ort }}{% endif %}{% elif vs.ort %} – {{ vs.ort }}{% endif %}{% if vs.typ %} ({{ vs.typ }}){% endif %}", gruppe: "Vertretung: {{ gruppe.name }}" },
+  {%- set srch = (vs.name ~ ' ' ~ (vs.strasse or '') ~ ' ' ~ (vs.plz or '') ~ ' ' ~ (vs.ort or '') ~ ' ' ~ (vs.landkreis or '') ~ ' ' ~ (vs.typ or '') ~ ' ' ~ (vs.lieferant or '')) | lower -%}
+  { id: {{ vs.id }}, label: "{{ vs.name }}{% if vs.strasse %} – {{ vs.strasse }}{% if vs.ort %}, {{ vs.ort }}{% endif %}{% elif vs.ort %} – {{ vs.ort }}{% endif %}{% if vs.typ %} ({{ vs.typ }}){% endif %}", search: {{ srch | tojson }}, gruppe: "Vertretung: {{ gruppe.name }}" },
     {% endfor %}
   {% endfor %}
 ];
@@ -894,7 +942,7 @@ function stornoBestellung(bid, grund) {
 
 function vsRenderDropdown(term) {
   const t = term.toLowerCase().trim();
-  const filtered = t.length === 0 ? VS_DATA : VS_DATA.filter(v => v.label.toLowerCase().includes(t));
+  const filtered = t.length === 0 ? VS_DATA : VS_DATA.filter(v => (v.search || v.label.toLowerCase()).includes(t));
   if (filtered.length === 0) {
     vsDropdown.innerHTML = '<div class="dropdown-item text-muted">Keine Treffer</div>';
   } else {
@@ -920,7 +968,8 @@ function vsSelect(id, label) {
   vsClear.classList.remove('d-none');
   updateHomeofficeUI();
   updateTankenUI();
-  if (isHomeofficeAktiv()) {
+  updateVerlegerUI();
+  if (isHomeofficeAktiv() || isVerlegerAktiv()) {
     document.getElementById('vsZonenContainer').style.display = 'none';
   } else {
     document.getElementById('vsZonenContainer').style.display = 'block';
@@ -939,6 +988,7 @@ function vsClearSelection() {
   document.getElementById('erledigtIds').value = '';
   updateHomeofficeUI();
   updateTankenUI();
+  updateVerlegerUI();
   vsSearch.focus();
 }
 
@@ -1030,10 +1080,10 @@ document.getElementById('aktivForm').addEventListener('submit', function(e) {
     return;
   }
   // KONZEPT-V2: Foto nur beim Aufbau Pflicht (sichtbar prüfen statt still blockieren) –
-  // außer bei Firmenwagen-Tanken, da dort trotz aktionstyp='Besuch' weiter ein Foto
-  // (Tankbeleg) nötig ist.
+  // außer bei Firmenwagen-Tanken/Verleger, da dort trotz aktionstyp='Besuch' weiter ein
+  // Foto (Tankbeleg bzw. abgeholte Kisten) nötig ist.
   const typ = document.getElementById('aktionstyp').value;
-  if ((typ === 'Aufbau' || isTankenAktiv()) && !hatFoto()) {
+  if ((typ === 'Aufbau' || isTankenAktiv() || isVerlegerAktiv()) && !hatFoto()) {
     e.preventDefault();
     const block = document.getElementById('fotoBlock');
     let hint = document.getElementById('fotoPflichtFehler');
@@ -1043,10 +1093,26 @@ document.getElementById('aktivForm').addEventListener('submit', function(e) {
       hint.className = 'alert alert-danger py-2 mt-2 mb-0';
       hint.innerHTML = isTankenAktiv()
         ? '<i class="bi bi-exclamation-triangle me-1"></i>Bitte den Tankbeleg als Foto hochladen.'
+        : isVerlegerAktiv()
+        ? '<i class="bi bi-exclamation-triangle me-1"></i>Bitte ein Foto der abgeholten Kisten hochladen.'
         : '<i class="bi bi-exclamation-triangle me-1"></i>Beim <strong>Aufbau</strong> ist ein Foto Pflicht. Bitte Kamera oder Galerie nutzen.';
       block.appendChild(hint);
     }
     block.scrollIntoView({behavior:'smooth', block:'center'});
+    return;
+  }
+  if (!verlegerVollstaendig()) {
+    e.preventDefault();
+    const card = document.getElementById('verlegerDatenCard');
+    let hint = document.getElementById('verlegerPflichtFehler');
+    if (!hint) {
+      hint = document.createElement('div');
+      hint.id = 'verlegerPflichtFehler';
+      hint.className = 'alert alert-danger py-2 mt-2 mb-0';
+      hint.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>Bitte die abgeholte Menge eintragen.';
+      card.appendChild(hint);
+    }
+    card.scrollIntoView({behavior:'smooth', block:'center'});
     return;
   }
   if (!tankDatenVollstaendig()) {
@@ -1214,6 +1280,7 @@ setTyp('{{ preselect_typ }}');
 {% endif %}
 updateHomeofficeUI();
 updateTankenUI();
+updateVerlegerUI();
 
 // Uhrzeiten auf 5-Minuten-Schritte runden (iOS ignoriert step="300")
 (function() {
