@@ -345,9 +345,18 @@
                       style="display:inline"
                       onsubmit="return confirm('Display-Typ „{{ d.name }}" deaktivieren?')">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1"
+                          title="Deaktivieren (bleibt in Historie erhalten)">
+                    <i class="bi bi-eye-slash"></i>
+                  </button>
+                </form>
+                <form method="POST" action="{{ url_for('admin_display_hart_loeschen', ds_id=d.id) }}"
+                      style="display:inline"
+                      onsubmit="return confirm('Display-Typ „{{ d.name }}" ENDGÜLTIG löschen? Das geht nur, wenn er in keiner Aktivität verwendet wurde, und kann nicht rückgängig gemacht werden.')">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"
-                          title="Deaktivieren">
-                    <i class="bi bi-x"></i>
+                          title="Endgültig löschen (nur wenn unbenutzt)">
+                    <i class="bi bi-trash"></i>
                   </button>
                 </form>
                 {% else %}
@@ -396,8 +405,24 @@
                 {% endif %}
               </td>
               <td><small class="text-muted">{{ b.einheit }}</small></td>
-              <td class="text-center">
+              <td class="text-center text-nowrap">
                 {% if b.aktiv %}
+                <form method="POST" action="{{ url_for('admin_bier_verschieben', b_id=b.id) }}" style="display:inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="richtung" value="hoch">
+                  <button type="submit" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1" title="Nach oben"
+                          {% if loop.first %}disabled{% endif %}>
+                    <i class="bi bi-arrow-up"></i>
+                  </button>
+                </form>
+                <form method="POST" action="{{ url_for('admin_bier_verschieben', b_id=b.id) }}" style="display:inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="richtung" value="runter">
+                  <button type="submit" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1" title="Nach unten"
+                          {% if loop.last %}disabled{% endif %}>
+                    <i class="bi bi-arrow-down"></i>
+                  </button>
+                </form>
                 <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1"
                         title="Bearbeiten"
                         data-bs-toggle="modal"
@@ -503,6 +528,47 @@
                   <i class="bi bi-download me-1"></i>Vorlage herunterladen
                 </a>
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Historische Werte -->
+<div class="row g-4 mt-2">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header" style="background:linear-gradient(135deg,#1a3a5c,#2e6da4)">
+        <i class="bi bi-clock-history me-2"></i>Historische Werte importieren
+      </div>
+      <div class="card-body">
+        <div class="row align-items-center g-3">
+          <div class="col-md-6">
+            <p class="small text-muted mb-2">
+              <i class="bi bi-info-circle me-1"></i>
+              Backfill für Jahre vor der digitalen Erfassung – pro Kunde und Monat.
+              Wird als Vorjahreswert in Kundenhistorie und Verkaufsstellen-Vergleich verwendet, sobald für
+              den jeweiligen Monat keine echten Aktivitäten erfasst sind.
+            </p>
+            <form method="POST" action="{{ url_for('admin_import_historische_werte') }}" enctype="multipart/form-data"
+                  onsubmit="return confirm('Historische Werte importieren? Bereits vorhandene Monatswerte für dieselbe Verkaufsstelle/denselben Monat werden überschrieben.')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <div class="input-group">
+                <input type="file" name="datei" class="form-control form-control-sm"
+                       accept=".xlsx,.xls" required>
+                <button type="submit" class="btn btn-primary btn-sm">
+                  <i class="bi bi-upload me-1"></i>Importieren
+                </button>
+              </div>
+            </form>
+          </div>
+          <div class="col-md-6">
+            <div class="bg-light rounded p-3" style="font-size:.82rem">
+              <div class="fw-bold text-primary mb-2"><i class="bi bi-table me-1"></i>Erwartete Spalten (1 Blatt):</div>
+              <div>Kundennummer <span class="text-muted">(oder ersatzweise Name + Ort)</span> · Jahr · Monat · Besuche · Bestellungen · Kisten</div>
+              <div class="text-muted mt-1">Zuordnung zur Verkaufsstelle per Kundennummer, sonst per Name+Ort. Nicht zuordenbare Zeilen werden als Fehler zurückgemeldet.</div>
             </div>
           </div>
         </div>

@@ -36,6 +36,7 @@ import threading
 import functools
 import holidays as _holidays_lib
 import re
+import html as html_lib
 
 app = Flask(__name__)
 _SECRET_KEY = os.environ.get('SECRET_KEY')
@@ -143,6 +144,14 @@ BACKUP_FOLDER = os.path.join(os.path.dirname(__file__), 'backups')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(BACKUP_FOLDER, exist_ok=True)
 
+# ── Cloudflare R2 Offsite-Backup (optional, von Arco portiert) ────────────────
+R2_ACCOUNT_ID         = os.environ.get('R2_ACCOUNT_ID', '')
+R2_ACCESS_KEY_ID      = os.environ.get('R2_ACCESS_KEY_ID', '')
+R2_SECRET_ACCESS_KEY  = os.environ.get('R2_SECRET_ACCESS_KEY', '')
+R2_BUCKET_NAME        = os.environ.get('R2_BUCKET_NAME', '')
+R2_ENDPOINT           = os.environ.get('R2_ENDPOINT') or (
+    f'https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com' if R2_ACCOUNT_ID else '')
+
 # ── E-Mail-Konfiguration (via Umgebungsvariablen setzen) ──────────────────────
 # Railway: Settings → Variables → diese Variablen eintragen
 MAIL_SERVER   = os.environ.get('MAIL_SERVER',   '')          # z.B. smtp.gmail.com
@@ -201,6 +210,12 @@ def check_session_lifetime():
 # Hotel) - Typ->Label-Zuordnung global verfügbar machen, damit alle Stellen konsistent sind.
 _AZ_TYP_BADGE_LABEL = {'urlaub': 'Urlaub', 'sonderurlaub': 'Urlaub', 'frei_sonderurlaub': 'Urlaub',
                         'krankheit': 'AU', 'unbezahlt': 'Unbezahlt', 'hotel': 'Hotel'}
+_AZ_TYP_COUNT_LABEL = {'urlaub': 'Urlaub', 'sonderurlaub': 'Sonderurlaub', 'frei_sonderurlaub': 'Frei/Sonderurlaub',
+                        'krankheit': 'AU', 'unbezahlt': 'Unbezahlt'}
+_AZ_TYP_BADGE_FARBE = {'urlaub': ('#e8f5ec', '#2d8a4e'), 'sonderurlaub': ('#e8f5ec', '#2d8a4e'),
+                        'frei_sonderurlaub': ('#e8f5ec', '#2d8a4e'), 'krankheit': ('#fdeceb', '#c0392b'),
+                        'unbezahlt': ('#f1ecfa', '#7a5fb0'), 'hotel': ('#fff3e0', '#c8860a')}
+_AZ_TYP_PRIORITAET = ['krankheit', 'unbezahlt', 'urlaub', 'sonderurlaub', 'frei_sonderurlaub', 'hotel']
 
 
 @app.context_processor
@@ -473,6 +488,42 @@ def backup_db():
                 os.remove(os.path.join(BACKUP_FOLDER, alt))
             except Exception:
                 pass
+        _backup_offsite_hochladen(backup_pfad, heute)
+
+
+def _backup_offsite_hochladen(backup_pfad: str, datum_str: str):
+    """Offsite-Kopie des täglichen DB-Backups nach Cloudflare R2: vorher lagen Live-DB und
+    alle 7 Tages-Backups nur auf demselben Railway-Volume – bei Kompromittierung/Verlust des
+    Containers wären beide gleichermaßen betroffen. Verschlüsselt mit Fernet, falls
+    BACKUP_ENCRYPTION_KEY gesetzt ist – sonst unverschlüsselter Upload mit Warnung im Log
+    (Datenbank enthält personenbezogene Daten, daher kein stiller Fallback). Von Arco
+    portiert; no-op (loggt nichts extra), solange keine R2_*-Env-Vars gesetzt sind."""
+    if not (R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY and R2_ENDPOINT and R2_BUCKET_NAME):
+        return
+    try:
+        with open(backup_pfad, 'rb') as f:
+            data = f.read()
+        key_suffix = ''
+        _enc_key = os.environ.get('BACKUP_ENCRYPTION_KEY', '').strip()
+        if _enc_key:
+            from cryptography.fernet import Fernet
+            data = Fernet(_enc_key.encode()).encrypt(data)
+            key_suffix = '.enc'
+        else:
+            app.logger.warning("BACKUP_ENCRYPTION_KEY nicht gesetzt – Offsite-DB-Backup wird unverschlüsselt hochgeladen.")
+        import boto3
+        from botocore.config import Config
+        client = boto3.client(
+            's3', endpoint_url=R2_ENDPOINT,
+            aws_access_key_id=R2_ACCESS_KEY_ID, aws_secret_access_key=R2_SECRET_ACCESS_KEY,
+            config=Config(signature_version='s3v4'), region_name='auto',
+        )
+        client.put_object(
+            Bucket=R2_BUCKET_NAME, Key=f'db-backups/brewery_{datum_str}.db{key_suffix}',
+            Body=data, ContentType='application/octet-stream'
+        )
+    except Exception as exc:
+        app.logger.warning(f"Offsite-DB-Backup-Upload fehlgeschlagen: {exc}")
 
 
 def cleanup_alte_fotos():
@@ -558,6 +609,247 @@ def _az_fmt_std(minuten):
     if minuten is None:
         return '–'
     return f"{minuten // 60}h {minuten % 60:02d}min"
+
+
+def _urlaub_badge_html(infos) -> str:
+    """Badge(s) für die live Arbeitszeit-Übersicht (Tag/Woche): zeigt statt eines
+    kommentarlosen '–' bei fehlender Arbeitszeit direkt den/die Abwesenheitsgrund/-gründe an.
+    Nimmt sowohl ein einzelnes Dict (Rückwärtskompatibilität) als auch eine Liste von Dicts
+    entgegen (mehrere sich überschneidende Abwesenheiten am selben Tag, siehe
+    _urlaub_daten_alle()) – rendert dann mehrere Badges nebeneinander statt nur eines.
+    Von Arco portiert."""
+    if not infos:
+        return ''
+    if isinstance(infos, dict):
+        infos = [infos]
+    badges = []
+    for info in infos:
+        typ = info.get('typ')
+        bg, fg = _AZ_TYP_BADGE_FARBE.get(typ, ('#e2e8f0', '#495057'))
+        label = _AZ_TYP_BADGE_LABEL.get(typ, 'Abwesend')
+        grund = info.get('grund')
+        titel = f' title="{html_lib.escape(grund)}"' if grund else ''
+        badges.append(f'<span class="badge" style="background:{bg};color:{fg};font-size:.72rem"{titel}>'
+                       f'<i class="bi bi-sun me-1"></i>{label}</span>')
+    return ' '.join(badges)
+
+
+def _arbeitszeit_tage_zaehlen(von: date, bis: date, gearbeitete_tage: set, ma_id: int, urlaub_map: dict) -> dict:
+    """Zählt Werktage (Mo–Fr) im Zeitraum: gearbeitet vs. je Abwesenheitstyp (aus
+    _urlaub_daten()/_urlaub_daten_alle() – akzeptiert pro Tag sowohl ein einzelnes Dict als
+    auch eine Liste mehrerer sich überschneidender Abwesenheiten). Ein Tag mit tatsächlich
+    erfasster Arbeitszeit zählt immer als Arbeitstag, auch wenn er zufällig in einen
+    Abwesenheitszeitraum fällt. Bei mehreren gleichzeitigen Abwesenheiten an einem Tag zählt
+    jeder Typ einzeln mit. Wochenenden fließen bewusst nicht ein, da an ihnen ohnehin nicht
+    gearbeitet wird. Von Arco portiert."""
+    arbeitstage = 0
+    typ_counts = {}
+    d = von
+    while d <= bis:
+        if d.weekday() < 5:
+            ds = d.isoformat()
+            if ds in gearbeitete_tage:
+                arbeitstage += 1
+            else:
+                info = urlaub_map.get((ma_id, ds))
+                if info:
+                    for eintrag in ([info] if isinstance(info, dict) else info):
+                        typ_counts[eintrag['typ']] = typ_counts.get(eintrag['typ'], 0) + 1
+        d += timedelta(days=1)
+    return {'arbeitstage': arbeitstage, 'typen': typ_counts}
+
+
+# Standard-Tagesstunden für Abwesenheitstage: Hotel zählt bewusst NICHT dazu – eine
+# Übernachtung ist reine Zählung neben der eigentlichen Arbeit, keine Abwesenheit. Die
+# anderen vier Typen ersetzen einen fehlenden Arbeitszeit-Eintrag durch einen Sollwert, wenn
+# der Mitarbeiter eine vertragliche Wochenarbeitszeit hinterlegt hat. Von Arco portiert.
+_AZ_TYP_ANRECHENBAR = {'urlaub', 'sonderurlaub', 'frei_sonderurlaub', 'krankheit', 'unbezahlt'}
+
+
+def _az_standard_tag_minuten(wochenarbeitszeit_stunden) -> int | None:
+    """Wochenarbeitszeit ÷ 5 Werktage, in Minuten. None, wenn kein Wert hinterlegt ist –
+    dann bleibt das bisherige Verhalten (kein Aufschlag, '–' bei Abwesenheit) unverändert."""
+    if not wochenarbeitszeit_stunden:
+        return None
+    return round(wochenarbeitszeit_stunden * 60 / 5)
+
+
+def _az_tag_anrechnung_minuten(datum_iso: str, ma_id: int, urlaub_map: dict, wochenarbeitszeit_stunden) -> int | None:
+    """Anrechenbare Minuten für EINEN Tag ohne erfassten Arbeitszeit-Eintrag, wenn dort eine
+    anrechenbare Abwesenheit vorliegt – sonst None. Für die tagesgenaue Anzeige (Wochenansicht)."""
+    tag_minuten = _az_standard_tag_minuten(wochenarbeitszeit_stunden)
+    if not tag_minuten:
+        return None
+    info = urlaub_map.get((ma_id, datum_iso))
+    if not info:
+        return None
+    eintraege = [info] if isinstance(info, dict) else info
+    if not any(e['typ'] in _AZ_TYP_ANRECHENBAR for e in eintraege):
+        return None
+    return tag_minuten
+
+
+def _az_anrechnung_minuten(zaehlung_typen: dict, wochenarbeitszeit_stunden) -> int:
+    """Anrechenbare Gesamtminuten für einen Zeitraum, aus den Typ-Zählungen von
+    _arbeitszeit_tage_zaehlen(). Für Wochen-/Monatssummen (PDF, Team-Monatsansicht), wo keine
+    tagesgenaue Anzeige nötig ist – zählt jeden anrechenbaren Abwesenheitstag einmal."""
+    tag_minuten = _az_standard_tag_minuten(wochenarbeitszeit_stunden)
+    if not tag_minuten:
+        return 0
+    anzahl = sum(n for typ, n in zaehlung_typen.items() if typ in _AZ_TYP_ANRECHENBAR)
+    return anzahl * tag_minuten
+
+
+def _arbeitszeit_abwesenheit_zeile_html(zaehlung: dict) -> str:
+    """Baut die kleine graue Kontext-Zeile unter Name/KW: 'X Arbeitstage · Y Urlaub · Z Krank'
+    plus farbiges Badge für die auffälligste Abwesenheitsart der Periode. Von Arco portiert."""
+    arbeitstage = zaehlung['arbeitstage']
+    typen = zaehlung['typen']
+    teile = [f"{arbeitstage} Arbeitstag" + ('e' if arbeitstage != 1 else '')]
+    for typ in _AZ_TYP_PRIORITAET:
+        n = typen.get(typ, 0)
+        if not n:
+            continue
+        if typ == 'hotel':
+            teile.append(f"{n} Übernachtung" + ('en' if n != 1 else ''))
+        else:
+            teile.append(f"{n} {_AZ_TYP_COUNT_LABEL[typ]}")
+    text = ' · '.join(teile)
+    fuehrend = next((t for t in _AZ_TYP_PRIORITAET if typen.get(t)), None)
+    badge = ''
+    if fuehrend:
+        bg, fg = _AZ_TYP_BADGE_FARBE[fuehrend]
+        badge = (f'<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:9px;'
+                  f'font-weight:bold;background:{bg};color:{fg};margin-right:5px">{_AZ_TYP_BADGE_LABEL[fuehrend]}</span>')
+    return f'<div style="color:#888;font-size:10px;margin-top:2px">{badge}{text}</div>'
+
+
+def _arbeitszeit_pdf_seite_html(von: date, bis: date, team_id: int | None = None, monatsmodus: bool = False) -> str:
+    """Baut den HTML-Block für die Arbeitszeit-Seite (Seite 2) im Wochen-/Monatsbericht-PDF.
+    Wochenmodus: eine Zeile je Mitarbeiter mit der Gesamtstundenzahl im Zeitraum. Monatsmodus:
+    zusätzlich nach Kalenderwochen aufgeschlüsselt, inkl. Wochen ganz ohne Arbeitsstunden (z.B.
+    komplette Urlaubswoche), damit sie nicht einfach verschwinden. team_id filtert wie der
+    übrige Report auf ein einzelnes Team (Multi-Team-Versand). Unter Name/KW steht zusätzlich
+    eine Kontext-Zeile mit Arbeitstagen + Abwesenheitstagen (Urlaub/Krankheit/Unbezahlt/Hotel,
+    aus der vertretung-Tabelle über _urlaub_daten()), damit z.B. "9 Std." nicht unerklärt
+    dasteht, wenn jemand nur einen Tag im Dienst war. Mitarbeiter ganz ohne Arbeitszeit-Eintrag
+    UND ohne Abwesenheit im Zeitraum zeigen „–" statt 0, um „nicht erfasst" von „0 Std.
+    gearbeitet" zu unterscheiden. page-break-before sorgt bei xhtml2pdf für den Seitenumbruch.
+    Von Arco portiert; nur aktiv wenn ARBEITSZEIT_MODUS an ist (Aufrufer prüft das)."""
+    tf, t_p = (' AND m.team_id=?', [team_id]) if team_id else ('', [])
+    mitarbeiter = query(
+        f"SELECT id, name, kuerzel, wochenarbeitszeit_stunden FROM mitarbeiter m "
+        f"WHERE rolle IN ('rep','verkaufsleiter') AND aktiv=1{tf} ORDER BY name",
+        t_p
+    ) or []
+    if not mitarbeiter:
+        return ''
+    rows = query(
+        f"SELECT az.mitarbeiter_id, az.datum, az.beginn, az.ende, az.pause_minuten "
+        f"FROM arbeitszeit az JOIN mitarbeiter m ON m.id=az.mitarbeiter_id "
+        f"WHERE az.datum BETWEEN ? AND ?{tf}",
+        [von.isoformat(), bis.isoformat()] + t_p
+    ) or []
+    by_ma = {}
+    for r in rows:
+        by_ma.setdefault(r['mitarbeiter_id'], []).append(r)
+    urlaub_map = _urlaub_daten_alle([m['id'] for m in mitarbeiter], von.isoformat(), bis.isoformat())
+
+    if monatsmodus:
+        kopf = ('<th style="padding:8px 10px;text-align:left;font-size:10px;color:#666;font-weight:600;letter-spacing:.5px">MITARBEITER</th>'
+                '<th style="padding:8px 10px;text-align:left;font-size:10px;color:#666;font-weight:600;letter-spacing:.5px">KW</th>'
+                '<th style="padding:8px 10px;text-align:right;font-size:10px;color:#666;font-weight:600;letter-spacing:.5px">STUNDEN</th>')
+        koerper = ''
+        for m in mitarbeiter:
+            ma_rows = by_ma.get(m['id'], [])
+            netto_je_tag = {}
+            for r in ma_rows:
+                netto = _az_netto_minuten(r['beginn'], r['ende'], r['pause_minuten'])
+                if netto:
+                    netto_je_tag[r['datum']] = netto_je_tag.get(r['datum'], 0) + netto
+            gearbeitete_tage = set(netto_je_tag.keys())
+
+            # Pro Kalenderwoche (Mo–Fr) im Berichtszeitraum: Stunden + Tage-Zählung – auch Wochen
+            # ganz ohne Arbeitsstunden werden erfasst, damit eine komplette Urlaubswoche nicht
+            # einfach aus der Tabelle verschwindet.
+            wochen_stunden, wochen_zaehlung = {}, {}
+            d = von
+            while d <= bis:
+                if d.weekday() < 5:
+                    kw = d.isocalendar()[1]
+                    wochen_stunden.setdefault(kw, [])
+                    wochen_zaehlung.setdefault(kw, (d, d))
+                    start, _ = wochen_zaehlung[kw]
+                    wochen_zaehlung[kw] = (start, d)
+                    ds = d.isoformat()
+                    if ds in netto_je_tag:
+                        wochen_stunden[kw].append(netto_je_tag[ds])
+                d += timedelta(days=1)
+
+            aktive_kws = [kw for kw in sorted(wochen_stunden)
+                          if wochen_stunden[kw] or any(
+                              (m['id'], (wochen_zaehlung[kw][0] + timedelta(days=i)).isoformat()) in urlaub_map
+                              for i in range((wochen_zaehlung[kw][1] - wochen_zaehlung[kw][0]).days + 1)
+                          )]
+            if not aktive_kws:
+                koerper += (f'<tr><td style="padding:6px 10px;font-weight:600;color:#1a3a5c">{m["name"]}</td>'
+                            f'<td style="padding:6px 10px;color:#999">–</td><td style="padding:6px 10px;text-align:right;color:#999">–</td></tr>')
+                continue
+            gesamt_stunden = 0
+            gesamt_zaehlung = {'arbeitstage': 0, 'typen': {}}
+            for i, kw in enumerate(aktive_kws):
+                kw_start, kw_ende = wochen_zaehlung[kw]
+                zaehlung = _arbeitszeit_tage_zaehlen(kw_start, kw_ende, gearbeitete_tage, m['id'], urlaub_map)
+                kw_stunden = sum(wochen_stunden[kw]) + _az_anrechnung_minuten(zaehlung['typen'], m['wochenarbeitszeit_stunden'])
+                gesamt_stunden += kw_stunden
+                gesamt_zaehlung['arbeitstage'] += zaehlung['arbeitstage']
+                for typ, n in zaehlung['typen'].items():
+                    gesamt_zaehlung['typen'][typ] = gesamt_zaehlung['typen'].get(typ, 0) + n
+                stunden_fmt = _az_fmt_std(kw_stunden) if kw_stunden else '–'
+                koerper += (f'<tr><td style="padding:6px 10px;font-weight:600;color:#1a3a5c">{m["name"] if i == 0 else ""}</td>'
+                            f'<td style="padding:6px 10px;color:#555">KW {kw}{_arbeitszeit_abwesenheit_zeile_html(zaehlung)}</td>'
+                            f'<td style="padding:6px 10px;text-align:right">{stunden_fmt}</td></tr>')
+            koerper += (f'<tr style="background:#f4f8fc"><td></td>'
+                        f'<td style="padding:6px 10px;font-weight:bold;color:#1a3a5c">Gesamt{_arbeitszeit_abwesenheit_zeile_html(gesamt_zaehlung)}</td>'
+                        f'<td style="padding:6px 10px;text-align:right;font-weight:bold;color:#1a3a5c">{_az_fmt_std(gesamt_stunden)}</td></tr>')
+    else:
+        kopf = ('<th style="padding:8px 10px;text-align:left;font-size:10px;color:#666;font-weight:600;letter-spacing:.5px">MITARBEITER</th>'
+                '<th style="padding:8px 10px;text-align:right;font-size:10px;color:#666;font-weight:600;letter-spacing:.5px">STUNDEN</th>')
+        koerper = ''
+        gesamt_alle = 0
+        for m in mitarbeiter:
+            ma_rows = by_ma.get(m['id'], [])
+            netto_je_tag = {}
+            for r in ma_rows:
+                netto = _az_netto_minuten(r['beginn'], r['ende'], r['pause_minuten'])
+                if netto:
+                    netto_je_tag[r['datum']] = netto_je_tag.get(r['datum'], 0) + netto
+            zaehlung = _arbeitszeit_tage_zaehlen(von, bis, set(netto_je_tag.keys()), m['id'], urlaub_map)
+            summe = sum(netto_je_tag.values()) + _az_anrechnung_minuten(zaehlung['typen'], m['wochenarbeitszeit_stunden'])
+            gesamt_alle += summe
+            hat_kontext = zaehlung['arbeitstage'] or zaehlung['typen']
+            wert = _az_fmt_std(summe) if hat_kontext else '–'
+            kontext_zeile = _arbeitszeit_abwesenheit_zeile_html(zaehlung) if hat_kontext else ''
+            koerper += (f'<tr><td style="padding:6px 10px;font-weight:600;color:#1a3a5c">{m["name"]} '
+                        f'<span style="color:#999;font-weight:normal">({m["kuerzel"]})</span>{kontext_zeile}</td>'
+                        f'<td style="padding:6px 10px;text-align:right">{wert}</td></tr>')
+        koerper += (f'<tr style="background:#f4f8fc"><td style="padding:6px 10px;font-weight:bold;color:#1a3a5c">Team gesamt</td>'
+                    f'<td style="padding:6px 10px;text-align:right;font-weight:bold;color:#1a3a5c">{_az_fmt_std(gesamt_alle)}</td></tr>')
+
+    zeitraum_label = f"{von.strftime('%d.%m.')} – {bis.strftime('%d.%m.%Y')}"
+    return f'''
+    <div style="page-break-before:always">
+      <div style="background:#1a3a5c;padding:22px 32px">
+        <div style="color:#fff;font-size:18px;font-weight:bold">Arbeitszeit-Übersicht</div>
+        <div style="color:#90b8d8;font-size:13px;margin-top:5px">{zeitraum_label}</div>
+      </div>
+      <div style="padding:24px 32px">
+        <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e4eaf0;border-radius:8px;overflow:hidden">
+          <thead><tr style="background:#edf2f7">{kopf}</tr></thead>
+          <tbody>{koerper}</tbody>
+        </table>
+      </div>
+    </div>'''
 
 
 def komprimiere_foto(quelle, ziel_pfad: str, max_px: int = 1200, qualitaet: int = 75):
@@ -854,6 +1146,8 @@ def init_db():
             # deaktiviert): eigene Kisten-Produkte (Verleger/Kofferraum), gesondert von der
             # regulären Bestellmenge im Gratisware-Report auswertbar.
             "ALTER TABLE biersorte ADD COLUMN ist_gratisware INTEGER DEFAULT 0",
+            # Rauf/Runter-Sortierung der Biersorten-Liste im Admin (von Arco portiert).
+            "ALTER TABLE biersorte ADD COLUMN sortierung INTEGER DEFAULT 0",
             # Urlaubsantrag-PDF: Antragsdatum wird für den "Datum"-Vermerk des Mitarbeiters
             # auf dem erzeugten PDF benötigt. Kein Default-Ausdruck möglich (SQLite erlaubt
             # bei ALTER TABLE ADD COLUMN keinen nicht-konstanten DEFAULT) – wird stattdessen
@@ -3639,6 +3933,35 @@ def api_tagesplan_stopp_neu():
     return jsonify({'ok': True})
 
 
+@app.route('/api/tourenplanung/stopp/neu', methods=['POST'])
+@manager_required
+def api_tourenplanung_stopp_neu():
+    """Wie api_tagesplan_stopp_neu, aber für VKL/Admin mit explizitem mitarbeiter_id –
+    fügt einen Stopp hinzu ohne das 'Neuer Stopp'-Modal zu schließen. Von Arco portiert."""
+    data = request.get_json(silent=True) or {}
+    try:
+        ma_id = int(data.get('mitarbeiter_id'))
+        vs_id = int(data.get('vs_id'))
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'Ungültige Angaben'}), 400
+    datum = data.get('datum', date.today().isoformat())
+    notiz = (data.get('notiz') or '').strip() or None
+    ma = query("SELECT id, team_id FROM mitarbeiter WHERE id=? AND aktiv=1", (ma_id,), one=True)
+    if not ma:
+        return jsonify({'ok': False, 'error': 'Mitarbeiter nicht gefunden'}), 404
+    if session.get('rolle') == 'verkaufsleiter' and ma['team_id'] != session.get('team_id'):
+        return jsonify({'ok': False, 'error': 'Kein Zugriff'}), 403
+    max_r = query(
+        "SELECT COALESCE(MAX(reihenfolge), 0) AS m FROM tagesplan WHERE mitarbeiter_id=? AND datum=?",
+        (ma_id, datum), one=True
+    )['m']
+    execute(
+        "INSERT INTO tagesplan (mitarbeiter_id, verkaufsstelle_id, datum, reihenfolge, notiz, erstellt_von) VALUES (?,?,?,?,?,?)",
+        (ma_id, vs_id, datum, max_r + 1, notiz, session['user_id'])
+    )
+    return jsonify({'ok': True})
+
+
 @app.route('/api/tagesplan/stopp/<int:tp_id>/details', methods=['GET'])
 @login_required
 def api_tagesplan_stopp_details(tp_id):
@@ -4777,7 +5100,7 @@ def neue_aktivitaet():
         if extra:
             vertretungs_gruppen.append({'name': vtr['abwesender_name'], 'vs': extra})
 
-    biersorten      = query("SELECT * FROM biersorte      WHERE aktiv=1 ORDER BY name")
+    biersorten      = query("SELECT * FROM biersorte      WHERE aktiv=1 ORDER BY sortierung, name")
     if not GRATISWARE_MODUS:
         biersorten = [b for b in biersorten if not b['ist_gratisware']]
     displaysorte    = query("SELECT * FROM displaysorte   WHERE aktiv=1 ORDER BY name")
@@ -5086,11 +5409,13 @@ def neue_aktivitaet():
         verleger_vs_ids=verleger_vs_ids)
 
 
-@app.route('/aktivitaeten')
-@login_required
-def aktivitaeten_liste():
-    is_admin   = session.get('rolle') == 'admin'
-    is_manager = session.get('rolle') in ('admin', 'verkaufsleiter')
+AKTIVITAETEN_SEITENGROESSE = 100
+
+
+def _aktivitaeten_filter(is_manager):
+    """Baut die WHERE-Klausel + Parameter für die Aktivitäten-Liste aus den aktuellen
+    Query-Parametern. Wird von der Seite und vom Nachlade-Endpunkt (Infinite Scroll)
+    gemeinsam genutzt, damit beide exakt dieselben Treffer liefern. Von Arco portiert."""
     jahr       = request.args.get('jahr', date.today().year, type=int)
     kw_filter  = request.args.get('kw',    '', type=str)
     mo_filter  = request.args.get('monat', '', type=str)
@@ -5102,48 +5427,37 @@ def aktivitaeten_liste():
     typ_filter = request.args.get('typ',   '', type=str)   # kommagetrennte Typen
     typ_ids    = [x.strip() for x in typ_filter.split(',') if x.strip()] if typ_filter else []
 
-    sql = '''
-        SELECT a.id, a.datum, m.name AS mitarbeiter, m.id AS mitarbeiter_id,
-               v.name AS verkaufsstelle, v.id AS verkaufsstelle_id,
-               v.ort, v.strasse, v.typ, a.anzahl_displays, a.notizen, a.erstellt_am,
-               a.foto_pfad, a.foto_pfad_2, a.foto_pfad_3,
-               COALESCE(a.aktionstyp, 'Aufbau') AS aktionstyp,
-               COALESCE(SUM(b.kisten_anzahl), 0) AS kisten_gesamt
-        FROM aktivitaet a
-        JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
-        JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id
-        LEFT JOIN bestellposition b ON b.aktivitaet_id = a.id
-        WHERE 1=1
-    '''
+    where_sql = ' WHERE 1=1'
     params = []
 
     vs_history_mode = is_manager and bool(vs_ids)
     if not vs_history_mode:
-        sql += " AND strftime('%Y', a.datum) = ?"
+        sql_jahr = " AND strftime('%Y', a.datum) = ?"
+        where_sql += sql_jahr
         params.append(str(jahr))
 
     if not is_manager:
-        sql += " AND a.mitarbeiter_id = ?"
+        where_sql += " AND a.mitarbeiter_id = ?"
         params.append(session['user_id'])
     else:
         if ma_ids:
             _ph = ','.join('?' * len(ma_ids))
-            sql += f" AND a.mitarbeiter_id IN ({_ph})"
+            where_sql += f" AND a.mitarbeiter_id IN ({_ph})"
             params.extend(ma_ids)
         # Bugreport 2026-07-21 (Hoch): fehlte hier komplett – ein VKL mit eigenem Team
         # sah ohne Filter firmenweit ALLE Aktivitäten aller Teams.
         _tc_sql, _tc_params = _team_ma_clause('a')
-        sql += _tc_sql
+        where_sql += _tc_sql
         params.extend(_tc_params)
 
     if is_manager and vs_ids:
         _ph = ','.join('?' * len(vs_ids))
-        sql += f" AND a.verkaufsstelle_id IN ({_ph})"
+        where_sql += f" AND a.verkaufsstelle_id IN ({_ph})"
         params.extend(vs_ids)
 
     if mo_ids:
         _ph = ','.join('?' * len(mo_ids))
-        sql += f" AND strftime('%m', a.datum) IN ({_ph})"
+        where_sql += f" AND strftime('%m', a.datum) IN ({_ph})"
         params.extend(mo_ids)
 
     if kw_filter:
@@ -5155,7 +5469,7 @@ def aktivitaeten_liste():
         try:
             kw_start = date.fromisocalendar(jahr, int(kw_filter), 1)
             kw_end   = kw_start + timedelta(days=7)
-            sql += " AND a.datum >= ? AND a.datum < ?"
+            where_sql += " AND a.datum >= ? AND a.datum < ?"
             params.append(kw_start.isoformat())
             params.append(kw_end.isoformat())
         except ValueError:
@@ -5163,34 +5477,97 @@ def aktivitaeten_liste():
 
     if typ_ids:
         _ph = ','.join('?' * len(typ_ids))
-        sql += f" AND v.typ IN ({_ph})"
+        where_sql += f" AND v.typ IN ({_ph})"
         params.extend(typ_ids)
 
-    sql += " GROUP BY a.id ORDER BY a.datum DESC, a.erstellt_am DESC"
+    return {
+        'where_sql': where_sql, 'params': params,
+        'jahr': jahr, 'kw_filter': kw_filter,
+        'mo_filter': mo_filter, 'mo_ids': mo_ids,
+        'ma_filter': ma_filter, 'ma_ids': ma_ids,
+        'vs_filter': vs_filter, 'vs_ids': vs_ids,
+        'typ_filter': typ_filter, 'typ_ids': typ_ids,
+        'vs_history_mode': vs_history_mode,
+    }
 
-    aktivitaeten = query(sql, params)
 
-    # Bestellpositionen für jede Aktivität
+def _aktivitaeten_seite(filt, seite):
+    """Führt die Abfrage für eine Seite von Aktivitäten aus (inkl. der gebündelten
+    Detail-Queries für Bestell-/Displaypositionen), basierend auf einem von
+    _aktivitaeten_filter() gebauten Filter-Dict. Von Arco portiert."""
+    where_sql, params = filt['where_sql'], filt['params']
+
+    gesamt_anzahl = query(f'''
+        SELECT COUNT(*) AS n FROM aktivitaet a
+        JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
+        JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id
+        {where_sql}
+    ''', params, one=True)['n']
+
+    seiten_gesamt = max(1, (gesamt_anzahl + AKTIVITAETEN_SEITENGROESSE - 1) // AKTIVITAETEN_SEITENGROESSE)
+    seite = min(max(1, seite), seiten_gesamt)
+    offset = (seite - 1) * AKTIVITAETEN_SEITENGROESSE
+
+    sql = f'''
+        SELECT a.id, a.datum, m.name AS mitarbeiter, m.id AS mitarbeiter_id,
+               v.name AS verkaufsstelle, v.id AS verkaufsstelle_id,
+               v.ort, v.strasse, v.typ, a.anzahl_displays, a.notizen, a.erstellt_am,
+               a.foto_pfad, a.foto_pfad_2, a.foto_pfad_3,
+               COALESCE(a.aktionstyp, 'Aufbau') AS aktionstyp,
+               COALESCE(SUM(b.kisten_anzahl), 0) AS kisten_gesamt
+        FROM aktivitaet a
+        JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
+        JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id
+        LEFT JOIN bestellposition b ON b.aktivitaet_id = a.id
+        {where_sql}
+        GROUP BY a.id ORDER BY a.datum DESC, a.erstellt_am DESC
+        LIMIT ? OFFSET ?
+    '''
+    aktivitaeten = query(sql, params + [AKTIVITAETEN_SEITENGROESSE, offset])
+    akt_ids = [a['id'] for a in aktivitaeten]
+
+    # Bestellpositionen für alle Aktivitäten in einer Abfrage (statt N Einzelabfragen)
     detail = {}
-    for a in aktivitaeten:
-        positionen = query('''
-            SELECT bs.name, bp.kisten_anzahl, bs.einheit
+    if akt_ids:
+        _ph = ','.join('?' * len(akt_ids))
+        rows = query(f'''
+            SELECT bp.aktivitaet_id, bs.name, bp.kisten_anzahl, bs.einheit
             FROM bestellposition bp JOIN biersorte bs ON bs.id = bp.biersorte_id
-            WHERE bp.aktivitaet_id = ?
-        ''', (a['id'],))
-        detail[a['id']] = positionen
+            WHERE bp.aktivitaet_id IN ({_ph})
+        ''', akt_ids)
+        for r in rows:
+            detail.setdefault(r['aktivitaet_id'], []).append(r)
 
-    # Displaypositionen für jede Aktivität
+    # Displaypositionen für alle Aktivitäten in einer Abfrage (statt N Einzelabfragen)
     disp_detail = {}
-    for a in aktivitaeten:
-        dp = query('''
-            SELECT ds.name, dp.anzahl
+    if akt_ids:
+        _ph = ','.join('?' * len(akt_ids))
+        rows = query(f'''
+            SELECT dp.aktivitaet_id, ds.name, dp.anzahl
             FROM displayposition dp JOIN displaysorte ds ON ds.id = dp.displaysorte_id
-            WHERE dp.aktivitaet_id = ? AND dp.anzahl > 0
+            WHERE dp.aktivitaet_id IN ({_ph}) AND dp.anzahl > 0
             ORDER BY ds.name
-        ''', (a['id'],))
-        if dp:
-            disp_detail[a['id']] = dp
+        ''', akt_ids)
+        for r in rows:
+            disp_detail.setdefault(r['aktivitaet_id'], []).append(r)
+
+    return aktivitaeten, detail, disp_detail, gesamt_anzahl, seite, seiten_gesamt
+
+
+@app.route('/aktivitaeten')
+@login_required
+def aktivitaeten_liste():
+    is_admin   = session.get('rolle') == 'admin'
+    is_manager = session.get('rolle') in ('admin', 'verkaufsleiter')
+
+    filt = _aktivitaeten_filter(is_manager)
+    seite_wunsch = request.args.get('seite', 1, type=int) or 1
+    aktivitaeten, detail, disp_detail, gesamt_anzahl, seite, seiten_gesamt = _aktivitaeten_seite(filt, seite_wunsch)
+    jahr, kw_filter = filt['jahr'], filt['kw_filter']
+    mo_filter, mo_ids = filt['mo_filter'], filt['mo_ids']
+    ma_filter, ma_ids = filt['ma_filter'], filt['ma_ids']
+    vs_filter, vs_ids, vs_history_mode = filt['vs_filter'], filt['vs_ids'], filt['vs_history_mode']
+    typ_filter, typ_ids = filt['typ_filter'], filt['typ_ids']
 
     _tm_sql, _tm_p = _team_m_clause('m')
     alle_ma = query(
@@ -5222,7 +5599,25 @@ def aktivitaeten_liste():
         vs_filter=vs_filter, vs_ids=vs_ids, vs_history_mode=vs_history_mode,
         typ_filter=typ_filter, typ_ids=typ_ids, alle_typen=alle_typen,
         alle_ma=alle_ma, alle_vs=alle_vs,
-        is_admin=is_admin, is_manager=is_manager)
+        is_admin=is_admin, is_manager=is_manager,
+        gesamt_anzahl=gesamt_anzahl, seite=seite, seiten_gesamt=seiten_gesamt,
+        seitengroesse=AKTIVITAETEN_SEITENGROESSE)
+
+
+@app.route('/api/aktivitaeten/mehr')
+@login_required
+def api_aktivitaeten_mehr():
+    """Liefert die nächste Seite der Aktivitäten-Liste als HTML-Fragment nach –
+    für Infinite Scroll (kein Klicken durch Seiten nötig). Von Arco portiert."""
+    is_admin   = session.get('rolle') == 'admin'
+    is_manager = session.get('rolle') in ('admin', 'verkaufsleiter')
+    filt = _aktivitaeten_filter(is_manager)
+    seite_wunsch = request.args.get('seite', 2, type=int) or 2
+    aktivitaeten, detail, disp_detail, gesamt_anzahl, seite, seiten_gesamt = _aktivitaeten_seite(filt, seite_wunsch)
+    html = render_template('_aktivitaeten_karten.html',
+        aktivitaeten=aktivitaeten, detail=detail, disp_detail=disp_detail,
+        is_manager=is_manager, is_admin=is_admin)
+    return jsonify({'html': html, 'hat_mehr': seite < seiten_gesamt, 'naechste_seite': seite + 1})
 
 
 @app.route('/aktivitaet/<int:akt_id>/bearbeiten', methods=['POST'])
@@ -6450,7 +6845,7 @@ def admin():
         "SELECT * FROM verkaufsstelle WHERE homeoffice_mitarbeiter_id IS NULL ORDER BY aktiv DESC, name LIMIT ?",
         (VS_ADMIN_SEITENGROESSE,)
     )
-    biersorten      = query("SELECT * FROM biersorte ORDER BY name")
+    biersorten      = query("SELECT * FROM biersorte ORDER BY sortierung, name")
     displaysorte    = query("SELECT * FROM displaysorte ORDER BY name")
     teams           = query("SELECT t.*, COUNT(m.id) AS mitglieder FROM team t LEFT JOIN mitarbeiter m ON m.team_id = t.id GROUP BY t.id ORDER BY t.name")
     mail_konfiguriert = bool(MAIL_SERVER and MAIL_USERNAME)
@@ -7694,6 +8089,32 @@ def admin_bier_bearbeiten(b_id):
     return redirect(url_for('admin'))
 
 
+@app.route('/admin/biersorte/<int:b_id>/verschieben', methods=['POST'])
+@admin_required
+def admin_bier_verschieben(b_id):
+    """Rauf/Runter-Sortierung der Biersorten-Liste im Admin. Von Arco portiert."""
+    richtung = request.form.get('richtung')
+    if richtung not in ('hoch', 'runter'):
+        return redirect(url_for('admin'))
+    db = get_db()
+    alle = db.execute("SELECT id, sortierung FROM biersorte ORDER BY sortierung, name").fetchall()
+    # Reihenfolge normalisieren (0,1,2,...), falls sortierung noch nicht eindeutig gesetzt ist
+    for i, row in enumerate(alle):
+        if row['sortierung'] != i:
+            db.execute("UPDATE biersorte SET sortierung=? WHERE id=?", (i, row['id']))
+    alle = db.execute("SELECT id FROM biersorte ORDER BY sortierung, name").fetchall()
+    ids = [r['id'] for r in alle]
+    if b_id not in ids:
+        return redirect(url_for('admin'))
+    idx = ids.index(b_id)
+    ziel = idx - 1 if richtung == 'hoch' else idx + 1
+    if 0 <= ziel < len(ids):
+        db.execute("UPDATE biersorte SET sortierung=? WHERE id=?", (ziel, ids[idx]))
+        db.execute("UPDATE biersorte SET sortierung=? WHERE id=?", (idx, ids[ziel]))
+        db.commit()
+    return redirect(url_for('admin'))
+
+
 @app.route('/admin/displaysorte/neu', methods=['POST'])
 @admin_required
 def admin_display_neu():
@@ -7712,6 +8133,25 @@ def admin_display_loeschen(ds_id):
     if d:
         execute("UPDATE displaysorte SET aktiv=0 WHERE id=?", (ds_id,))
         flash(f'Display-Typ „{d["name"]}" wurde deaktiviert.', 'warning')
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/displaysorte/<int:ds_id>/hart-loeschen', methods=['POST'])
+@admin_required
+def admin_display_hart_loeschen(ds_id):
+    """Echtes Löschen (nicht nur Soft-Delete) eines Aufbautyps – nur erlaubt, wenn er in
+    0 Displaypositionen verwendet wird. Von Arco portiert."""
+    d = query("SELECT * FROM displaysorte WHERE id=?", (ds_id,), one=True)
+    if not d:
+        flash('Display-Typ nicht gefunden.', 'danger')
+        return redirect(url_for('admin'))
+    count = query("SELECT COUNT(*) AS c FROM displayposition WHERE displaysorte_id=?", (ds_id,), one=True)['c']
+    if count > 0:
+        flash(f'„{d["name"]}" wurde in {count} Aktivität(en) verwendet und kann nicht endgültig gelöscht werden. '
+              f'Bitte stattdessen deaktivieren.', 'danger')
+        return redirect(url_for('admin'))
+    execute("DELETE FROM displaysorte WHERE id=?", (ds_id,))
+    flash(f'Display-Typ „{d["name"]}" wurde endgültig gelöscht.', 'success')
     return redirect(url_for('admin'))
 
 
@@ -7892,6 +8332,127 @@ def admin_import_excel():
 
     for fehler in stats['fehler']:
         flash(fehler, 'warning')
+
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/import-historische-werte', methods=['POST'])
+@admin_required
+def admin_import_historische_werte():
+    """Importiert historische Monatswerte (Besuche/Bestellungen/Kisten/Aufbauten/Gratisware)
+    pro Verkaufsstelle aus einer Excel-Datei – Backfill für Jahre vor der digitalen
+    Erfassung. Wird als Vorjahresvergleich in Kundenhistorie/Kunden-Vergleich verwendet
+    (s. dortige _hist_zusatz-Helfer), sobald für den jeweiligen Monat keine echte
+    aktivitaet existiert. Von Arco portiert."""
+    if 'datei' not in request.files or request.files['datei'].filename == '':
+        flash('Keine Datei ausgewählt.', 'danger')
+        return redirect(url_for('admin'))
+
+    datei = request.files['datei']
+    if not datei.filename.lower().endswith(('.xlsx', '.xls')):
+        flash('Nur Excel-Dateien (.xlsx) werden unterstützt.', 'danger')
+        return redirect(url_for('admin'))
+
+    try:
+        wb = openpyxl.load_workbook(datei, data_only=True)
+    except Exception as e:
+        # Kein str(e) an den Client – nur generische Meldung, voller Fehler geht ins Server-Log.
+        app.logger.error(f"Excel-Import historische Werte: Datei konnte nicht gelesen werden: {e}")
+        flash('Fehler beim Lesen der Excel-Datei. Bitte Format prüfen.', 'danger')
+        return redirect(url_for('admin'))
+
+    sheet = wb.worksheets[0]
+    headers = {}
+    first_row = next(sheet.iter_rows(min_row=1, max_row=1))
+    for i, cell in enumerate(first_row):
+        if cell.value:
+            headers[str(cell.value).strip().lower()] = i
+
+    def _col(row, *namen):
+        for name in namen:
+            idx = headers.get(name.lower())
+            if idx is not None and idx < len(row):
+                val = row[idx].value
+                return val
+        return None
+
+    def _int(val, default=0):
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return default
+
+    vs_by_kundennummer = {r['kundennummer']: r['id'] for r in query(
+        "SELECT id, kundennummer FROM verkaufsstelle WHERE kundennummer IS NOT NULL AND kundennummer != ''")}
+    vs_by_name_ort = {}
+    for r in query("SELECT id, name, COALESCE(ort,'') AS ort FROM verkaufsstelle"):
+        vs_by_name_ort.setdefault((r['name'].strip().lower(), r['ort'].strip().lower()), r['id'])
+    ma_by_kuerzel = {r['kuerzel'].strip().lower(): r['id'] for r in query(
+        "SELECT id, kuerzel FROM mitarbeiter WHERE kuerzel IS NOT NULL AND kuerzel != ''")}
+
+    stats = {'neu': 0, 'aktualisiert': 0, 'fehler': []}
+    db = get_db()
+
+    for zeile_nr, row in enumerate(sheet.iter_rows(min_row=2), start=2):
+        kundennummer = str(_col(row, 'kundennummer', 'kunden-nr', 'kdnr') or '').strip()
+        name = str(_col(row, 'name', 'kunde') or '').strip()
+        ort = str(_col(row, 'ort') or '').strip()
+        jahr = _int(_col(row, 'jahr'), None)
+        monat = _int(_col(row, 'monat'), None)
+
+        if not jahr or not monat or not (1 <= monat <= 12):
+            if kundennummer or name:
+                stats['fehler'].append(f'Zeile {zeile_nr}: Jahr/Monat fehlt oder ungültig – übersprungen.')
+            continue
+
+        vs_id = vs_by_kundennummer.get(kundennummer) if kundennummer else None
+        if not vs_id and name:
+            vs_id = vs_by_name_ort.get((name.lower(), ort.lower()))
+        if not vs_id:
+            stats['fehler'].append(f'Zeile {zeile_nr}: „{name or kundennummer}" ({ort}) keiner Verkaufsstelle zugeordnet.')
+            continue
+
+        # mitarbeiter_id optional: direkt als ID, sonst über Kürzel gematcht. Fehlt beides,
+        # bleibt es beim Sentinel 0 (nicht einem bestimmten Mitarbeiter zuordenbar) – der
+        # Mitarbeiter-Filter in Kunden-Vergleich zeigt für solche Zeilen dann keinen
+        # historischen Zusatz.
+        mitarbeiter_id = _int(_col(row, 'mitarbeiter_id'), None)
+        if mitarbeiter_id is None:
+            kuerzel = str(_col(row, 'mitarbeiter_kuerzel', 'kuerzel') or '').strip().lower()
+            mitarbeiter_id = ma_by_kuerzel.get(kuerzel, 0)
+
+        besuche      = _int(_col(row, 'besuche'))
+        bestellungen = _int(_col(row, 'bestellungen'))
+        kisten       = _int(_col(row, 'kisten'))
+        aufbauten    = _int(_col(row, 'aufbauten'))
+        gratisware   = _int(_col(row, 'gratisware'))
+
+        exists = query(
+            "SELECT 1 FROM vs_historische_werte WHERE verkaufsstelle_id=? AND jahr=? AND monat=? AND mitarbeiter_id=?",
+            (vs_id, jahr, monat, mitarbeiter_id), one=True)
+        db.execute("""
+            INSERT INTO vs_historische_werte (verkaufsstelle_id, jahr, monat, mitarbeiter_id, besuche, bestellungen, kisten, aufbauten, gratisware)
+            VALUES (?,?,?,?,?,?,?,?,?)
+            ON CONFLICT (verkaufsstelle_id, jahr, monat, mitarbeiter_id)
+            DO UPDATE SET besuche=excluded.besuche, bestellungen=excluded.bestellungen, kisten=excluded.kisten,
+                          aufbauten=excluded.aufbauten, gratisware=excluded.gratisware
+        """, (vs_id, jahr, monat, mitarbeiter_id, besuche, bestellungen, kisten, aufbauten, gratisware))
+        stats['aktualisiert' if exists else 'neu'] += 1
+
+    db.commit()
+
+    teile = []
+    if stats['neu']:          teile.append(f"{stats['neu']} Monatswerte neu")
+    if stats['aktualisiert']: teile.append(f"{stats['aktualisiert']} Monatswerte aktualisiert")
+    if not teile:
+        flash('Keine Daten importiert – Datei leer oder keine Zeile zuordenbar.', 'warning')
+    else:
+        flash('Import erfolgreich: ' + ' · '.join(teile) + '.', 'success')
+
+    for fehler in stats['fehler'][:30]:
+        flash(fehler, 'warning')
+    if len(stats['fehler']) > 30:
+        flash(f"… und {len(stats['fehler']) - 30} weitere Fehler.", 'warning')
 
     return redirect(url_for('admin'))
 
@@ -8886,6 +9447,8 @@ def _do_send_wochenbericht(force=False):
     Einstellungen unter <em>Einstellungen → Wochenbericht</em></div>
   </div>
 
+  {_arbeitszeit_pdf_seite_html(montag_diese, sonntag_diese, team_id=team_id) if ARBEITSZEIT_MODUS else ''}
+
 </div>
 </body></html>'''
 
@@ -9218,6 +9781,8 @@ def _do_send_monatsbericht(force=False):
     <div style="font-size:11px;color:#aaa">Aktions Tracker &middot; Automatischer Monatsbericht am 1. des Monats<br>
     Empfänger identisch zum Wochenbericht &ndash; Einstellungen unter <em>Einstellungen &rarr; Wochen-/Monatsbericht</em></div>
   </div>
+
+  {_arbeitszeit_pdf_seite_html(erster_vormonat, letzter_vormonat, team_id=team_id, monatsmodus=True) if ARBEITSZEIT_MODUS else ''}
 
 </div>
 </body></html>'''
@@ -9836,6 +10401,9 @@ def wochenbericht_vorschau():
   <div style="padding:14px 32px;background:#f4f8fc;border-top:1px solid #e4eaf0;text-align:center">
     <div style="font-size:11px;color:#aaa">Aktions Tracker · Automatischer Wochenbericht jeden Montag</div>
   </div>
+
+  {_arbeitszeit_pdf_seite_html(montag_diese, sonntag_diese) if ARBEITSZEIT_MODUS else ''}
+
 </div>
 </body></html>'''
 
@@ -10050,6 +10618,8 @@ def monatsbericht_vorschau():
   <div style="padding:14px 32px;background:#f4f8fc;border-top:1px solid #e4eaf0;text-align:center">
     <div style="font-size:11px;color:#aaa">Aktions Tracker &middot; Vorschau laufender Monat &ndash; am 1. des Folgemonats wird der abgeschlossene Monat versendet</div>
   </div>
+
+  {_arbeitszeit_pdf_seite_html(erster_dieses, heute, monatsmodus=True) if ARBEITSZEIT_MODUS else ''}
 
 </div>
 </body></html>'''

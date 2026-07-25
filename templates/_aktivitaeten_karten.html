@@ -1,0 +1,175 @@
+{% for a in aktivitaeten %}
+  {% set pos = detail[a.id] %}
+  <div class="col-12">
+    <div class="card">
+      <div class="card-body py-3 px-4">
+        <div class="row align-items-center g-2">
+          <!-- Datum + KW -->
+          <div class="col-auto">
+            <div class="text-center" style="min-width:54px">
+              <div style="font-size:.92rem;font-weight:700;color:#1a3a5c;line-height:1.2">
+                {{ a.datum[8:10] }}.{{ a.datum[5:7] }}.{{ a.datum[2:4] }}
+              </div>
+              <span class="badge-kw" style="font-size:.65rem;padding:.1rem .42rem;margin-top:.18rem;display:inline-block">
+                KW {{ a.datum|isoweek }}
+              </span>
+            </div>
+          </div>
+
+          <!-- Verkaufsstelle -->
+          <div class="col">
+            <div class="fw-bold" style="color:#1a3a5c;font-size:1rem">
+              {{ a.verkaufsstelle }}
+              {% if a.aktionstyp == 'Bestellung' %}
+              <span class="badge ms-1" style="background:#fdecc8;color:#8a5a00;font-size:.65rem;font-weight:600;vertical-align:middle">Bestellung</span>
+              {% elif a.aktionstyp == 'Besuch' %}
+              <span class="badge ms-1" style="background:#e9ecef;color:#495057;font-size:.65rem;font-weight:600;vertical-align:middle">Besuch</span>
+              {% else %}
+              <span class="badge ms-1" style="background:#d4edda;color:#155724;font-size:.65rem;font-weight:600;vertical-align:middle">Aufbau</span>
+              {% endif %}
+            </div>
+            <small class="text-muted">
+              <i class="bi bi-geo-alt me-1"></i>{{ a.ort or '–' }}{% if a.strasse %} · {{ a.strasse }}{% endif %}
+              &nbsp;·&nbsp;
+              <i class="bi bi-tag me-1"></i>{{ a.typ or '–' }}
+            </small>
+            {% set dp = disp_detail.get(a.id) %}
+            {% if dp %}
+            <br><small style="color:#2e6da4">{% for d in dp %}<i class="bi bi-display me-1"></i>{{ d.anzahl }}× {{ d.name }}{% if not loop.last %} &nbsp;·&nbsp; {% endif %}{% endfor %}</small>
+            {% endif %}
+            {% if is_manager %}
+            <br><small class="text-muted"><i class="bi bi-person me-1"></i>{{ a.mitarbeiter }}</small>
+            {% endif %}
+          </div>
+
+          <!-- Displays -->
+          <div class="col-auto text-center">
+            <div style="font-size:1.5rem;font-weight:800;color:#1a3a5c">{{ a.anzahl_displays }}</div>
+            <small class="text-muted">Displays</small>
+          </div>
+
+          <!-- Kisten -->
+          <div class="col-auto text-center">
+            <div style="font-size:1.5rem;font-weight:800;color:#c8860a">{{ a.kisten_gesamt }}</div>
+            <small class="text-muted">{{ unit_label }}</small>
+          </div>
+
+          <!-- Foto-Vorschau (bis zu 3) -->
+          {% if a.foto_pfad %}
+          {% set _fotos = [a.foto_pfad, a.foto_pfad_2, a.foto_pfad_3] | select | list %}
+          <div class="col-auto d-flex gap-1">
+            {% for fp in _fotos %}
+            <a href="#" class="akt-foto-oeffnen" data-fotos='{{ _fotos | tojson }}' data-index="{{ loop.index0 }}" title="Foto vergrößern">
+              <img src="/uploads/{{ fp }}"
+                   alt="Foto"
+                   style="width:56px;height:56px;object-fit:cover;border-radius:.5rem;
+                          border:2px solid #2e6da4;transition:transform .15s"
+                   onmouseover="this.style.transform='scale(1.08)'"
+                   onmouseout="this.style.transform='scale(1)'">
+            </a>
+            {% endfor %}
+          </div>
+          {% else %}
+          {# Hinweis wenn Eintrag älter als 8 Wochen – Foto könnte automatisch gelöscht worden sein #}
+          {% set alter_tage = ((now.date() - a.datum|string|todatetime).days) if a.datum else 0 %}
+          {% if alter_tage > 56 %}
+          <div class="col-auto">
+            <span title="Fotos werden nach 8 Wochen automatisch gelöscht"
+                  style="width:56px;height:56px;display:flex;align-items:center;justify-content:center;
+                         border-radius:.5rem;border:1px dashed #ccc;background:#f8f9fa;cursor:default">
+              <i class="bi bi-camera-slash text-muted" style="font-size:1.2rem"></i>
+            </span>
+          </div>
+          {% endif %}
+          {% endif %}
+
+          <!-- Aktionen -->
+          <div class="col-auto d-flex gap-1">
+            <button class="btn btn-outline-secondary btn-sm"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#detail_{{ a.id }}">
+              <i class="bi bi-chevron-down"></i>
+            </button>
+            {% set _eigener_eintrag_heute = (session.rolle == 'rep' and a.mitarbeiter_id == session.user_id and a.datum == now.date().isoformat()) %}
+            {% if is_manager or _eigener_eintrag_heute %}
+            <button class="btn btn-outline-primary btn-sm"
+                    data-bs-toggle="modal"
+                    data-bs-target="#editModal"
+                    data-id="{{ a.id }}"
+                    data-datum="{{ a.datum }}"
+                    data-vs="{{ a.verkaufsstelle_id }}"
+                    data-typ="{{ a.aktionstyp or 'Aufbau' }}"
+                    data-displays="{{ a.anzahl_displays or 0 }}"
+                    data-notizen="{{ a.notizen or '' }}"
+                    data-status="{{ a.bestell_status or '' }}">
+              <i class="bi bi-pencil"></i>
+            </button>
+            {% endif %}
+            {% if is_admin %}
+            <form method="POST" action="{{ url_for('aktivitaet_loeschen', akt_id=a.id) }}"
+                  style="display:inline"
+                  onsubmit="return confirm('Aktivität wirklich löschen?')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-outline-danger btn-sm">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Detail-Collapse -->
+        <div class="collapse mt-3" id="detail_{{ a.id }}">
+          <hr class="my-2">
+          <div class="row g-3">
+
+            <!-- Displays -->
+            {% set dp = disp_detail.get(a.id) %}
+            {% if dp %}
+            <div class="col-12">
+              <strong class="text-muted small d-block mb-2">DISPLAYS</strong>
+              <div class="d-flex flex-wrap gap-2">
+                {% for d in dp %}
+                <span class="badge rounded-pill py-2 px-3"
+                      style="background:#eef4fb;color:#1a3a5c;border:1px solid #2e6da4;font-size:.85rem">
+                  <i class="bi bi-display me-1" style="color:#2e6da4"></i>
+                  <strong>{{ d.anzahl }}×</strong> {{ d.name }}
+                </span>
+                {% endfor %}
+              </div>
+            </div>
+            {% endif %}
+
+            <!-- Bestellpositionen -->
+            <div class="col-md-8">
+              {% if pos %}
+              <strong class="text-muted small d-block mb-2">BIERBESTELLUNG</strong>
+              <div class="d-flex flex-wrap gap-2">
+                {% for p in pos %}
+                <span class="badge rounded-pill py-2 px-3"
+                      style="background:#fffbf0;color:#1a3a5c;border:1px solid #c8860a;font-size:.85rem">
+                  <i class="bi bi-box-seam me-1" style="color:#c8860a"></i>
+                  <strong>{{ p.kisten_anzahl }}×</strong> {{ p.name }}
+                  <small class="opacity-75">({{ p.einheit }})</small>
+                </span>
+                {% endfor %}
+              </div>
+              {% else %}
+              <span class="text-muted small"><i class="bi bi-info-circle me-1"></i>Keine Bestellung erfasst</span>
+              {% endif %}
+            </div>
+
+            {% if a.notizen %}
+            <div class="col-md-4">
+              <strong class="text-muted small d-block mb-2">NOTIZEN</strong>
+              <p class="mb-0 small" style="background:#fffbf0;padding:.5rem .75rem;border-radius:.4rem;border-left:3px solid #c8860a">
+                {{ a.notizen }}
+              </p>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
