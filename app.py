@@ -196,6 +196,13 @@ def check_session_lifetime():
     """Session-Timer bei jedem Request erneuern (Sliding Window, 8h Inaktivität)."""
     pass
 
+# Bugreport 2026-07-24 (von Arco portiert): Besuchsplanung/Tourenplanung zeigten für JEDE
+# Abwesenheit außer 'frei_sonderurlaub' hart "Urlaub" an (auch Arbeitsunfähigkeit/Unbezahlt/
+# Hotel) - Typ->Label-Zuordnung global verfügbar machen, damit alle Stellen konsistent sind.
+_AZ_TYP_BADGE_LABEL = {'urlaub': 'Urlaub', 'sonderurlaub': 'Urlaub', 'frei_sonderurlaub': 'Urlaub',
+                        'krankheit': 'AU', 'unbezahlt': 'Unbezahlt', 'hotel': 'Hotel'}
+
+
 @app.context_processor
 def inject_now():
     ctx = {
@@ -222,6 +229,7 @@ def inject_now():
         'mein_signatur': None,
         'karte_benachrichtigung': None,
         'urlaub_konto': None,
+        'az_typ_badge_label': _AZ_TYP_BADGE_LABEL,
     }
     if session.get('user_id'):
         try:
@@ -1853,6 +1861,37 @@ def _urlaub_daten(ma_ids, start_iso, end_iso):
     return ergebnis
 
 
+def _urlaub_daten_alle(ma_ids, start_iso, end_iso):
+    """Wie _urlaub_daten(), liefert aber ALLE sich überschneidenden bestätigten Abwesenheiten
+    pro (mitarbeiter_id, datum) als Liste zurück, statt nur die zuletzt verarbeitete (Bugreport
+    2026-07-24, von Arco portiert: bei z.B. gleichzeitigem Urlaub- und Hotel-Antrag für
+    denselben Tag zeigte die Anzeige bisher nur einen der beiden Typen an – der andere wurde
+    in der einfachen dict-Variante von _urlaub_daten() stillschweigend überschrieben). Eigene
+    Funktion statt _urlaub_daten() selbst zu ändern, da deren bestehende Aufrufer einen
+    einzelnen Eintrag pro Tag erwarten – hier zählt jede Abwesenheit gleichrangig."""
+    if not ma_ids:
+        return {}
+    ph = ','.join('?' * len(ma_ids))
+    rows = query(
+        f"SELECT abwesender_id, von, bis, typ, grund FROM vertretung "
+        f"WHERE status='bestätigt' AND abwesender_id IN ({ph}) AND von <= ? AND bis >= ?",
+        tuple(ma_ids) + (end_iso, start_iso)
+    )
+    start_d = date.fromisoformat(start_iso)
+    end_d   = date.fromisoformat(end_iso)
+    ergebnis = {}
+    for r in rows:
+        d = max(date.fromisoformat(r['von']), start_d)
+        bis = min(date.fromisoformat(r['bis']), end_d)
+        while d <= bis:
+            schluessel = (r['abwesender_id'], d.isoformat())
+            ergebnis.setdefault(schluessel, [])
+            if not any(e['typ'] == r['typ'] for e in ergebnis[schluessel]):
+                ergebnis[schluessel].append({'typ': r['typ'], 'grund': r['grund']})
+            d += timedelta(days=1)
+    return ergebnis
+
+
 def _hotel_naechte(mitarbeiter_ids, ab_datum, bis_datum):
     """Liefert für jede genehmigte Hotelübernachtung im Zeitraum einen Eintrag pro Nacht,
     Schlüssel (mitarbeiter_id, erster_tag_der_nacht) – für die "zwischen den Tagen"-Anzeige
@@ -2706,8 +2745,10 @@ def dashboard():
     tp_prev_woche    = (tp_woche_montag - timedelta(days=7)).isoformat()
     tp_next_woche    = (tp_woche_montag + timedelta(days=7)).isoformat()
     datum_woche_rep  = [(tp_woche_montag + timedelta(days=i)).isoformat() for i in range(7)]
+    # _urlaub_daten_alle() statt _urlaub_daten() (Bugreport 2026-07-24, von Arco portiert):
+    # liefert pro Tag ALLE gleichzeitigen Abwesenheiten als Liste statt nur die letzte.
     urlaub_woche_rep = {
-        d: info for (_mid, d), info in _urlaub_daten([session['user_id']], tp_woche_montag.isoformat(), tp_woche_sonntag.isoformat()).items()
+        d: info for (_mid, d), info in _urlaub_daten_alle([session['user_id']], tp_woche_montag.isoformat(), tp_woche_sonntag.isoformat()).items()
     }
     # Hotelübernachtungen: für den "zwischen den Tagen"-Hinweis im Wochenplan, siehe
     # _hotel_naechte() – Schlüssel ist hier nur der Tag (ohne Mitarbeiter-ID), da im eigenen
@@ -3196,7 +3237,9 @@ def tourenplanung():
     tag_next_kw    = tag_kw + 1 if tag_kw < 52 else 1
     tag_prev_datum = (_datum_d - timedelta(days=7)).isoformat()
     tag_next_datum = (_datum_d + timedelta(days=7)).isoformat()
-    urlaub_tag = _urlaub_daten(rep_ids, datum, datum) if modus == 'tag' else set()
+    # _urlaub_daten_alle() statt _urlaub_daten() (Bugreport 2026-07-24, von Arco portiert):
+    # liefert pro Tag ALLE gleichzeitigen Abwesenheiten als Liste statt nur die letzte.
+    urlaub_tag = _urlaub_daten_alle(rep_ids, datum, datum) if modus == 'tag' else {}
     # Feiertag statt "Kein Plan" anzeigen – Bundesland ist je Mitarbeiter individuell.
     feiertag_tag = {r['id'] for r in reps if datum in _feiertage_set(_datum_d.year, r['bundesland'] or 'BY')}
     plan_tag = query(f'''
@@ -3252,7 +3295,9 @@ def tourenplanung():
         WHERE tp.datum >= ? AND tp.datum <= ? {_tm_sql}
         ORDER BY m.name, tp.datum, (von_uhrzeit IS NULL), von_uhrzeit, tp.reihenfolge, tp.id
     ''', (woche_start.isoformat(), woche_ende.isoformat()) + _tm_p) if modus == 'woche' else []
-    urlaub_woche = _urlaub_daten(rep_ids, woche_start.isoformat(), woche_ende.isoformat()) if modus == 'woche' else set()
+    # _urlaub_daten_alle() statt _urlaub_daten() (Bugreport 2026-07-24, von Arco portiert):
+    # liefert pro Tag ALLE gleichzeitigen Abwesenheiten als Liste statt nur die letzte.
+    urlaub_woche = _urlaub_daten_alle(rep_ids, woche_start.isoformat(), woche_ende.isoformat()) if modus == 'woche' else {}
     hotel_naechte_woche = _hotel_naechte(rep_ids, woche_start.isoformat(), woche_ende.isoformat()) if modus == 'woche' else {}
     # Reps, die diese Woche mindestens eine Übernachtung haben, aber sonst keine Stops –
     # sonst würde die Detail-Ansicht (und damit der "zwischen den Tagen"-Hinweis) komplett
@@ -5726,6 +5771,11 @@ def admin_mitarbeiter_neu():
     name     = request.form.get('name',    '').strip()
     kuerzel  = request.form.get('kuerzel', '').strip().upper()
     passwort = request.form.get('passwort', DEFAULT_PASSWORD).strip()
+    # Bugreport 2026-07-21 (Mittel, von Arco portiert): anders als bei Reset/Erstlogin
+    # fehlte hier eine Mindestlängen-Prüfung – ein Admin/VKL konnte ein 1-Zeichen-
+    # Passwort vergeben, das bis zum erzwungenen ersten Login gültig bleibt.
+    if len(passwort) < 8:
+        passwort = DEFAULT_PASSWORD
     email    = request.form.get('email',   '').strip().lower() or None
     rolle    = request.form.get('rolle',   'rep').strip()
     # VKL kann nur Reps anlegen, keine Rollenwahl
@@ -6977,7 +7027,11 @@ def admin_import_excel():
         import openpyxl
         wb = openpyxl.load_workbook(datei, data_only=True)
     except Exception as e:
-        flash(f'Fehler beim Lesen der Excel-Datei: {e}', 'danger')
+        # Bugreport 2026-07-21 (Mittel, von Arco portiert): str(e) ging bisher direkt an
+        # den Client (Verstoß gegen die eigene CLAUDE.md-Sicherheitskonvention) – interne
+        # Details (Bibliotheks-/Modulnamen, Pfade) gehören nicht in den Browser.
+        app.logger.error(f"Excel-Import: Datei konnte nicht gelesen werden: {e}")
+        flash('Fehler beim Lesen der Excel-Datei – bitte Format prüfen.', 'danger')
         return redirect(url_for('admin'))
 
     def _col(row, hmap, *namen):
@@ -7009,6 +7063,10 @@ def admin_import_excel():
             kuerzel  = _col(row, hmap, 'kuerzel', 'Kürzel', 'kuerzel').upper()
             rolle    = _col(row, hmap, 'rolle', 'Rolle') or 'rep'
             passwort = _col(row, hmap, 'passwort', 'Passwort') or DEFAULT_PASSWORD
+            # Bugreport 2026-07-21 (Mittel, von Arco portiert): wie bei admin_mitarbeiter_neu()
+            # fehlte hier eine Mindestlängen-Prüfung für ein per Excel-Spalte vorgegebenes Passwort.
+            if len(passwort) < 8:
+                passwort = DEFAULT_PASSWORD
             email    = _col(row, hmap, 'email', 'Email', 'E-Mail').lower() or None
 
             if not name or not kuerzel:
@@ -7018,7 +7076,11 @@ def admin_import_excel():
             if exists:
                 stats['ma_skip'] += 1
             else:
-                execute("INSERT INTO mitarbeiter (name, kuerzel, rolle, passwort, email) VALUES (?,?,?,?,?)",
+                # muss_passwort_aendern=1 (Bugreport 2026-07-21, Mittel, von Arco portiert):
+                # fehlte bisher im INSERT – importierte Konten wurden nie zur Passwort-
+                # Änderung aufgefordert und blieben dauerhaft auf dem öffentlich
+                # dokumentierten DEFAULT_PASSWORD.
+                execute("INSERT INTO mitarbeiter (name, kuerzel, rolle, passwort, email, muss_passwort_aendern) VALUES (?,?,?,?,?,1)",
                         (name, kuerzel, rolle, generate_password_hash(passwort), email))
                 stats['ma_neu'] += 1
 
@@ -7315,6 +7377,16 @@ def zielzahlen():
     jahr = request.args.get('jahr', date.today().year, type=int)
 
     if request.method == 'POST':
+        # Bugreport 2026-07-21 (Niedrig, von Arco portiert): int(...) ohne try/except und
+        # ohne Negativ-Prüfung – ein manipulierter Formularwert (nicht-numerisch oder
+        # negativ) löste bisher eine unbehandelte ValueError (500) aus bzw. erlaubte
+        # negative Zielzahlen.
+        def _ziel_int(wert):
+            try:
+                return max(0, int(wert))
+            except (TypeError, ValueError):
+                return 0
+
         jar = request.form.get('jahr', date.today().year, type=int)
         _zz_sql, _zz_p = _team_m_clause('m')
         reps = query(
@@ -7331,7 +7403,7 @@ def zielzahlen():
                 ON CONFLICT(mitarbeiter_id, jahr) DO UPDATE SET
                     displays_ziel = excluded.displays_ziel,
                     kisten_ziel   = excluded.kisten_ziel
-            ''', (rep['id'], jar, int(d_ziel), int(k_ziel)))
+            ''', (rep['id'], jar, _ziel_int(d_ziel), _ziel_int(k_ziel)))
 
         # Teamziel
         td = request.form.get('team_disp', 0) or 0
@@ -7342,7 +7414,7 @@ def zielzahlen():
             ON CONFLICT(mitarbeiter_id, jahr) DO UPDATE SET
                 displays_ziel = excluded.displays_ziel,
                 kisten_ziel   = excluded.kisten_ziel
-        ''', (jar, int(td), int(tk)))
+        ''', (jar, _ziel_int(td), _ziel_int(tk)))
 
         flash(f'Zielzahlen für {jar} gespeichert.', 'success')
         if request.form.get('redirect_to') == 'team_verwaltung':
