@@ -1,0 +1,105 @@
+{% extends 'base.html' %}
+{% block title %}Hinweishistorie – {{ company_short }} – Aktions Tracker{% endblock %}
+
+{% block content %}
+{% set _AA_ICON = {'besuchsfrequenz': 'bi-graph-down-arrow', 'ziel_kisten': 'bi-box-seam',
+                    'ziel_displays': 'bi-image', 'aufbau_ablehnung': 'bi-x-octagon',
+                    'arbeitszeit_ueber': 'bi-arrow-up-circle', 'arbeitszeit_unter': 'bi-arrow-down-circle'} %}
+{% set _AA_TYP_LABEL = {'besuchsfrequenz': 'Besuchsfrequenz', 'ziel_kisten': 'Zielerreichung Kisten',
+                         'ziel_displays': 'Zielerreichung Displays', 'aufbau_ablehnung': 'Aufbau-Ablehnung',
+                         'arbeitszeit_ueber': 'Arbeitszeit über Soll', 'arbeitszeit_unter': 'Arbeitszeit unter Soll'} %}
+{% set _AA_STATUS_LABEL = {'neu': 'Offen', 'gesehen': 'Gesehen', 'verworfen': 'Verworfen'} %}
+{% set _AA_STATUS_COLOR = {'neu': '#c8860a', 'gesehen': '#2d8a4e', 'verworfen': '#6c757d'} %}
+
+<div class="page-header d-flex justify-content-between align-items-start flex-wrap gap-2">
+  <div>
+    <h1><i class="bi bi-clock-history me-2"></i>Hinweishistorie</h1>
+    <p>Auffälligkeiten der letzten 12 Monate – {{ historie|length }} Eintrag{{ 'e' if historie|length != 1 else '' }}</p>
+  </div>
+  <a href="{{ url_for('dashboard') }}" class="btn btn-sm btn-outline-light">
+    <i class="bi bi-arrow-left me-1"></i>Zurück zum Dashboard
+  </a>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body py-3">
+    <form method="GET" class="row g-2 align-items-end">
+      <div class="col-sm-4 col-md-3">
+        <label class="form-label" style="font-size:.82rem">Mitarbeiter</label>
+        <select name="ma" class="form-select form-select-sm" onchange="this.form.submit()">
+          <option value="">Alle</option>
+          {% for m in alle_ma %}
+          <option value="{{ m.id }}" {% if ma_filter == m.id|string %}selected{% endif %}>{{ m.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-4 col-md-3">
+        <label class="form-label" style="font-size:.82rem">Typ</label>
+        <select name="typ" class="form-select form-select-sm" onchange="this.form.submit()">
+          <option value="">Alle</option>
+          {% for k, v in _AA_TYP_LABEL.items() %}
+          <option value="{{ k }}" {% if typ_filter == k %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-4 col-md-3">
+        <label class="form-label" style="font-size:.82rem">Status</label>
+        <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+          <option value="">Alle</option>
+          {% for k, v in _AA_STATUS_LABEL.items() %}
+          <option value="{{ k }}" {% if status_filter == k %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% if ma_filter or typ_filter or status_filter %}
+      <div class="col-sm-12 col-md-3">
+        <a href="{{ url_for('auffaelligkeiten_historie') }}" class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-x-lg me-1"></i>Filter zurücksetzen
+        </a>
+      </div>
+      {% endif %}
+    </form>
+  </div>
+</div>
+
+{% if not historie %}
+<div class="alert alert-info"><i class="bi bi-info-circle me-2"></i>Keine Einträge im gewählten Zeitraum/Filter gefunden.</div>
+{% else %}
+<div class="card">
+  <div class="card-body p-0">
+    {% for a in historie %}
+    <div class="d-flex gap-3 align-items-start py-3 px-3 {% if not loop.last %}border-bottom{% endif %}">
+      <div class="rounded-3 d-flex align-items-center justify-content-center flex-shrink-0"
+           style="width:36px;height:36px;font-size:1.1rem;
+                  {% if a.schweregrad == 'hoch' %}background:#fdeceb;color:#c0392b
+                  {% else %}background:#fdf2e2;color:#c8860a{% endif %}">
+        <i class="bi {{ _AA_ICON.get(a.typ, 'bi-exclamation-circle') }}"></i>
+      </div>
+      <div class="flex-grow-1" style="min-width:0">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <span class="fw-semibold" style="font-size:.85rem;color:#1a3a5c">{{ a.mitarbeiter_name }}</span>
+          <span class="text-muted" style="font-size:.78rem">· {{ a.erstellt_am }}</span>
+        </div>
+        <div class="fw-semibold" style="font-size:.92rem">{{ a.titel }}</div>
+        <div class="text-muted" style="font-size:.84rem;line-height:1.45">{{ a.detail }}</div>
+        <div class="d-flex align-items-center gap-2 mt-2 flex-wrap">
+          <span class="badge {% if a.schweregrad == 'hoch' %}bg-danger{% else %}text-dark{% endif %}"
+                {% if a.schweregrad != 'hoch' %}style="background:#c8860a"{% endif %}>
+            {{ 'Hoch' if a.schweregrad == 'hoch' else 'Mittel' }}
+          </span>
+          <span class="badge text-dark" style="background:{{ _AA_STATUS_COLOR.get(a.status, '#6c757d') }}">
+            {{ _AA_STATUS_LABEL.get(a.status, a.status) }}
+          </span>
+          {% if a.entschieden_von_name %}
+          <span class="text-muted" style="font-size:.78rem">
+            von {{ a.entschieden_von_name }} am {{ a.entschieden_am }}
+          </span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

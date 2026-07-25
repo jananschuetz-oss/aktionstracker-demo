@@ -2969,6 +2969,54 @@ def auffaelligkeit_verwerfen(alert_id):
     return redirect(url_for('dashboard'))
 
 
+@app.route('/auffaelligkeiten/historie')
+@manager_required
+def auffaelligkeiten_historie():
+    """Hinweishistorie (2026-07-26, von Arco portiert): zeigt alle abweichungs_alert-Einträge
+    der letzten 12 Monate, nicht nur die offenen ('neu') vom Dashboard – damit VKL/Admin
+    Muster über Zeit erkennen können, statt dass jeder Alert nach dem Quittieren spurlos
+    verschwindet."""
+    ma_filter = request.args.get('ma', '', type=str)
+    typ_filter = request.args.get('typ', '', type=str)
+    status_filter = request.args.get('status', '', type=str)
+
+    _aa_team_sql, _aa_team_params = _team_ma_clause('aa')
+    where = ["aa.erstellt_am >= datetime('now', '-12 months')"]
+    params = list(_aa_team_params)
+
+    if ma_filter:
+        where.append('aa.mitarbeiter_id = ?')
+        params.append(ma_filter)
+    if typ_filter:
+        where.append('aa.typ = ?')
+        params.append(typ_filter)
+    if status_filter:
+        where.append('aa.status = ?')
+        params.append(status_filter)
+
+    historie = query(f'''
+        SELECT aa.id, aa.typ, aa.schweregrad, aa.titel, aa.detail, aa.status,
+               aa.erstellt_am, aa.entschieden_am,
+               m.name AS mitarbeiter_name,
+               e.name AS entschieden_von_name
+        FROM abweichungs_alert aa
+        JOIN mitarbeiter m ON m.id = aa.mitarbeiter_id
+        LEFT JOIN mitarbeiter e ON e.id = aa.entschieden_von
+        WHERE {' AND '.join(where)} {_aa_team_sql}
+        ORDER BY aa.erstellt_am DESC
+    ''', params)
+
+    _tm_sql, _tm_p = _team_m_clause('m')
+    alle_ma = query(
+        f"SELECT id, name FROM mitarbeiter m WHERE m.rolle IN ('rep','verkaufsleiter'){_tm_sql} ORDER BY m.name",
+        _tm_p
+    )
+
+    return render_template('auffaelligkeiten_historie.html',
+        historie=historie, alle_ma=alle_ma,
+        ma_filter=ma_filter, typ_filter=typ_filter, status_filter=status_filter)
+
+
 # ─── Routes: Dashboard ────────────────────────────────────────────────────────
 
 @app.route('/dashboard')

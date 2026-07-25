@@ -225,21 +225,34 @@ document.addEventListener('DOMContentLoaded', function(){
 {% endif %}
 
 <!-- Auffälligkeiten (2026-07-26, von Arco portiert): proaktive Alerts für Admin/VKL, direkt
-     nach den Jahres-KPI-Karten, damit sie ohne Extra-Klick sichtbar sind. Nur gerendert
-     wenn tatsächlich offene ('neu') Alerts vorliegen, damit die Seite bei "alles ruhig"
-     nicht mit einer leeren Card unnötig länger wird. -->
-{% if is_manager and auffaelligkeiten %}
+     nach den Jahres-KPI-Karten, damit sie ohne Extra-Klick sichtbar sind. Card bleibt auch
+     ohne offene ('neu') Alerts sichtbar (nur schmaler), damit der Historie-Link immer
+     erreichbar ist. -->
+{% if is_manager %}
 {% set _AA_ICON = {'besuchsfrequenz': 'bi-graph-down-arrow', 'ziel_kisten': 'bi-box-seam',
                     'ziel_displays': 'bi-image', 'aufbau_ablehnung': 'bi-x-octagon',
                     'arbeitszeit_ueber': 'bi-arrow-up-circle', 'arbeitszeit_unter': 'bi-arrow-down-circle'} %}
-<div class="card mb-4">
+<div class="card mb-4" id="aa-card">
   <div class="card-header d-flex justify-content-between align-items-center" style="background:#1a3a5c">
     <span><i class="bi bi-exclamation-triangle me-2"></i>Auffälligkeiten</span>
-    <span class="badge" style="background:#f5a623;color:#4a2e00">{{ auffaelligkeiten|length }} neu</span>
+    <span class="d-flex align-items-center gap-2">
+      <a href="{{ url_for('auffaelligkeiten_historie') }}" class="text-white-50" style="font-size:.8rem;text-decoration:none">
+        <i class="bi bi-clock-history me-1"></i>Historie
+      </a>
+      {% if auffaelligkeiten %}
+      <span class="badge" style="background:#f5a623;color:#4a2e00">{{ auffaelligkeiten|length }} neu</span>
+      {% endif %}
+    </span>
   </div>
+  {% if not auffaelligkeiten %}
+  <div class="card-body py-3 text-muted" style="font-size:.88rem">
+    <i class="bi bi-check2-circle me-1" style="color:#2d8a4e"></i>Keine offenen Auffälligkeiten.
+  </div>
+  {% else %}
   <div class="card-body">
     {% for a in auffaelligkeiten %}
-    <div class="d-flex gap-3 align-items-start py-2 {% if not loop.last %}border-bottom{% endif %}">
+    <div class="d-flex gap-3 align-items-start py-2 {% if not loop.last %}border-bottom{% endif %}
+                {% if loop.index > 3 %}aa-mehr d-none{% endif %}">
       <div class="rounded-3 d-flex align-items-center justify-content-center flex-shrink-0"
            style="width:36px;height:36px;font-size:1.1rem;
                   {% if a.schweregrad == 'hoch' %}background:#fdeceb;color:#c0392b
@@ -272,7 +285,21 @@ document.addEventListener('DOMContentLoaded', function(){
       </div>
     </div>
     {% endfor %}
+    {% if auffaelligkeiten|length > 3 %}
+    <div class="text-center pt-2">
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="aa-toggle-btn"
+              onclick="document.querySelectorAll('#aa-card .aa-mehr').forEach(el => el.classList.toggle('d-none'));
+                       const auf = document.getElementById('aa-toggle-btn').dataset.auf === '1';
+                       document.getElementById('aa-toggle-btn').dataset.auf = auf ? '0' : '1';
+                       document.getElementById('aa-toggle-label').textContent = auf ? '+{{ auffaelligkeiten|length - 3 }} weitere anzeigen' : 'Weniger anzeigen';
+                       document.getElementById('aa-toggle-icon').className = auf ? 'bi bi-plus-lg me-1' : 'bi bi-dash-lg me-1';"
+              data-auf="0">
+        <i class="bi bi-plus-lg me-1" id="aa-toggle-icon"></i><span id="aa-toggle-label">+{{ auffaelligkeiten|length - 3 }} weitere anzeigen</span>
+      </button>
+    </div>
+    {% endif %}
   </div>
+  {% endif %}
 </div>
 {% endif %}
 
