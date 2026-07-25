@@ -1,0 +1,370 @@
+{% extends 'base.html' %}
+{% block title %}Verkaufsstellen-Vergleich – {{ company_short }} – Aktions Tracker{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div>
+    <h1><i class="bi bi-diagram-3 me-2"></i>Verkaufsstellen-Vergleich</h1>
+    <p>{{ label }} – {% if ausgewaehlte_vs %}ausgewählte Kunden{% else %}Kennzahlen je Verkaufsstellen-Typ{% endif %}</p>
+  </div>
+  <div class="d-flex gap-2">
+    {% for p, lbl in [('woche','Woche'),('monat','Monat'),('jahr','Jahr')] %}
+    <a href="{{ url_for('verkaufsstellen_vergleich', periode=p, typ=ausgewaehlt_typ, landkreis=ausgewaehlt_landkreis, ort=ausgewaehlt_ort, mitarbeiter_id=ausgewaehlt_mitarbeiter, vs_id=(ausgewaehlte_vs | map(attribute='id') | list)) }}"
+       class="btn btn-sm {% if periode == p %}btn-primary{% else %}btn-outline-light{% endif %}">
+      {{ lbl }}
+    </a>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Filter -->
+<div class="card mb-4">
+  <div class="card-body">
+    <form method="GET" id="vergleichFilterForm">
+      <input type="hidden" name="periode" value="{{ periode }}">
+
+      {% if periode == 'monat' %}
+      <div class="row g-3 mb-3">
+        <div class="col-md-3">
+          <label class="form-label fw-semibold small">Monat</label>
+          <input type="month" name="monat" class="form-control form-control-sm" value="{{ monat_param }}">
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="row g-3 mb-3">
+        <div class="col-md-12">
+          <label class="form-label fw-semibold small">Kunden gezielt auswählen <span class="text-muted fw-normal">(überschreibt die Typ-Segmentierung unten)</span></label>
+          <div id="kundenSucheChips" class="d-flex flex-wrap gap-2 mb-2">
+            {% for vs in ausgewaehlte_vs %}
+            <span class="badge bg-primary d-flex align-items-center gap-1" style="font-size:.82rem;padding:.4rem .6rem">
+              {{ vs.name }}{% if vs.ort %} · {{ vs.ort }}{% endif %}
+              <input type="hidden" name="vs_id" value="{{ vs.id }}">
+              <a href="#" class="text-white kunde-entfernen" style="text-decoration:none" data-vsid="{{ vs.id }}">&times;</a>
+            </span>
+            {% endfor %}
+          </div>
+          <input type="text" id="kundenSucheInput" class="form-control form-control-sm" placeholder="Kunde per Name oder Ort suchen und hinzufügen …" autocomplete="off">
+          <div id="kundenSucheDropdown" class="list-group position-absolute d-none" style="z-index:1000;max-height:260px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.15)"></div>
+        </div>
+      </div>
+
+      <div class="row g-3">
+        <div class="col-md-3">
+          <label class="form-label fw-semibold small">Verkaufsstellen-Typ</label>
+          <div class="d-flex flex-wrap gap-3">
+            {% for t in alle_typen %}
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="typ" value="{{ t }}" id="typ-{{ loop.index }}"
+                     {% if t in ausgewaehlt_typ %}checked{% endif %}>
+              <label class="form-check-label small" for="typ-{{ loop.index }}">{{ t }}</label>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label fw-semibold small">Landkreis <span class="text-muted fw-normal">(Mehrfach)</span></label>
+          <div id="landkreisChips" class="d-flex flex-wrap gap-1 mb-1">
+            {% for lk in ausgewaehlt_landkreis %}
+            <span class="badge bg-secondary d-flex align-items-center gap-1" style="font-size:.76rem;padding:.35rem .5rem">
+              {{ lk }}
+              <input type="hidden" name="landkreis" value="{{ lk }}">
+              <a href="#" class="text-white filterwert-entfernen" style="text-decoration:none">&times;</a>
+            </span>
+            {% endfor %}
+          </div>
+          <div class="position-relative">
+            <input type="text" class="form-control form-control-sm filterwert-suche" data-feld="landkreis"
+                   data-chips="landkreisChips" placeholder="Landkreis suchen …" autocomplete="off">
+            <div class="list-group position-absolute d-none filterwert-dropdown w-100" style="z-index:1000;max-height:220px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.15)"></div>
+          </div>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label fw-semibold small">Ort <span class="text-muted fw-normal">(Mehrfach)</span></label>
+          <div id="ortChips" class="d-flex flex-wrap gap-1 mb-1">
+            {% for o in ausgewaehlt_ort %}
+            <span class="badge bg-secondary d-flex align-items-center gap-1" style="font-size:.76rem;padding:.35rem .5rem">
+              {{ o }}
+              <input type="hidden" name="ort" value="{{ o }}">
+              <a href="#" class="text-white filterwert-entfernen" style="text-decoration:none">&times;</a>
+            </span>
+            {% endfor %}
+          </div>
+          <div class="position-relative">
+            <input type="text" class="form-control form-control-sm filterwert-suche" data-feld="ort"
+                   data-chips="ortChips" placeholder="Ort suchen …" autocomplete="off">
+            <div class="list-group position-absolute d-none filterwert-dropdown w-100" style="z-index:1000;max-height:220px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.15)"></div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label fw-semibold small">Mitarbeiter <span class="text-muted fw-normal">(Mehrfach)</span></label>
+          <select name="mitarbeiter_id" class="form-select form-select-sm" multiple size="4">
+            {% for m in alle_mitarbeiter %}
+            <option value="{{ m.id }}" {% if m.id in ausgewaehlt_mitarbeiter %}selected{% endif %}>{{ m.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2 d-flex align-items-end gap-2">
+          <button type="submit" class="btn btn-sm btn-primary flex-fill"><i class="bi bi-funnel me-1"></i>Anwenden</button>
+          <a href="{{ url_for('verkaufsstellen_vergleich', periode=periode) }}" class="btn btn-sm btn-outline-secondary flex-fill">
+            <i class="bi bi-x-circle me-1"></i>Zurücksetzen
+          </a>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if not segmente %}
+<div class="alert alert-info">
+  <i class="bi bi-info-circle me-2"></i>Keine Verkaufsstellen-Typen ausgewählt oder gefunden.
+</div>
+{% else %}
+<div class="row g-3">
+  {% for s in segmente %}
+  <div class="col-md-6 col-xl-4">
+    <div class="card h-100" style="border:2px solid #1a3a5c">
+      <div class="card-header d-flex justify-content-between align-items-center"
+           style="background:#1a3a5c;color:#fff;font-weight:700">
+        <span>{{ s.typ }}</span>
+        <span class="badge bg-light text-dark" style="font-size:.78rem">
+          <i class="bi bi-shop me-1"></i>{{ s.anzahl_kunden }} Kunden
+        </span>
+      </div>
+      <div class="card-body">
+        <div class="row g-2 text-center mb-2">
+          <div class="col-6">
+            <div class="text-muted small"><i class="bi bi-person-check me-1"></i>Besuche</div>
+            <div style="font-size:1.5rem;font-weight:700;color:#1a3a5c">{{ s.besuche }}</div>
+            <div class="small" style="color:{{ trend_col(s.besuche, s.p_besuche) }}">
+              {{ trend_str(s.besuche, s.p_besuche) }} ggü. VJ
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="text-muted small"><i class="bi bi-clipboard-check me-1"></i>Bestellungen</div>
+            <div style="font-size:1.5rem;font-weight:700;color:#2c7a7b">{{ s.bestellungen }}</div>
+            <div class="small" style="color:{{ trend_col(s.bestellungen, s.p_bestellungen) }}">
+              {{ trend_str(s.bestellungen, s.p_bestellungen) }} ggü. VJ
+            </div>
+          </div>
+        </div>
+        <div class="row g-2 text-center">
+          <div class="col-6">
+            <div class="text-muted small"><i class="bi bi-box-seam me-1"></i>{{ unit_label }}</div>
+            <div style="font-size:1.3rem;font-weight:700;color:#c8860a">{{ s.kisten }}</div>
+            <div class="small" style="color:{{ trend_col(s.kisten, s.p_kisten) }}">
+              {{ trend_str(s.kisten, s.p_kisten) }} ggü. VJ
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="text-muted small"><i class="bi bi-check2-circle me-1"></i>Davon besucht</div>
+            <div style="font-size:1.3rem;font-weight:700;color:#4a5568">{{ s.kunden_besucht }}</div>
+            <div class="small text-muted">von {{ s.anzahl_kunden }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="card-footer d-flex gap-2 bg-white">
+        {% if ausgewaehlte_vs %}
+        <a href="{{ url_for('verkaufsstellen_vergleich_liste', periode=periode, monat=monat_param, vs_id=s.vs_ids, zurueck=request.full_path) }}"
+           class="btn btn-sm btn-outline-primary flex-fill">
+          <i class="bi bi-list-check me-1"></i>Liste
+        </a>
+        {% else %}
+        <a href="{{ url_for('verkaufsstellen_vergleich_liste', periode=periode, monat=monat_param, typ=s.typ, landkreis=ausgewaehlt_landkreis, ort=ausgewaehlt_ort, mitarbeiter_id=ausgewaehlt_mitarbeiter, zurueck=request.full_path) }}"
+           class="btn btn-sm btn-outline-primary flex-fill">
+          <i class="bi bi-list-check me-1"></i>Liste
+        </a>
+        {% endif %}
+        {% if karte_modus != 'aus' and s.vs_ids %}
+          {% if ausgewaehlte_vs %}
+          <a href="{{ url_for('karte', vs_ids=s.vs_ids|join(','), zurueck=request.full_path) }}" class="btn btn-sm btn-outline-secondary flex-fill">
+            <i class="bi bi-map me-1"></i>Karte
+          </a>
+          {% else %}
+          <a href="{{ url_for('karte', vergleich_typ=s.typ, landkreis=ausgewaehlt_landkreis, ort=ausgewaehlt_ort, mitarbeiter_id=ausgewaehlt_mitarbeiter, zurueck=request.full_path) }}" class="btn btn-sm btn-outline-secondary flex-fill">
+            <i class="bi bi-map me-1"></i>Karte
+          </a>
+          {% endif %}
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Landkreis-/Ort-Filter: Chips + Suchfeld statt tausender serverseitig gerenderter
+// Checkboxen (analog Arco-Performance-Fix 2026-07-21, siehe /api/verkaufsstellen/filterwerte).
+document.querySelectorAll('.filterwert-suche').forEach(function (input) {
+  const feld     = input.dataset.feld;
+  const chips    = document.getElementById(input.dataset.chips);
+  const dropdown = input.parentElement.querySelector('.filterwert-dropdown');
+  let timer = null;
+
+  function ausgewaehlteWerte() {
+    return Array.from(chips.querySelectorAll('input[type="hidden"]')).map(i => i.value);
+  }
+  function schliessen() {
+    dropdown.classList.add('d-none');
+    dropdown.innerHTML = '';
+  }
+  function addChip(wert) {
+    if (ausgewaehlteWerte().includes(wert)) return;
+    const span = document.createElement('span');
+    span.className = 'badge bg-secondary d-flex align-items-center gap-1';
+    span.style.cssText = 'font-size:.76rem;padding:.35rem .5rem';
+    span.innerHTML = escapeHtml(wert) +
+      '<input type="hidden" name="' + feld + '" value="' + wert.replace(/"/g, '&quot;') + '">' +
+      '<a href="#" class="text-white filterwert-entfernen" style="text-decoration:none">&times;</a>';
+    chips.appendChild(span);
+    input.value = '';
+    schliessen();
+    input.focus();
+  }
+
+  chips.addEventListener('click', function (e) {
+    const link = e.target.closest('.filterwert-entfernen');
+    if (!link) return;
+    e.preventDefault();
+    link.closest('span').remove();
+  });
+
+  input.addEventListener('input', function () {
+    clearTimeout(timer);
+    const q = input.value.trim();
+    timer = setTimeout(function () {
+      fetch('/api/verkaufsstellen/filterwerte?feld=' + feld + '&q=' + encodeURIComponent(q))
+        .then(r => r.json())
+        .then(list => {
+          dropdown.innerHTML = '';
+          const treffer = list.filter(w => !ausgewaehlteWerte().includes(w)).slice(0, 20);
+          if (!treffer.length) { schliessen(); return; }
+          treffer.forEach(function (wert) {
+            const item = document.createElement('a');
+            item.href = '#';
+            item.className = 'list-group-item list-group-item-action py-1';
+            item.style.fontSize = '.82rem';
+            item.textContent = wert;
+            item.addEventListener('mousedown', function (e) { e.preventDefault(); addChip(wert); });
+            dropdown.appendChild(item);
+          });
+          dropdown.classList.remove('d-none');
+        });
+    }, 200);
+  });
+  input.addEventListener('blur', function () { setTimeout(schliessen, 150); });
+});
+
+(function () {
+  const input    = document.getElementById('kundenSucheInput');
+  const dropdown = document.getElementById('kundenSucheDropdown');
+  const chips    = document.getElementById('kundenSucheChips');
+  let timer = null;
+  let treffer = [];
+  let aktiverIndex = -1;
+
+  function ausgewaehlteIds() {
+    return Array.from(chips.querySelectorAll('input[name="vs_id"]')).map(i => i.value);
+  }
+
+  function adresse(vs) {
+    const teile = [];
+    if (vs.strasse) teile.push(vs.strasse);
+    const plzOrt = [vs.plz, vs.ort].filter(Boolean).join(' ');
+    if (plzOrt) teile.push(plzOrt);
+    return teile.join(', ');
+  }
+
+  function addChip(vs) {
+    if (ausgewaehlteIds().includes(String(vs.id))) return;
+    const span = document.createElement('span');
+    span.className = 'badge bg-primary d-flex align-items-center gap-1';
+    span.style.cssText = 'font-size:.82rem;padding:.4rem .6rem';
+    span.innerHTML = escapeHtml(vs.name) + (adresse(vs) ? ' · ' + escapeHtml(adresse(vs)) : '') +
+      '<input type="hidden" name="vs_id" value="' + vs.id + '">' +
+      '<a href="#" class="text-white kunde-entfernen" style="text-decoration:none" data-vsid="' + vs.id + '">&times;</a>';
+    chips.appendChild(span);
+    input.value = '';
+    schliessen();
+    input.focus();
+  }
+
+  function schliessen() {
+    dropdown.classList.add('d-none');
+    treffer = [];
+    aktiverIndex = -1;
+  }
+
+  function markiereAktiv() {
+    Array.from(dropdown.children).forEach((el, i) => el.classList.toggle('active', i === aktiverIndex));
+  }
+
+  chips.addEventListener('click', function (e) {
+    const link = e.target.closest('.kunde-entfernen');
+    if (!link) return;
+    e.preventDefault();
+    link.closest('span').remove();
+  });
+
+  input.addEventListener('input', function () {
+    clearTimeout(timer);
+    const q = input.value.trim();
+    if (q.length < 2) { schliessen(); return; }
+    timer = setTimeout(function () {
+      fetch('/api/verkaufsstellen?q=' + encodeURIComponent(q))
+        .then(r => r.json())
+        .then(list => {
+          dropdown.innerHTML = '';
+          treffer = list.slice(0, 15);
+          aktiverIndex = -1;
+          if (!treffer.length) { schliessen(); return; }
+          treffer.forEach(function (vs) {
+            const item = document.createElement('a');
+            item.href = '#';
+            item.className = 'list-group-item list-group-item-action py-2';
+            item.style.fontSize = '.85rem';
+            item.innerHTML = '<div class="fw-semibold">' + escapeHtml(vs.name) +
+              (vs.typ ? ' <span class="text-muted fw-normal">(' + escapeHtml(vs.typ) + ')</span>' : '') + '</div>' +
+              (adresse(vs) ? '<div class="text-muted" style="font-size:.78rem">' + escapeHtml(adresse(vs)) + '</div>' : '');
+            item.addEventListener('mousedown', function (e) {
+              // mousedown statt click: feuert vor dem blur-bedingten Schließen des Dropdowns
+              e.preventDefault();
+              addChip(vs);
+            });
+            dropdown.appendChild(item);
+          });
+          dropdown.classList.remove('d-none');
+        })
+        .catch(function () {});
+    }, 250);
+  });
+
+  input.addEventListener('keydown', function (e) {
+    if (dropdown.classList.contains('d-none') || !treffer.length) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      aktiverIndex = Math.min(aktiverIndex + 1, treffer.length - 1);
+      markiereAktiv();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      aktiverIndex = Math.max(aktiverIndex - 1, 0);
+      markiereAktiv();
+    } else if (e.key === 'Enter') {
+      // Verhindert, dass Enter das Filterformular absendet – wählt stattdessen den
+      // markierten (oder ohne Pfeiltasten-Nutzung den ersten) Treffer aus.
+      e.preventDefault();
+      addChip(treffer[aktiverIndex >= 0 ? aktiverIndex : 0]);
+    } else if (e.key === 'Escape') {
+      schliessen();
+    }
+  });
+
+  document.addEventListener('click', function (e) {
+    if (!dropdown.contains(e.target) && e.target !== input) schliessen();
+  });
+})();
+</script>
+{% endblock %}

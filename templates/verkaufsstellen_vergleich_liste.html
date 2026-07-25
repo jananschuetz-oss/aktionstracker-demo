@@ -1,0 +1,81 @@
+{% extends 'base.html' %}
+{% block title %}{{ titel }} – Verkaufsstellen-Vergleich – {{ company_short }} – Aktions Tracker{% endblock %}
+
+{% block content %}
+{% set zurueck_params = {'periode': periode, 'monat': monat_param, 'landkreis': landkreis, 'ort': ort, 'mitarbeiter_id': mitarbeiter_id} %}
+{% if ausgewaehlte_vs_ids %}{% set _ = zurueck_params.update({'vs_id': ausgewaehlte_vs_ids}) %}{% else %}{% set _ = zurueck_params.update({'typ': [typ]}) %}{% endif %}
+
+<div class="page-header d-flex justify-content-between align-items-start flex-wrap gap-2">
+  <div>
+    <h1><i class="bi bi-list-check me-2"></i>{{ titel }}</h1>
+    <p>{{ label }} – {{ liste|length }} Kunde{{ 'n' if liste|length != 1 else '' }}
+      · <span style="color:#2d8a4e">{{ liste|selectattr('besuche', 'gt', 0)|list|length }} besucht</span>
+      · <span class="text-muted">{{ liste|selectattr('besuche', 'equalto', 0)|list|length }} nicht besucht</span>
+    </p>
+  </div>
+  <div class="d-flex gap-2">
+    {% if karte_modus != 'aus' and vs_ids %}
+    <a href="{{ url_for('karte', vs_ids=vs_ids|join(','), zurueck=zurueck_url) }}" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-map me-1"></i>Auf Karte anzeigen
+    </a>
+    {% endif %}
+    <a href="{{ zurueck_vergleich_url or url_for('verkaufsstellen_vergleich', **zurueck_params) }}" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-arrow-left me-1"></i>Zurück zum Vergleich
+    </a>
+  </div>
+</div>
+
+{% if not liste %}
+<div class="alert alert-info"><i class="bi bi-info-circle me-2"></i>Keine Verkaufsstellen gefunden.</div>
+{% else %}
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header" style="background:#2d8a4e;color:#fff">
+        <i class="bi bi-check2-circle me-2"></i>Besucht ({{ liste|selectattr('besuche', 'gt', 0)|list|length }})
+      </div>
+      <div class="card-body p-0">
+        <div style="max-height:640px;overflow-y:auto">
+          {% for s in liste if s.besuche > 0 %}
+          <a href="{{ url_for('verkaufsstelle_historie', vs_id=s.id, zurueck=zurueck_url) }}" class="d-block text-decoration-none"
+             style="padding:10px 16px;border-bottom:1px solid #f0f4f8;color:inherit">
+            <div class="d-flex justify-content-between align-items-center">
+              <div>
+                <div class="fw-semibold" style="font-size:.9rem">{{ s.name }}</div>
+                <div class="text-muted" style="font-size:.78rem">{{ s.strasse }}{% if s.strasse and s.ort %}, {% endif %}{{ s.ort }}</div>
+                {% if s.mitarbeiter %}
+                <div style="font-size:.85rem;font-weight:600;color:#1a3a5c"><i class="bi bi-person-fill me-1"></i>{{ s.mitarbeiter }}</div>
+                {% endif %}
+              </div>
+              <span class="badge" style="background:#e6f4ea;color:#2d8a4e;font-size:.8rem">{{ s.besuche }}× besucht</span>
+            </div>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header" style="background:#6c757d;color:#fff">
+        <i class="bi bi-x-circle me-2"></i>Nicht besucht ({{ liste|selectattr('besuche', 'equalto', 0)|list|length }})
+      </div>
+      <div class="card-body p-0">
+        <div style="max-height:640px;overflow-y:auto">
+          {% for s in liste if s.besuche == 0 %}
+          <a href="{{ url_for('verkaufsstelle_historie', vs_id=s.id, zurueck=zurueck_url) }}" class="d-block text-decoration-none"
+             style="padding:10px 16px;border-bottom:1px solid #f0f4f8;color:inherit">
+            <div class="fw-semibold" style="font-size:.9rem">{{ s.name }}</div>
+            <div class="text-muted" style="font-size:.78rem">{{ s.strasse }}{% if s.strasse and s.ort %}, {% endif %}{{ s.ort }}</div>
+            {% if s.mitarbeiter %}
+            <div style="font-size:.85rem;font-weight:600;color:#1a3a5c"><i class="bi bi-person-fill me-1"></i>{{ s.mitarbeiter }}</div>
+            {% endif %}
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

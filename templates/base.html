@@ -391,7 +391,7 @@
 </nav>
 {% endif %}
 
-{% set _vkl_seiten = ('vergleich','tourenplanung','karte','einstellungen_wochenbericht','bestellungen_uebersicht','team_verwaltung','zielzahlen','bestellung_detail','verkaufsstellen_liste','aufbauten_freigabe') %}
+{% set _vkl_seiten = ('vergleich','tourenplanung','karte','einstellungen_wochenbericht','bestellungen_uebersicht','team_verwaltung','zielzahlen','bestellung_detail','verkaufsstellen_liste','verkaufsstellen_vergleich','aufbauten_freigabe') %}
 {% if session.user_id and (session.rolle == 'verkaufsleiter' or (session.rolle == 'admin' and request.endpoint in _vkl_seiten)) %}
 <nav id="vkl-subnav">
   <a href="{{ url_for('vergleich') }}"
@@ -417,6 +417,10 @@
   <a href="{{ url_for('verkaufsstellen_liste') }}"
      class="vkl-tab {% if request.endpoint == 'verkaufsstellen_liste' %}active{% endif %}">
     <i class="bi bi-shop"></i>Verkaufsstellen
+  </a>
+  <a href="{{ url_for('verkaufsstellen_vergleich') }}"
+     class="vkl-tab {% if request.endpoint == 'verkaufsstellen_vergleich' %}active{% endif %}">
+    <i class="bi bi-diagram-3"></i>Verkaufsstellen-Vergleich
   </a>
   <a href="{{ url_for('aufbauten_freigabe') }}"
      class="vkl-tab {% if request.endpoint == 'aufbauten_freigabe' %}active{% endif %}">

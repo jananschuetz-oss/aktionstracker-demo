@@ -224,6 +224,58 @@ document.addEventListener('DOMContentLoaded', function(){
 </div>
 {% endif %}
 
+<!-- Auffälligkeiten (2026-07-26, von Arco portiert): proaktive Alerts für Admin/VKL, direkt
+     nach den Jahres-KPI-Karten, damit sie ohne Extra-Klick sichtbar sind. Nur gerendert
+     wenn tatsächlich offene ('neu') Alerts vorliegen, damit die Seite bei "alles ruhig"
+     nicht mit einer leeren Card unnötig länger wird. -->
+{% if is_manager and auffaelligkeiten %}
+{% set _AA_ICON = {'besuchsfrequenz': 'bi-graph-down-arrow', 'ziel_kisten': 'bi-box-seam',
+                    'ziel_displays': 'bi-image', 'aufbau_ablehnung': 'bi-x-octagon',
+                    'arbeitszeit_ueber': 'bi-arrow-up-circle', 'arbeitszeit_unter': 'bi-arrow-down-circle'} %}
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center" style="background:#1a3a5c">
+    <span><i class="bi bi-exclamation-triangle me-2"></i>Auffälligkeiten</span>
+    <span class="badge" style="background:#f5a623;color:#4a2e00">{{ auffaelligkeiten|length }} neu</span>
+  </div>
+  <div class="card-body">
+    {% for a in auffaelligkeiten %}
+    <div class="d-flex gap-3 align-items-start py-2 {% if not loop.last %}border-bottom{% endif %}">
+      <div class="rounded-3 d-flex align-items-center justify-content-center flex-shrink-0"
+           style="width:36px;height:36px;font-size:1.1rem;
+                  {% if a.schweregrad == 'hoch' %}background:#fdeceb;color:#c0392b
+                  {% else %}background:#fdf2e2;color:#c8860a{% endif %}">
+        <i class="bi {{ _AA_ICON.get(a.typ, 'bi-exclamation-circle') }}"></i>
+      </div>
+      <div class="flex-grow-1" style="min-width:0">
+        <div class="fw-semibold" style="font-size:.92rem">{{ a.titel }}</div>
+        <div class="text-muted" style="font-size:.84rem;line-height:1.45">{{ a.detail }}</div>
+        <div class="d-flex align-items-center gap-2 mt-2">
+          <span class="badge {% if a.schweregrad == 'hoch' %}bg-danger{% else %}text-dark{% endif %}"
+                {% if a.schweregrad != 'hoch' %}style="background:#c8860a"{% endif %}>
+            {{ 'Hoch' if a.schweregrad == 'hoch' else 'Mittel' }}
+          </span>
+        </div>
+      </div>
+      <div class="d-flex gap-1 flex-shrink-0">
+        <form method="POST" action="{{ url_for('auffaelligkeit_gesehen', alert_id=a.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-outline-secondary btn-sm" title="Als gesehen markieren">
+            <i class="bi bi-check-lg"></i>
+          </button>
+        </form>
+        <form method="POST" action="{{ url_for('auffaelligkeit_verwerfen', alert_id=a.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-outline-secondary btn-sm" title="Verwerfen">
+            <i class="bi bi-x-lg"></i>
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 <!-- Jahreszielerreichung (nur Manager – Reps sehen das im Zielkurs) -->
 {% if is_manager and ziel and (ziel.displays_ziel or ziel.kisten_ziel) %}
 <div class="card mb-4">

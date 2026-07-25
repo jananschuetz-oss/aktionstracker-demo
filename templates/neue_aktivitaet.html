@@ -408,6 +408,27 @@
     </div>
   </div>
 
+  <!-- Folgebesuch planen (2026-07-24, Nutzerwunsch, von Arco portiert): optional, legt
+       automatisch einen Tagesplan-Eintrag an -->
+  <div class="mt-4 p-3 rounded-3" style="background:#fdf6e8;border:1px dashed #c8860a">
+    <div class="d-flex align-items-center gap-2 mb-1">
+      <i class="bi bi-calendar-plus" style="color:#c8860a"></i>
+      <span class="form-label mb-0">Folgebesuch planen</span>
+      <span class="text-muted small fw-normal">(optional)</span>
+    </div>
+    <p class="text-muted small mb-2">Legt automatisch einen Stopp im Besuchsplan an.</p>
+    <div class="row g-2">
+      <div class="col-12 col-sm-5">
+        <label class="form-label small mb-1">Datum</label>
+        <input type="date" name="folge_datum" id="folgeDatum" class="form-control" min="{{ heute }}">
+      </div>
+      <div class="col-12 col-sm-7">
+        <label class="form-label small mb-1">Notiz für den Folgebesuch</label>
+        <input type="text" name="folge_notiz" class="form-control" placeholder="z.B. Aufbau zwei Paletten geplant">
+      </div>
+    </div>
+  </div>
+
   <!-- Submit Desktop -->
   <div class="d-flex gap-3 justify-content-end mt-4 desktop-save-btn">
     <a href="{{ url_for('aktivitaeten_liste') }}" class="btn btn-outline-secondary btn-lg">
@@ -1228,6 +1249,8 @@ document.getElementById('aktivForm').addEventListener('submit', async function(e
   const von_uhrzeit = document.querySelector('[name="von_uhrzeit"]').value;
   const bis_uhrzeit = document.querySelector('[name="bis_uhrzeit"]').value;
   const notizen = document.querySelector('[name="notizen"]').value;
+  const folge_datum = document.querySelector('[name="folge_datum"]').value;
+  const folge_notiz = document.querySelector('[name="folge_notiz"]').value;
   const displays = {};
   document.querySelectorAll('.disp-input').forEach(el => {
     const v = parseInt(el.value);
@@ -1243,7 +1266,7 @@ document.getElementById('aktivForm').addEventListener('submit', async function(e
 
   // In IndexedDB speichern
   await window.OQ.save({
-    data: { datum, von_uhrzeit, bis_uhrzeit, verkaufsstelle_id: vsId, notizen, fotos: fotosB64, displays, bier, aktionstyp: aktTyp },
+    data: { datum, von_uhrzeit, bis_uhrzeit, verkaufsstelle_id: vsId, notizen, fotos: fotosB64, displays, bier, aktionstyp: aktTyp, folge_datum, folge_notiz },
     vs_label: vsLabel,
     saved_at: new Date().toISOString(),
   });

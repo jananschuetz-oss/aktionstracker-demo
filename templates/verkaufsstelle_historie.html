@@ -1,0 +1,225 @@
+{% extends 'base.html' %}
+{% block title %}{{ vs.name }} – Kundenhistorie – {{ company_short }} – Aktions Tracker{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start flex-wrap gap-2">
+  <div>
+    <h1><i class="bi bi-clock-history me-2"></i>{{ vs.name }}</h1>
+    <p>
+      {{ vs.strasse }}, {{ vs.plz }} {{ vs.ort }}
+      {% if vs.lieferant %} · <i class="bi bi-truck me-1"></i>{{ vs.lieferant }}{% endif %}
+      {% if vs.ansprechpartner %} · <i class="bi bi-person me-1"></i>{{ vs.ansprechpartner }}{% endif %}
+    </p>
+  </div>
+  <div class="d-flex gap-2">
+    {% if zurueck_url %}
+    <a href="{{ zurueck_url }}" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-arrow-left me-1"></i>Zurück
+    </a>
+    {% else %}
+    <a href="#" onclick="history.back(); return false;" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-arrow-left me-1"></i>Zurück
+    </a>
+    {% endif %}
+    <a href="{{ url_for('neue_aktivitaet') }}?vs_id={{ vs.id }}&zurueck={{ request.full_path | urlencode }}" class="btn btn-sm btn-primary">
+      <i class="bi bi-plus-circle me-1"></i>Neue Aktivität hier
+    </a>
+    {% if karte_modus != 'aus' %}
+    <a href="{{ url_for('karte', vs_ids=vs.id, zurueck=request.full_path) }}" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-map me-1"></i>Auf Karte zeigen
+    </a>
+    {% endif %}
+  </div>
+</div>
+
+<!-- KPI-Kacheln -->
+<div class="row row-cols-2 row-cols-md-{{ 6 if gratisware_modus else 5 }} g-3 mb-4">
+  <div class="col">
+    <div class="card text-center h-100" style="border:1px solid #dee2e6">
+      <div class="card-body py-3">
+        <div class="text-muted small mb-1"><i class="bi bi-person-check me-1"></i>Besuche {{ jahr_akt }}</div>
+        <div style="font-size:2rem;font-weight:700;color:#1a3a5c">{{ besuche_akt }}</div>
+        <div class="small" style="color:{{ trend_col(besuche_akt, besuche_vor) }}">
+          {{ trend_str(besuche_akt, besuche_vor) }} ggü. {{ jahr_vor }} ({{ besuche_vor }})
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="card text-center h-100" style="border:1px solid #dee2e6">
+      <div class="card-body py-3">
+        <div class="text-muted small mb-1"><i class="bi bi-clipboard-check me-1" style="color:#2c7a7b"></i>Bestellungen {{ jahr_akt }}</div>
+        <div style="font-size:2rem;font-weight:700;color:#2c7a7b">{{ bestellungen_akt }}</div>
+        <div class="small" style="color:{{ trend_col(bestellungen_akt, bestellungen_vor) }}">
+          {{ trend_str(bestellungen_akt, bestellungen_vor) }} ggü. {{ jahr_vor }} ({{ bestellungen_vor }})
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="card text-center h-100" style="border:1px solid #dee2e6">
+      <div class="card-body py-3">
+        <div class="text-muted small mb-1"><i class="bi bi-box-seam me-1" style="color:#c8860a"></i>{{ unit_label }} {{ jahr_akt }}</div>
+        <div style="font-size:2rem;font-weight:700;color:#c8860a">{{ kisten_akt }}</div>
+        <div class="small" style="color:{{ trend_col(kisten_akt, kisten_vor) }}">
+          {{ trend_str(kisten_akt, kisten_vor) }} ggü. {{ jahr_vor }} ({{ kisten_vor }})
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="card text-center h-100" style="border:1px solid #dee2e6">
+      <div class="card-body py-3">
+        <div class="text-muted small mb-1"><i class="bi bi-display me-1" style="color:#2e6da4"></i>Aufbauten {{ jahr_akt }}</div>
+        <div style="font-size:2rem;font-weight:700;color:#2e6da4">{{ aufbauten_akt }}</div>
+        {% if aufbauten_vor %}
+        <div class="small" style="color:{{ trend_col(aufbauten_akt, aufbauten_vor) }}">
+          {{ trend_str(aufbauten_akt, aufbauten_vor) }} ggü. {{ jahr_vor }} ({{ aufbauten_vor }})
+        </div>
+        {% else %}
+        <div class="small text-muted">kein VJ-Vergleich ({{ jahr_vor }} noch nicht digital erfasst)</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% if gratisware_modus %}
+  <div class="col">
+    <div class="card text-center h-100" style="border:1px solid #dee2e6">
+      <div class="card-body py-3">
+        <div class="text-muted small mb-1"><i class="bi bi-gift me-1" style="color:#8a5a00"></i>Gratisware {{ jahr_akt }}</div>
+        <div style="font-size:2rem;font-weight:700;color:#8a5a00">{{ gratisware_akt }}</div>
+        <div class="small" style="color:{{ trend_col(gratisware_akt, gratisware_vor) }}">
+          {{ trend_str(gratisware_akt, gratisware_vor) }} ggü. {{ jahr_vor }} ({{ gratisware_vor }})
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+  <div class="col">
+    <div class="card text-center h-100" style="border:1px solid #dee2e6">
+      <div class="card-body py-3">
+        <div class="text-muted small mb-1"><i class="bi bi-calendar-range me-1" style="color:#6c757d"></i>Ø Tage zw. Besuchen</div>
+        <div style="font-size:2rem;font-weight:700;color:#6c757d">{{ oe_tage if oe_tage is not none else '–' }}</div>
+        <div class="small text-muted">{{ jahr_akt }}, laufend</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Verlaufsdiagramme -->
+<div class="row g-3 mb-4">
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header"><i class="bi bi-graph-up me-2"></i>Besuchsverlauf {{ jahr_akt }} vs. {{ jahr_vor }}</div>
+      <div class="card-body"><div class="chart-container" style="height:240px"><canvas id="verlaufBesucheChart"></canvas></div></div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header"><i class="bi bi-clipboard-check me-2" style="color:#2c7a7b"></i>Bestellungsverlauf {{ jahr_akt }} vs. {{ jahr_vor }}</div>
+      <div class="card-body"><div class="chart-container" style="height:240px"><canvas id="verlaufBestellungenChart"></canvas></div></div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header"><i class="bi bi-box-seam me-2" style="color:#c8860a"></i>{{ unit_label }}-Verlauf {{ jahr_akt }} vs. {{ jahr_vor }}</div>
+      <div class="card-body"><div class="chart-container" style="height:240px"><canvas id="verlaufKistenChart"></canvas></div></div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header"><i class="bi bi-display me-2" style="color:#2e6da4"></i>Aufbautenverlauf {{ jahr_akt }} vs. {{ jahr_vor }}</div>
+      <div class="card-body"><div class="chart-container" style="height:240px"><canvas id="verlaufAufbautenChart"></canvas></div></div>
+    </div>
+  </div>
+  {% if gratisware_modus %}
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header"><i class="bi bi-gift me-2" style="color:#8a5a00"></i>Gratisware-Verlauf {{ jahr_akt }} vs. {{ jahr_vor }}</div>
+      <div class="card-body"><div class="chart-container" style="height:240px"><canvas id="verlaufGratiswareChart"></canvas></div></div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Aktivitätenliste -->
+<div class="card">
+  <div class="card-header"><i class="bi bi-list-ul me-2"></i>Alle Aktivitäten</div>
+  <div class="card-body p-0">
+    {% if aktivitaeten %}
+    <div style="max-height:600px;overflow-y:auto">
+      {% for a in aktivitaeten %}
+      <div style="padding:11px 16px;border-bottom:1px solid #f0f4f8">
+        <div class="d-flex align-items-start gap-2">
+          <span class="badge flex-shrink-0" style="background:#e8edf3;color:#4a5568;font-size:.74rem;margin-top:2px;white-space:nowrap">{{ a.datum }}</span>
+          <div style="flex:1;min-width:0">
+            <div class="fw-semibold" style="font-size:.88rem;color:#1a3a5c">
+              {{ a.aktionstyp }} <span style="color:#888;font-weight:400">· {{ a.mitarbeiter }}</span>
+            </div>
+            <div class="d-flex gap-3 flex-wrap mt-1">
+              {% if a.anzahl_displays %}
+              <span style="font-size:.78rem;color:#6c757d"><i class="bi bi-display me-1"></i>{{ a.anzahl_displays }} Aktivität{{ 'en' if a.anzahl_displays != 1 else '' }}</span>
+              {% endif %}
+              {% if a.bestellungen %}
+              <span style="font-size:.78rem;color:#2c7a7b"><i class="bi bi-box-seam me-1"></i>{{ a.bestellungen }} {{ unit_label }}</span>
+              {% endif %}
+            </div>
+            {% if a.notizen %}
+            <div style="font-size:.78rem;color:#6c757d;font-style:italic;margin-top:3px"><i class="bi bi-chat-left-text me-1"></i>{{ a.notizen }}</div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-center py-5 text-muted">
+      <i class="bi bi-calendar-x" style="font-size:2rem"></i>
+      <p class="mt-2 mb-0 small">Noch keine Aktivitäten erfasst.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const MONATE = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+
+function verlaufChart(canvasId, feld, farbe) {
+  new Chart(document.getElementById(canvasId), {
+    type: 'line',
+    data: {
+      labels: MONATE,
+      datasets: [
+        {
+          label: '{{ jahr_akt }}',
+          data: {{ verlauf_akt | tojson }}[feld],
+          borderColor: farbe, backgroundColor: farbe + '1a',
+          borderWidth: 2, tension: .25, fill: true,
+        },
+        {
+          label: '{{ jahr_vor }}',
+          data: {{ verlauf_vor | tojson }}[feld],
+          borderColor: '#adb5bd', backgroundColor: 'transparent',
+          borderWidth: 2, borderDash: [5,4], tension: .25,
+        },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top' } },
+      scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+    }
+  });
+}
+
+verlaufChart('verlaufBesucheChart', 'besuche', '#1a3a5c');
+verlaufChart('verlaufBestellungenChart', 'bestellungen', '#2c7a7b');
+verlaufChart('verlaufKistenChart', 'kisten', '#c8860a');
+verlaufChart('verlaufAufbautenChart', 'aufbauten', '#2e6da4');
+{% if gratisware_modus %}
+verlaufChart('verlaufGratiswareChart', 'gratisware', '#8a5a00');
+{% endif %}
+</script>
+{% endblock %}

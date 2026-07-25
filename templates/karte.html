@@ -17,6 +17,18 @@
   </p>
 </div>
 
+{% if vs_ids_filter %}
+<div class="alert alert-info d-flex justify-content-between align-items-center py-2 mb-3">
+  <span><i class="bi bi-funnel me-1"></i>Gefiltert: {{ vs_ids_filter|length }} Kunden aus dem Verkaufsstellen-Vergleich.</span>
+  <div class="d-flex gap-2">
+    {% if zurueck_url %}
+    <a href="{{ zurueck_url }}" class="btn btn-sm btn-outline-primary"><i class="bi bi-arrow-left me-1"></i>Zurück zur Auswertung</a>
+    {% endif %}
+    <a href="{{ url_for('karte') }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-x-circle me-1"></i>Filter aufheben</a>
+  </div>
+</div>
+{% endif %}
+
 {% set besuchsplanung_erlaubt = session.rolle in ('rep', 'verkaufsleiter') and touren_modus != 'aus' %}
 {% if besuchsplanung_erlaubt %}
 <!-- Besuchsplanung: Tag wählen, dann Verkaufsstellen per Klick als Stopp einplanen -->
@@ -291,6 +303,11 @@ let markers     = {};          // id → L.circleMarker
 let aktiverStelleId = null;
 let repFilter        = [];   // [] = alle; sonst Array von rep-IDs (strings)
 let monateFilter     = [];   // [] = alle; sonst Array von Monatsnummern (strings)
+// Einstiegs-Filter aus dem Kunden-Vergleich ("Auf Karte anzeigen", portiert aus Arco
+// 2026-07-25) – [] = kein Einstiegsfilter, sonst nur diese VS-IDs sichtbar. Unabhängig
+// von den übrigen Filtern (die bleiben auf "alle").
+const VS_ID_FILTER = {{ vs_ids_filter | tojson }};
+let vsIdFilter       = VS_ID_FILTER.slice();
 let besuchtStationen = {};   // station_id → Besuchsanzahl im Zeitraum
 
 /* ── Karte ──────────────────────────────────────────────────────────────────── */
@@ -321,6 +338,7 @@ function stelleFarbe(stelle) {
 }
 
 function stelleIstSichtbar(stelle) {
+  if (vsIdFilter.length && !vsIdFilter.includes(stelle.id)) return false;
   if (!repFilter.length) return true;
   return stelle.zuordnungen.some(r => repFilter.includes(String(r.id)));
 }
@@ -971,7 +989,9 @@ async function ladeHeatmap(jahr) {
     data = await resp.json();
   } catch (e) { console.error('Heatmap laden fehlgeschlagen:', e); return; }
 
-  const stellen    = data.stellen || [];
+  // Kunden-Vergleich (vsIdFilter) wird hier client-seitig nachgezogen, da die Heatmap-
+  // API selbst den Filter nicht kennt (portiert aus Arco 2026-07-25).
+  const stellen    = (data.stellen || []).filter(s => !vsIdFilter.length || vsIdFilter.includes(s.id));
   const maxAnzahl  = Math.max(...stellen.map(s => s.anzahl), 1);
   const cfg        = EBENE_CFG[heatmapEbene] || EBENE_CFG.betreuung;
   const jahrLabel  = heatmapEbene === 'offene_bestellungen' ? 'aktuell' : String(jahr);

@@ -886,6 +886,57 @@ def init_db():
             # zusätzlich Hotel-Adresse und Kosten pro Nacht für den monatlichen Hotel-Report.
             "ALTER TABLE vertretung ADD COLUMN hotel_name_adresse TEXT",
             "ALTER TABLE vertretung ADD COLUMN hotel_kosten_pro_nacht REAL",
+            # Vertragliche Wochenarbeitszeit (2026-07-23, von Arco portiert): optionaler
+            # Sollwert pro Mitarbeiter, Basis für die Arbeitszeit-Anomalie-Erkennung im
+            # Auffälligkeiten-Dashboard (siehe _check_arbeitszeit_anomalie unten). Ohne
+            # gesetzten Wert bleibt der Check einfach inaktiv für diesen Mitarbeiter.
+            "ALTER TABLE mitarbeiter ADD COLUMN wochenarbeitszeit_stunden REAL",
+            # Auffälligkeiten-Dashboard für VKL/Admin (2026-07-26, von Arco portiert):
+            # täglicher Batch-Job prüft vier Muster je aktivem Rep – Besuchsfrequenz-
+            # Abweichung (12-Wochen-Referenz, Urlaub/Krankheit bereinigt), Zielerreichungs-
+            # Trend (Kisten/Displays getrennt), Häufung abgelehnter Aufbauten, Arbeitszeit-
+            # Anomalie (beide Richtungen, >4 Wochen in Folge) – und legt bei Überschreiten
+            # der Schwelle einen Alert-Datensatz an. berechnungswoche (ISO-Woche) verhindert
+            # Duplikate: pro (typ, mitarbeiter_id, berechnungswoche) höchstens ein Alert.
+            """CREATE TABLE IF NOT EXISTS abweichungs_alert (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                typ               TEXT NOT NULL,
+                mitarbeiter_id    INTEGER REFERENCES mitarbeiter(id) ON DELETE CASCADE,
+                schweregrad       TEXT NOT NULL DEFAULT 'mittel',
+                titel             TEXT NOT NULL,
+                detail            TEXT NOT NULL,
+                berechnungswoche  TEXT NOT NULL,
+                status            TEXT NOT NULL DEFAULT 'neu',
+                erstellt_am       TEXT DEFAULT (datetime('now','localtime')),
+                entschieden_von   INTEGER REFERENCES mitarbeiter(id),
+                entschieden_am    TEXT,
+                UNIQUE(typ, mitarbeiter_id, berechnungswoche)
+            )""",
+            "CREATE INDEX IF NOT EXISTS idx_abweichungs_alert_status ON abweichungs_alert(status)",
+            "CREATE INDEX IF NOT EXISTS idx_abweichungs_alert_mitarbeiter ON abweichungs_alert(mitarbeiter_id)",
+            # Historische Werte (portiert aus Arco 2026-07-25): Backfill für Jahre vor der
+            # digitalen Erfassung, damit Kundenhistorie/Kunden-Vergleich einen echten
+            # Vorjahresvergleich zeigen können statt gegen eine leere Baseline. Granularität:
+            # pro Kunde, pro Monat, pro Mitarbeiter (mitarbeiter_id ist von Anfang an Teil des
+            # Primärschlüssels – Demo hat keinen Altbestand ohne Mitarbeiter-Zuordnung zu
+            # migrieren, im Gegensatz zu Arco, das die Tabelle nachträglich umbauen musste).
+            """CREATE TABLE IF NOT EXISTS vs_historische_werte (
+                verkaufsstelle_id INTEGER NOT NULL REFERENCES verkaufsstelle(id) ON DELETE CASCADE,
+                jahr              INTEGER NOT NULL,
+                monat             INTEGER NOT NULL,
+                mitarbeiter_id    INTEGER NOT NULL DEFAULT 0,
+                besuche           INTEGER DEFAULT 0,
+                bestellungen      INTEGER DEFAULT 0,
+                kisten            INTEGER DEFAULT 0,
+                aufbauten         INTEGER DEFAULT 0,
+                gratisware        INTEGER DEFAULT 0,
+                PRIMARY KEY (verkaufsstelle_id, jahr, monat, mitarbeiter_id)
+            )""",
+            # Performance (analog Arco): _hist_zusatz() filtert vs_historische_werte über
+            # (jahr, monat), der PK hat verkaufsstelle_id als führende Spalte und ist dafür
+            # nicht nutzbar – ohne diesen Index Full-Table-Scan bei jedem Aufruf von
+            # Kundenhistorie/Kunden-Vergleich.
+            "CREATE INDEX IF NOT EXISTS idx_hist_jahr_monat ON vs_historische_werte(jahr, monat)",
         ]:
             try:
                 db.execute(migration)
@@ -1817,6 +1868,124 @@ def _team_m_clause(alias='m'):
     return '', ()
 
 
+# ─── Historische Werte: Fallback für Vorjahresvergleiche ─────────────────────
+# (portiert aus Arco 2026-07-25) vs_historische_werte enthält Backfill-Monatswerte für
+# Jahre vor der digitalen Erfassung. In Kundenhistorie/Kunden-Vergleich soll das Vorjahr
+# diese Werte nur dort ergänzen, wo für den jeweiligen Kunde+Monat KEINE echte aktivitaet
+# existiert – echte Erfassung hat immer Vorrang. Granularität ist monatsgenau, daher nur
+# für Zeiträume sinnvoll, die volle Kalendermonate abdecken (Periode 'monat'/'jahr', nicht
+# 'woche'). In der Demo bleibt die Tabelle vorerst leer (kein Backfill-Import wie bei Arco),
+# der Fallback greift also einfach nicht – Code ist trotzdem identisch portiert, damit ein
+# künftiger Backfill-Import ohne weitere Code-Änderung funktioniert.
+
+def _hist_monate(von, bis):
+    """Liste aller (jahr, monat)-Tupel, die [von, bis] ganz oder teilweise überdeckt."""
+    monate = []
+    cur = date(von.year, von.month, 1)
+    while cur <= bis:
+        monate.append((cur.year, cur.month))
+        cur = date(cur.year + 1, 1, 1) if cur.month == 12 else date(cur.year, cur.month + 1, 1)
+    return monate
+
+
+def _hist_zusatz(vs_filter_sql, vs_params, bereits_erfasst, monate, ma_filter_sql='', ma_filter_p=()):
+    """Historische Zusatzwerte für Verkaufsstellen (gefiltert durch vs_filter_sql/vs_params,
+    Alias 'v') und Monate, für die (vs_id, jahr, monat) NICHT in bereits_erfasst enthalten ist.
+    bereits_erfasst: Set von (vs_id, jahr, monat)-Tupeln mit echter aktivitaet. ma_filter_sql/
+    ma_filter_p filtern optional auf h.mitarbeiter_id (Alias 'h', vs_historische_werte selbst) –
+    wenn gesetzt, tauchen Zeilen mit mitarbeiter_id=0 (nicht zuordenbar, s. Import) nicht auf."""
+    if not monate:
+        return {'besuche': 0, 'bestellungen': 0, 'kisten': 0, 'kunden_besucht_zusatz': set()}
+    ph = ','.join('(?,?)' for _ in monate)
+    rows = query(f"""
+        SELECT h.verkaufsstelle_id AS vs_id, h.jahr, h.monat, h.besuche, h.bestellungen, h.kisten
+        FROM vs_historische_werte h
+        JOIN verkaufsstelle v ON v.id = h.verkaufsstelle_id AND {vs_filter_sql}{ma_filter_sql}
+        WHERE (h.jahr, h.monat) IN ({ph})
+    """, tuple(vs_params) + tuple(ma_filter_p) + tuple(x for paar in monate for x in paar))
+    besuche = bestellungen = kisten = 0
+    kunden_zusatz = set()
+    for r in rows:
+        if (r['vs_id'], r['jahr'], r['monat']) in bereits_erfasst:
+            continue
+        besuche += r['besuche'] or 0
+        bestellungen += r['bestellungen'] or 0
+        kisten += r['kisten'] or 0
+        if r['besuche']:
+            kunden_zusatz.add(r['vs_id'])
+    return {'besuche': besuche, 'bestellungen': bestellungen, 'kisten': kisten, 'kunden_besucht_zusatz': kunden_zusatz}
+
+
+def _akt_monate_set(vs_filter_sql, vs_params, extra_sql, extra_p, t_ma_sql, t_ma_p, von, bis):
+    """Set von (vs_id, jahr, monat)-Tupeln mit mindestens einer echten aktivitaet im Zeitraum."""
+    rows = query(f"""
+        SELECT DISTINCT a.verkaufsstelle_id AS vs_id,
+               CAST(strftime('%Y', a.datum) AS INTEGER) AS jahr,
+               CAST(strftime('%m', a.datum) AS INTEGER) AS monat
+        FROM aktivitaet a
+        JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id AND {vs_filter_sql}{extra_sql}
+        WHERE a.datum BETWEEN ? AND ? {t_ma_sql}
+    """, tuple(vs_params) + tuple(extra_p) + (von.isoformat(), bis.isoformat()) + t_ma_p)
+    return {(r['vs_id'], r['jahr'], r['monat']) for r in rows}
+
+
+# ─── Kunden-Vergleich: gemeinsame Zeitraum-/VS-Auflösung ─────────────────────
+# (portiert aus Arco 2026-07-25) Von verkaufsstellen_vergleich() und der zugehörigen
+# Detail-Liste (verkaufsstellen_vergleich_liste()) gemeinsam genutzt, damit beide Seiten
+# exakt denselben Zeitraum bzw. dieselbe Kundenmenge für eine Kachel berechnen.
+
+def _vergleich_zeitraum(periode, monat_param):
+    """(start, end, label, monat_param, periode) für die Kunden-Vergleich-Perioden
+    Woche/Monat/Jahr. monat_param wird ggf. auf 'YYYY-MM' normalisiert."""
+    heute = date.today()
+    if periode == 'monat':
+        if monat_param:
+            try:
+                y, m = monat_param.split('-')
+                start = date(int(y), int(m), 1)
+            except (ValueError, TypeError):
+                start = heute.replace(day=1)
+        else:
+            start = heute.replace(day=1)
+        ende_folgemonat = date(start.year + 1, 1, 1) if start.month == 12 else date(start.year, start.month + 1, 1)
+        end = ende_folgemonat - timedelta(days=1)
+        label = start.strftime('%B %Y')
+        monat_param = start.strftime('%Y-%m')
+    elif periode == 'woche':
+        start = heute - timedelta(days=heute.weekday()); end = heute
+        label = f'KW {heute.isocalendar()[1]:02d} · {heute.year}'
+    else:
+        start = heute.replace(month=1, day=1); end = heute; label = str(heute.year)
+        periode = 'jahr'
+    return start, end, label, monat_param, periode
+
+
+def _vergleich_vs_ids(typ, ausgewaehlt_landkreis, ausgewaehlt_ort, ausgewaehlt_mitarbeiter):
+    """Liste der Verkaufsstellen-IDs eines Typs unter den Landkreis/Ort/Mitarbeiter-
+    Filtern des Kunden-Vergleichs. Mitarbeiter wirkt über die VS-Zuordnung
+    (mitarbeiter_verkaufsstelle), nicht über den Aktivitäts-Verrichter – 'anzahl_kunden'
+    bzw. diese Liste bilden das betreute Gebiet ab, nicht die tatsächlichen Besuche."""
+    lk_sql = f" AND v.landkreis IN ({','.join('?'*len(ausgewaehlt_landkreis))})" if ausgewaehlt_landkreis else ""
+    o_sql  = f" AND v.ort IN ({','.join('?'*len(ausgewaehlt_ort))})" if ausgewaehlt_ort else ""
+    p = list(ausgewaehlt_landkreis) + list(ausgewaehlt_ort)
+
+    if ausgewaehlt_mitarbeiter:
+        ma_sql = f" AND v.id IN (SELECT verkaufsstelle_id FROM mitarbeiter_verkaufsstelle WHERE mitarbeiter_id IN ({','.join('?'*len(ausgewaehlt_mitarbeiter))}))"
+        rows = query(f"SELECT v.id FROM verkaufsstelle v WHERE v.typ=? AND v.aktiv=1{lk_sql}{o_sql}{ma_sql}",
+                     (typ,) + tuple(p) + tuple(ausgewaehlt_mitarbeiter))
+    elif session.get('rolle') == 'verkaufsleiter' and session.get('team_id'):
+        rows = query(f"""
+            SELECT DISTINCT v.id FROM verkaufsstelle v
+            JOIN mitarbeiter_verkaufsstelle mv ON mv.verkaufsstelle_id = v.id
+            JOIN mitarbeiter m ON m.id = mv.mitarbeiter_id
+            WHERE v.typ=? AND v.aktiv=1{lk_sql}{o_sql} AND m.team_id=?
+        """, (typ,) + tuple(p) + (session['team_id'],))
+    else:
+        rows = query(f"SELECT v.id FROM verkaufsstelle v WHERE v.typ=? AND v.aktiv=1{lk_sql}{o_sql}",
+                     (typ,) + tuple(p))
+    return [r['id'] for r in rows]
+
+
 def _freigabe_scope_clause(alias='a'):
     """Gibt (sql_fragment, params) für die Aufbauten-Freigabe zurück. Ein VKL mit
     Team-Zuordnung sieht sein Team plus die eigenen Aktivitäten (VKL mit eigenem Gebiet,
@@ -2456,6 +2625,56 @@ def admin_export_jetzt_senden():
     return redirect(url_for('admin'))
 
 
+@app.route('/admin/auffaelligkeiten/jetzt-berechnen', methods=['POST'])
+@login_required
+def admin_auffaelligkeiten_jetzt_berechnen():
+    if session.get('rolle') != 'admin':
+        flash('Keine Berechtigung.', 'danger')
+        return redirect(url_for('dashboard'))
+    try:
+        app.logger.info(f"Audit: Auffälligkeiten-Berechnung manuell ausgelöst von {session.get('kuerzel')} (Mitarbeiter-ID {session.get('user_id')})")
+        neu = _abweichungs_alerts_berechnen()
+        flash(f'Auffälligkeiten-Berechnung durchgelaufen ({neu} geprüft/angelegt).', 'success')
+    except Exception as e:
+        app.logger.error(f"Manuelle Auffälligkeiten-Berechnung Fehler: {e}", exc_info=True)
+        flash('Berechnung fehlgeschlagen – siehe Logs.', 'danger')
+    return redirect(url_for('dashboard'))
+
+
+@app.route('/auffaelligkeit/<int:alert_id>/gesehen', methods=['POST'])
+@manager_required
+def auffaelligkeit_gesehen(alert_id):
+    alert = query("SELECT mitarbeiter_id FROM abweichungs_alert WHERE id=?", (alert_id,), one=True)
+    if not alert:
+        abort(404)
+    # Sicherheitskonvention: Rolle allein reicht nicht, Team-Zugehörigkeit des betroffenen
+    # Mitarbeiters muss geprüft werden, sonst könnte ein VKL Alerts anderer Teams quittieren.
+    if not _mitarbeiter_im_eigenen_team(alert['mitarbeiter_id']):
+        flash('Keine Berechtigung.', 'danger')
+        return redirect(url_for('dashboard'))
+    execute(
+        "UPDATE abweichungs_alert SET status='gesehen', entschieden_von=?, entschieden_am=datetime('now','localtime') WHERE id=?",
+        (session['user_id'], alert_id)
+    )
+    return redirect(url_for('dashboard'))
+
+
+@app.route('/auffaelligkeit/<int:alert_id>/verwerfen', methods=['POST'])
+@manager_required
+def auffaelligkeit_verwerfen(alert_id):
+    alert = query("SELECT mitarbeiter_id FROM abweichungs_alert WHERE id=?", (alert_id,), one=True)
+    if not alert:
+        abort(404)
+    if not _mitarbeiter_im_eigenen_team(alert['mitarbeiter_id']):
+        flash('Keine Berechtigung.', 'danger')
+        return redirect(url_for('dashboard'))
+    execute(
+        "UPDATE abweichungs_alert SET status='verworfen', entschieden_von=?, entschieden_am=datetime('now','localtime') WHERE id=?",
+        (session['user_id'], alert_id)
+    )
+    return redirect(url_for('dashboard'))
+
+
 # ─── Routes: Dashboard ────────────────────────────────────────────────────────
 
 @app.route('/dashboard')
@@ -2810,9 +3029,21 @@ def dashboard():
                 (session['user_id'], VS_DASHBOARD_SEITENGROESSE)
             )
 
+    # Auffälligkeiten-Card (2026-07-26, von Arco portiert): nur für Admin/VKL, VKL sieht nur eigenes Team
+    auffaelligkeiten = []
+    if is_manager:
+        _aa_team_sql, _aa_team_params = _team_ma_clause('aa')
+        auffaelligkeiten = query(f'''
+            SELECT aa.id, aa.typ, aa.schweregrad, aa.titel, aa.detail, aa.erstellt_am
+            FROM abweichungs_alert aa
+            WHERE aa.status='neu' {_aa_team_sql}
+            ORDER BY CASE aa.schweregrad WHEN 'hoch' THEN 0 ELSE 1 END, aa.erstellt_am DESC
+        ''', _aa_team_params)
+
     return render_template('dashboard.html',
         jahr=jahr, kw_data=kw_data, jahres=jahres,
         rep_stats=rep_stats, letzte=letzte,
+        auffaelligkeiten=auffaelligkeiten,
         verfuegbare_jahre=verfuegbare_jahre,
         chart_kw=json.dumps(chart_kw),
         chart_disp=json.dumps(chart_disp),
@@ -3887,6 +4118,155 @@ def api_vs_aktivitaeten(vs_id):
     })
 
 
+@app.route('/verkaufsstelle/<int:vs_id>/historie')
+@login_required
+def verkaufsstelle_historie(vs_id):
+    """Kundenhistorie-Seite: KPI-Kacheln (Jahr vs. Vorjahr), Verlaufsdiagramm und
+    vollständige Aktivitätenliste für eine einzelne Verkaufsstelle. Rechte identisch
+    zu api_vs_aktivitaeten (Rep nur zugeordnete VS, VKL/Admin alle)."""
+    rolle = session.get('rolle')
+    ma_id = session.get('user_id')
+    if rolle == 'rep':
+        ok = query(
+            "SELECT 1 FROM mitarbeiter_verkaufsstelle WHERE mitarbeiter_id=? AND verkaufsstelle_id=?",
+            (ma_id, vs_id), one=True
+        )
+        if not ok:
+            flash('Kein Zugriff auf diese Verkaufsstelle.', 'danger')
+            return redirect(url_for('dashboard'))
+    elif rolle not in ('admin', 'verkaufsleiter'):
+        flash('Kein Zugriff.', 'danger')
+        return redirect(url_for('dashboard'))
+
+    vs = query("SELECT * FROM verkaufsstelle WHERE id=? AND aktiv=1", (vs_id,), one=True)
+    if not vs:
+        flash('Verkaufsstelle nicht gefunden.', 'danger')
+        return redirect(url_for('dashboard'))
+
+    # "Zurück" mit erhaltenem Filterstand (z.B. zur Kunden-Vergleich-Liste), falls von dort
+    # verlinkt – sonst fällt die Seite auf history.back() zurück. Wird unverändert an
+    # "Auf Karte zeigen" weitergereicht (request.full_path enthält diesen Parameter dann
+    # automatisch mit), sodass "Zurück zur Auswertung" auf der Karte hierher und von hier
+    # aus wieder zur ursprünglichen Liste führt statt in einer Zwei-Seiten-Schleife zu enden.
+    _zurueck = request.args.get('zurueck', '')
+    zurueck_url = _zurueck if _zurueck.startswith('/') and '://' not in _zurueck else None
+
+    heute    = date.today()
+    jahr_akt = heute.year
+    jahr_vor = jahr_akt - 1
+
+    BP = ("(SELECT bp.aktivitaet_id, SUM(bp.kisten_anzahl) AS kisten_total FROM bestellposition bp "
+          "JOIN biersorte bs ON bs.id=bp.biersorte_id WHERE COALESCE(bs.ist_gratisware,0)=0 GROUP BY bp.aktivitaet_id)")
+    GRAT = ("(SELECT bp.aktivitaet_id, SUM(bp.kisten_anzahl) AS gratis_total FROM bestellposition bp "
+            "JOIN biersorte bs ON bs.id=bp.biersorte_id WHERE COALESCE(bs.ist_gratisware,0)=1 GROUP BY bp.aktivitaet_id)")
+
+    def jahres_kpis(jahr):
+        return query(f"""
+            SELECT COUNT(a.id) AS besuche,
+                   SUM(CASE WHEN a.aktionstyp='Bestellung' THEN 1 ELSE 0 END) AS bestellungen,
+                   SUM(CASE WHEN a.aktionstyp='Aufbau' THEN 1 ELSE 0 END) AS aufbauten,
+                   COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung' THEN b.kisten_total ELSE 0 END), 0) AS kisten,
+                   COALESCE(SUM(g.gratis_total), 0) AS gratisware,
+                   MIN(a.datum) AS erster, MAX(a.datum) AS letzter
+            FROM aktivitaet a
+            LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
+            LEFT JOIN {GRAT} g ON g.aktivitaet_id = a.id
+            WHERE a.verkaufsstelle_id=? AND strftime('%Y', a.datum)=?
+        """, (vs_id, str(jahr)), one=True)
+
+    kpi_akt = jahres_kpis(jahr_akt)
+    kpi_vor = jahres_kpis(jahr_vor)
+
+    besuche_akt = kpi_akt['besuche'] or 0
+    oe_tage = None
+    if besuche_akt > 1 and kpi_akt['erster'] and kpi_akt['letzter']:
+        tage_spanne = (date.fromisoformat(kpi_akt['letzter']) - date.fromisoformat(kpi_akt['erster'])).days
+        oe_tage = round(tage_spanne / (besuche_akt - 1), 1)
+
+    def trend_str(neu, alt):
+        diff = neu - alt
+        if diff > 0: return f'+{diff}'
+        if diff < 0: return str(diff)
+        return '±0'
+
+    def trend_col(neu, alt):
+        if neu > alt: return '#2d8a4e'
+        if neu < alt: return '#c0392b'
+        return '#888'
+
+    def monatsreihen(jahr):
+        """Monatswerte (1-12) für alle Verlaufsdiagramme. Echte Aktivitäten haben Vorrang;
+        historische Backfill-Werte (vs_historische_werte) füllen Monate ohne echte Erfassung
+        auf – relevant vor allem für jahr_vor, wenn dort noch keine digitale Erfassung
+        existierte.
+        Ausnahme 'aufbauten': ein historischer Wert wäre eigentlich eine Kisten-Menge,
+        während die echte 'aufbauten'-Kennzahl eine Besuchs-ANZAHL ist (COUNT der
+        Aufbau-Aktivitäten) – nicht dieselbe Einheit, ein Vergleich wäre irreführend
+        (analog Arco-Bugreport 2026-07-20). Für 'aufbauten' daher bewusst KEIN
+        historischer Fallback, nur echte Erfassung."""
+        rows = query(f"""
+            SELECT CAST(strftime('%m', a.datum) AS INTEGER) AS monat,
+                   COUNT(a.id) AS besuche,
+                   SUM(CASE WHEN a.aktionstyp='Bestellung' THEN 1 ELSE 0 END) AS bestellungen,
+                   SUM(CASE WHEN a.aktionstyp='Aufbau' THEN 1 ELSE 0 END) AS aufbauten,
+                   COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung' THEN b.kisten_total ELSE 0 END), 0) AS kisten,
+                   COALESCE(SUM(g.gratis_total), 0) AS gratisware
+            FROM aktivitaet a
+            LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
+            LEFT JOIN {GRAT} g ON g.aktivitaet_id = a.id
+            WHERE a.verkaufsstelle_id=? AND strftime('%Y', a.datum)=?
+            GROUP BY monat
+        """, (vs_id, str(jahr)))
+        real = {r['monat']: r for r in rows}
+        hist = {r['monat']: r for r in query(
+            "SELECT monat, besuche, bestellungen, kisten, aufbauten, gratisware FROM vs_historische_werte WHERE verkaufsstelle_id=? AND jahr=?",
+            (vs_id, jahr))}
+        def serie(feld):
+            werte = []
+            for i in range(1, 13):
+                if i in real:
+                    werte.append(real[i][feld] or 0)
+                elif feld != 'aufbauten' and i in hist:
+                    werte.append(hist[i][feld] or 0)
+                else:
+                    werte.append(0)
+            return werte
+        return {'besuche': serie('besuche'), 'bestellungen': serie('bestellungen'),
+                'aufbauten': serie('aufbauten'), 'kisten': serie('kisten'),
+                'gratisware': serie('gratisware')}
+
+    aktivitaeten = query('''
+        SELECT a.datum, m.name AS mitarbeiter, m.kuerzel,
+               COALESCE(a.aktionstyp, 'Besuch') AS aktionstyp,
+               a.anzahl_displays, a.notizen,
+               COALESCE(
+                   (SELECT GROUP_CONCAT(bs.name||' '||bp.kisten_anzahl, ', ')
+                    FROM bestellposition bp JOIN biersorte bs ON bs.id = bp.biersorte_id
+                    WHERE bp.aktivitaet_id = a.id), ''
+               ) AS bestellungen
+        FROM aktivitaet a
+        JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
+        WHERE a.verkaufsstelle_id = ?
+        ORDER BY a.datum DESC, a.erstellt_am DESC
+        LIMIT 200
+    ''', (vs_id,))
+
+    verlauf_akt = monatsreihen(jahr_akt)
+    verlauf_vor = monatsreihen(jahr_vor)
+
+    return render_template('verkaufsstelle_historie.html',
+        vs=vs, jahr_akt=jahr_akt, jahr_vor=jahr_vor,
+        besuche_akt=besuche_akt, besuche_vor=sum(verlauf_vor['besuche']),
+        bestellungen_akt=kpi_akt['bestellungen'] or 0, bestellungen_vor=sum(verlauf_vor['bestellungen']),
+        aufbauten_akt=kpi_akt['aufbauten'] or 0, aufbauten_vor=sum(verlauf_vor['aufbauten']),
+        kisten_akt=kpi_akt['kisten'] or 0, kisten_vor=sum(verlauf_vor['kisten']),
+        gratisware_akt=kpi_akt['gratisware'] or 0, gratisware_vor=sum(verlauf_vor['gratisware']),
+        oe_tage=oe_tage,
+        trend_str=trend_str, trend_col=trend_col,
+        verlauf_akt=verlauf_akt, verlauf_vor=verlauf_vor,
+        aktivitaeten=aktivitaeten, zurueck_url=zurueck_url)
+
+
 # ─── API: Letzter Besuch ─────────────────────────────────────────────────────
 
 @app.route('/api/letzter-besuch/<int:vs_id>')
@@ -4147,6 +4527,26 @@ def bestellungen_uebersicht():
         liste_storniert=liste_storniert)
 
 
+def _folgebesuch_anlegen(mitarbeiter_id, vs_id, folge_datum, folge_notiz):
+    """Legt beim Erfassen einer Aktivität optional einen unerledigten Tagesplan-Eintrag
+    für einen geplanten Folgebesuch an (Nutzerwunsch 2026-07-24, 'Folgebesuch planen',
+    von Arco portiert). folge_datum muss ein gültiges ISO-Datum >= heute sein, sonst wird
+    nichts angelegt (kein Fehler – das Feld ist optional, ein leeres/ungültiges Datum
+    heißt einfach 'kein Folgebesuch gewünscht'). Von beiden Speicherwegen genutzt (Online-
+    Formular und Offline-Sync), damit sich das Verhalten nicht auseinanderentwickelt."""
+    if not folge_datum:
+        return
+    try:
+        if date.fromisoformat(folge_datum) < date.today():
+            return
+    except ValueError:
+        return
+    execute(
+        "INSERT INTO tagesplan (mitarbeiter_id, verkaufsstelle_id, datum, notiz, erledigt, erstellt_von) VALUES (?,?,?,?,0,?)",
+        (mitarbeiter_id, vs_id, folge_datum, (folge_notiz or '').strip() or None, mitarbeiter_id)
+    )
+
+
 @app.route('/api/aktivitaet/offline-sync', methods=['POST'])
 @csrf.exempt  # Offline-Warteschlange kann lange nach dem Laden der Seite (Token-Alter
               # unklar bei langer Offline-Zeit) nachsenden; login_required bleibt die
@@ -4218,6 +4618,23 @@ def api_aktivitaet_offline_sync():
     )}
     anzahl_displays = 0
 
+    # Bugreport 2026-07-21/24 (von Arco portiert): Dedupe gegen doppelte Sync-Versuche
+    # derselben Offline-Warteschlangen-Aktivität (Netzwerk-Retry) UND gegen wiederholtes
+    # manuelles Neu-Eintragen, falls ohne sichtbare Erfolgsmeldung nicht erkennbar ist, dass
+    # ein Speichervorgang bereits geklappt hat – identische Aktivität in den letzten 3 Minuten
+    # bereits gespeichert → alte ID zurückgeben, nichts neu anlegen. von_uhrzeit/bis_uhrzeit
+    # müssen mit in den Vergleich, sonst würden zwei echte, unterschiedliche Besuche derselben
+    # VS am selben Tag fälschlich als Duplikat erkannt.
+    _duplikat = query(
+        "SELECT id FROM aktivitaet WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? "
+        "AND COALESCE(aktionstyp,'Aufbau')='Aufbau' "
+        "AND COALESCE(von_uhrzeit,'')=? AND COALESCE(bis_uhrzeit,'')=? "
+        "AND erstellt_am >= datetime('now', '-3 minutes') ORDER BY id DESC LIMIT 1",
+        (session['user_id'], vs_id, datum, von_uhrzeit or '', bis_uhrzeit or ''), one=True
+    )
+    if _duplikat:
+        return jsonify({'ok': True, 'akt_id': _duplikat['id']})
+
     akt_id = execute(
         "INSERT INTO aktivitaet (datum, mitarbeiter_id, verkaufsstelle_id, "
         "anzahl_displays, notizen, foto_pfad, foto_pfad_2, foto_pfad_3, von_uhrzeit, bis_uhrzeit) VALUES (?,?,?,?,?,?,?,?,?,?)",
@@ -4255,6 +4672,11 @@ def api_aktivitaet_offline_sync():
                 "INSERT INTO tagesplan (mitarbeiter_id, verkaufsstelle_id, datum, erledigt, erstellt_von) VALUES (?,?,?,1,?)",
                 (session['user_id'], vs_id, datum, session['user_id'])
             )
+
+    # Folgebesuch planen (2026-07-24, Nutzerwunsch, von Arco portiert): optionales Datum+
+    # Notiz-Feld im Formular legt einen unerledigten Tagesplan-Eintrag für den Folgetermin
+    # an, siehe _folgebesuch_anlegen(). Identische Logik im Online-Pfad (neue_aktivitaet()).
+    _folgebesuch_anlegen(session['user_id'], vs_id, (data.get('folge_datum') or '').strip(), data.get('folge_notiz'))
 
     app.logger.info(f"Offline-Sync: Aktivität {akt_id} für User {session['user_id']} gespeichert")
     return jsonify({'ok': True, 'akt_id': akt_id})
@@ -4514,6 +4936,25 @@ def neue_aktivitaet():
         foto_pfad, foto_pfad_2, foto_pfad_3 = foto_pfade
 
         bestell_status = 'offen' if aktionstyp == 'Bestellung' else None
+
+        # Bugreport 2026-07-24 (von Arco portiert): ohne sichtbare Erfolgsmeldung/Redirect
+        # war für den Nutzer nicht erkennbar, dass ein Speichervorgang bereits geklappt
+        # hatte, wodurch dieselbe Aktivität wiederholt neu eingetragen wurde. Identische
+        # Aktivität in den letzten 3 Minuten bereits gespeichert → sofort mit Erfolgsmeldung
+        # zurück, ohne einen neuen Duplikat-Eintrag samt Displaypositionen/Bestellpositionen
+        # anzulegen. von_uhrzeit/bis_uhrzeit müssen mit in den Vergleich, sonst würden zwei
+        # echte, unterschiedliche Besuche derselben VS am selben Tag fälschlich als
+        # Duplikat erkannt.
+        _duplikat = query(
+            "SELECT id FROM aktivitaet WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? AND aktionstyp=? "
+            "AND COALESCE(von_uhrzeit,'')=? AND COALESCE(bis_uhrzeit,'')=? "
+            "AND erstellt_am >= datetime('now', '-3 minutes') ORDER BY id DESC LIMIT 1",
+            (session['user_id'], vs_id, datum, aktionstyp, von_uhrzeit or '', bis_uhrzeit or ''), one=True
+        )
+        if _duplikat:
+            flash('Aktivität erfolgreich gespeichert!', 'success')
+            return redirect(url_for('neue_aktivitaet'))
+
         akt_id = execute(
             "INSERT INTO aktivitaet (datum, mitarbeiter_id, verkaufsstelle_id, anzahl_displays, notizen, foto_pfad, foto_pfad_2, foto_pfad_3, aktionstyp, bestell_status, von_uhrzeit, bis_uhrzeit, tank_datum, tank_kennzeichen, tank_kraftstoffsorte, tank_liter, tank_km_stand) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (datum, session['user_id'], vs_id, anzahl_displays, notizen, foto_pfad, foto_pfad_2, foto_pfad_3, aktionstyp, bestell_status, von_uhrzeit or None, bis_uhrzeit or None,
@@ -4589,6 +5030,11 @@ def neue_aktivitaet():
                     "INSERT INTO tagesplan (mitarbeiter_id, verkaufsstelle_id, datum, erledigt, erstellt_von) VALUES (?,?,?,1,?)",
                     (session['user_id'], vs_id, datum, session['user_id'])
                 )
+
+        # Folgebesuch planen (2026-07-24, Nutzerwunsch, von Arco portiert): optionales
+        # Datum+Notiz-Feld im Formular legt einen unerledigten Tagesplan-Eintrag für den
+        # Folgetermin an, siehe _folgebesuch_anlegen(). Identische Logik im Offline-Sync.
+        _folgebesuch_anlegen(session['user_id'], vs_id, request.form.get('folge_datum', '').strip(), request.form.get('folge_notiz', ''))
 
         flash('Aktivität erfolgreich gespeichert!', 'success')
         return redirect(url_for('neue_aktivitaet'))
@@ -5630,6 +6076,313 @@ def admin_demo_cleanup():
     except Exception as e:
         flash(f'Fehler beim Cleanup: {e}', 'danger')
     return redirect(url_for('admin'))
+
+
+# ─── Auffälligkeiten (Abweichungs-Alerts für VKL/Admin-Dashboard) ────────────
+# 2026-07-26, von Arco portiert: vier proaktive Muster je aktivem Rep, damit VKL nicht mehr
+# selbst durch Reports suchen muss. Schwellenwerte hier als Konstanten (noch keine
+# Admin-UI zum Anpassen – bewusst erstmal fest, siehe Arco-Gespräch mit dem Nutzer).
+
+ALERT_BESUCHSFREQUENZ_REFERENZ_WOCHEN = 12
+ALERT_BESUCHSFREQUENZ_SCHWELLE = -0.50
+ALERT_BESUCHSFREQUENZ_AKTUELLE_MIN_ARBEITSTAGE_ANTEIL = 0.60
+ALERT_BESUCHSFREQUENZ_REFERENZ_MIN_ANTEIL = 0.40
+ALERT_BESUCHSFREQUENZ_MIN_REFERENZWOCHEN = 3
+
+ALERT_ZIEL_SCHWELLE_PP = -10
+ALERT_ZIEL_MIN_KW = 4
+
+ALERT_AUFBAU_ABLEHNUNG_QUOTE = 0.30
+ALERT_AUFBAU_ABLEHNUNG_MIN_BASIS = 5
+ALERT_AUFBAU_ABLEHNUNG_WOCHEN = 4
+
+ALERT_ARBEITSZEIT_ABWEICHUNG = 0.10
+ALERT_ARBEITSZEIT_MIN_WOCHEN_FOLGE = 5  # "mehr als 4 Wochen in Folge" = mind. 5
+
+
+def _iso_woche(datum):
+    """z.B. '2026-W30' – dient als Dedupe-Schlüssel, damit derselbe Alert-Typ pro
+    Mitarbeiter nicht mehrfach in derselben Kalenderwoche angelegt wird."""
+    jahr, woche, _ = datum.isocalendar()
+    return f"{jahr}-W{woche:02d}"
+
+
+def _alert_wochen_start_ende(referenz_datum, wochen_zurueck=0):
+    """Montag/Sonntag der Woche, die `wochen_zurueck` Wochen vor referenz_datum liegt
+    (wochen_zurueck=0 → aktuelle Kalenderwoche von referenz_datum)."""
+    montag = referenz_datum - timedelta(days=referenz_datum.weekday() + 7 * wochen_zurueck)
+    return montag, montag + timedelta(days=6)
+
+
+def _alert_arbeitstage_in_woche(mitarbeiter_id, montag, sonntag):
+    """Anzahl Mo-Fr-Tage in der Woche minus Tage mit bestätigter Abwesenheit (Urlaub/
+    Krankheit/AU, vertretung.status='bestätigt'). Feiertage werden bewusst NICHT
+    abgezogen (keine bundeslandgenaue Feiertagsdatenbank hier verfügbar) – das macht den
+    Arbeitstage-Wert in Feiertagswochen leicht zu hoch, also den Alert seltener statt zu
+    oft auslösend, was für ein Frühwarn-Feature die sichere Richtung ist."""
+    werktage = [montag + timedelta(days=i) for i in range(5)]
+    abwesenheiten = query(
+        "SELECT von, bis FROM vertretung WHERE abwesender_id=? AND status='bestätigt' "
+        "AND von <= ? AND bis >= ?",
+        (mitarbeiter_id, sonntag.isoformat(), montag.isoformat())
+    )
+    abwesende_tage = set()
+    for a in abwesenheiten:
+        von, bis = date.fromisoformat(a['von']), date.fromisoformat(a['bis'])
+        for t in werktage:
+            if von <= t <= bis:
+                abwesende_tage.add(t)
+    return len(werktage) - len(abwesende_tage)
+
+
+def _alert_besuche_in_woche(mitarbeiter_id, montag, sonntag):
+    """Anzahl distinct (Datum, Verkaufsstelle)-Kombinationen – bewusst nicht die rohe
+    Aktivitäts-Zeilenzahl, sonst verzerrt ein Rep, der bei derselben VS mehrere
+    Einzel-Aktivitäten einträgt, den Vergleich."""
+    return query(
+        "SELECT COUNT(DISTINCT datum || '|' || verkaufsstelle_id) AS n FROM aktivitaet "
+        "WHERE mitarbeiter_id=? AND datum BETWEEN ? AND ?",
+        (mitarbeiter_id, montag.isoformat(), sonntag.isoformat()), one=True
+    )['n']
+
+
+def _check_besuchsfrequenz(mitarbeiter_id, heute):
+    """Alert-Typ 1: Besuchsfrequenz-Abweichung gegenüber dem 12-Wochen-Schnitt.
+    Gibt (schweregrad, titel, detail) zurück, sonst None."""
+    akt_montag, akt_sonntag = _alert_wochen_start_ende(heute, 0)
+    akt_arbeitstage = _alert_arbeitstage_in_woche(mitarbeiter_id, akt_montag, akt_sonntag)
+    if akt_arbeitstage < 5 * ALERT_BESUCHSFREQUENZ_AKTUELLE_MIN_ARBEITSTAGE_ANTEIL:
+        return None  # diese Woche überwiegend abwesend (Urlaub/Krankheit) – kein Alert
+
+    ist_wert = _alert_besuche_in_woche(mitarbeiter_id, akt_montag, akt_sonntag) / akt_arbeitstage
+
+    referenz_werte = []
+    for w in range(1, ALERT_BESUCHSFREQUENZ_REFERENZ_WOCHEN + 1):
+        montag, sonntag = _alert_wochen_start_ende(heute, w)
+        arbeitstage = _alert_arbeitstage_in_woche(mitarbeiter_id, montag, sonntag)
+        if arbeitstage < 5 * ALERT_BESUCHSFREQUENZ_REFERENZ_MIN_ANTEIL:
+            continue  # Referenzwoche überwiegend Abwesenheit – verzerrt den Schnitt, raus
+        referenz_werte.append(_alert_besuche_in_woche(mitarbeiter_id, montag, sonntag) / arbeitstage)
+
+    if len(referenz_werte) < ALERT_BESUCHSFREQUENZ_MIN_REFERENZWOCHEN:
+        return None  # zu wenig Historie (z.B. neuer Mitarbeiter)
+
+    referenz = sum(referenz_werte) / len(referenz_werte)
+    if referenz <= 0:
+        return None
+    abweichung = (ist_wert - referenz) / referenz
+    if abweichung > ALERT_BESUCHSFREQUENZ_SCHWELLE:
+        return None
+
+    ma = query("SELECT name FROM mitarbeiter WHERE id=?", (mitarbeiter_id,), one=True)
+    schweregrad = 'hoch' if abweichung <= -0.70 else 'mittel'
+    detail = (f"{ma['name']} hatte diese Woche {ist_wert:.1f} Besuche/Arbeitstag — "
+              f"Schnitt der letzten {ALERT_BESUCHSFREQUENZ_REFERENZ_WOCHEN} Wochen liegt bei "
+              f"Ø {referenz:.1f} Besuche/Arbeitstag ({abweichung*100:.0f}%). "
+              f"Urlaub/Krankheit bereits herausgerechnet.")
+    return (schweregrad, 'Besuchsfrequenz stark gesunken', detail)
+
+
+def _check_zielerreichung(mitarbeiter_id, heute, art):
+    """Alert-Typ 2: Zielerreichungs-Trend gegenüber dem linear erwarteten Jahres-Pfad.
+    art = 'kisten' oder 'displays'. Gibt (schweregrad, titel, detail) zurück, sonst None."""
+    jahr = heute.year
+    kw = heute.isocalendar()[1]
+    if kw < ALERT_ZIEL_MIN_KW:
+        return None  # frühe Wochen im Jahr zu verrauscht für eine Trendaussage
+
+    ziel_row = query("SELECT kisten_ziel, displays_ziel FROM zielzahlen WHERE mitarbeiter_id=? AND jahr=?",
+                      (mitarbeiter_id, jahr), one=True)
+    if not ziel_row:
+        return None
+    ziel = ziel_row['kisten_ziel'] if art == 'kisten' else ziel_row['displays_ziel']
+    if not ziel:
+        return None
+
+    if art == 'kisten':
+        # Gratisware-Kisten zählen nicht ins Verkaufsziel (gleiche Ausnahme wie im
+        # bestehenden Zielzahlen-Dashboard).
+        ist = query(
+            "SELECT COALESCE(SUM(bp.kisten_anzahl),0) AS s FROM bestellposition bp "
+            "JOIN biersorte bs ON bs.id=bp.biersorte_id "
+            "JOIN aktivitaet a ON a.id=bp.aktivitaet_id "
+            "WHERE a.mitarbeiter_id=? AND strftime('%Y',a.datum)=? AND COALESCE(bs.ist_gratisware,0)=0",
+            (mitarbeiter_id, str(jahr)), one=True
+        )['s']
+    else:
+        # Nur vom VKL freigegebene, zielrelevante (Tier-1) Aufbauten zählen – gleiche
+        # Definition wie im bestehenden Zielzahlen-Dashboard.
+        ist = query(
+            "SELECT COALESCE(SUM(dp.anzahl),0) AS s FROM displayposition dp "
+            "JOIN displaysorte ds ON ds.id=dp.displaysorte_id "
+            "JOIN aktivitaet a ON a.id=dp.aktivitaet_id "
+            "WHERE a.mitarbeiter_id=? AND strftime('%Y',a.datum)=? "
+            "AND dp.status='freigegeben' AND ds.zaehlt_zur_zielerreichung=1",
+            (mitarbeiter_id, str(jahr)), one=True
+        )['s']
+
+    erwartet_pp = (kw / 52) * 100
+    ist_pp = (ist / ziel) * 100
+    abweichung_pp = ist_pp - erwartet_pp
+    if abweichung_pp > ALERT_ZIEL_SCHWELLE_PP:
+        return None
+
+    ma = query("SELECT name FROM mitarbeiter WHERE id=?", (mitarbeiter_id,), one=True)
+    schweregrad = 'hoch' if abweichung_pp <= -20 else 'mittel'
+    label = 'Kisten' if art == 'kisten' else 'Display'
+    detail = (f"{ma['name']} liegt in KW {kw} bei {ist_pp:.0f}% {label}-Zielerreichung — "
+              f"erwartet wären zu diesem Zeitpunkt im Jahr ≈{erwartet_pp:.0f}% (linearer Pfad).")
+    return (schweregrad, f'{label}-Zielerreichung unter erwartetem Pfad', detail)
+
+
+def _check_aufbau_ablehnung(mitarbeiter_id, heute):
+    """Alert-Typ 4: Häufung abgelehnter Aufbauten der letzten 4 Wochen (rollierend).
+    Gibt (schweregrad, titel, detail) zurück, sonst None."""
+    start = heute - timedelta(weeks=ALERT_AUFBAU_ABLEHNUNG_WOCHEN)
+    rows = query(
+        "SELECT dp.status, dp.ablehnungsgrund FROM displayposition dp "
+        "JOIN aktivitaet a ON a.id=dp.aktivitaet_id "
+        "WHERE a.mitarbeiter_id=? AND a.datum >= ? AND a.datum <= ? "
+        "AND dp.status IN ('freigegeben','abgelehnt')",
+        (mitarbeiter_id, start.isoformat(), heute.isoformat())
+    )
+    entschieden = len(rows)
+    if entschieden < ALERT_AUFBAU_ABLEHNUNG_MIN_BASIS:
+        return None  # zu kleine Stichprobe
+
+    abgelehnt = [r for r in rows if r['status'] == 'abgelehnt']
+    quote = len(abgelehnt) / entschieden
+    if quote < ALERT_AUFBAU_ABLEHNUNG_QUOTE:
+        return None
+
+    gruende = {}
+    for r in abgelehnt:
+        g = (r['ablehnungsgrund'] or '').strip()
+        if g:
+            gruende[g] = gruende.get(g, 0) + 1
+    top_gruende = sorted(gruende.items(), key=lambda x: -x[1])[:2]
+    gruende_text = ' — ' + '; '.join(f'„{g}" ({n}×)' for g, n in top_gruende) if top_gruende else ''
+
+    ma = query("SELECT name FROM mitarbeiter WHERE id=?", (mitarbeiter_id,), one=True)
+    schweregrad = 'hoch' if quote >= 0.50 else 'mittel'
+    detail = (f"{ma['name']}: {len(abgelehnt)} von {entschieden} entschiedenen Aufbauten der "
+              f"letzten {ALERT_AUFBAU_ABLEHNUNG_WOCHEN} Wochen abgelehnt ({quote*100:.0f}%){gruende_text}.")
+    return (schweregrad, 'Auffällig viele abgelehnte Aufbauten', detail)
+
+
+def _check_arbeitszeit_anomalie(mitarbeiter_id, heute):
+    """Alert-Typ 8: Wochenarbeitszeit weicht seit mehr als 4 Wochen in Folge in dieselbe
+    Richtung um mehr als 10% vom Vertragssoll ab. Gibt eine Liste mit 0, 1 oder 2
+    (schweregrad, titel, detail)-Tupeln zurück (Über- und Unterschreitung schließen sich
+    gegenseitig aus, da beide dieselbe Woche prüfen)."""
+    ma = query("SELECT name, wochenarbeitszeit_stunden FROM mitarbeiter WHERE id=?",
+               (mitarbeiter_id,), one=True)
+    soll = ma['wochenarbeitszeit_stunden'] if ma else None
+    if not soll:
+        return []
+
+    richtungen = []
+    for w in range(0, ALERT_ARBEITSZEIT_MIN_WOCHEN_FOLGE):
+        montag, sonntag = _alert_wochen_start_ende(heute, w)
+        ist_minuten = query(
+            "SELECT COALESCE(SUM((strftime('%s',ende)-strftime('%s',beginn))/60 - pause_minuten),0) AS m "
+            "FROM arbeitszeit WHERE mitarbeiter_id=? AND datum BETWEEN ? AND ? "
+            "AND beginn IS NOT NULL AND ende IS NOT NULL",
+            (mitarbeiter_id, montag.isoformat(), sonntag.isoformat()), one=True
+        )['m']
+        ist_stunden = (ist_minuten or 0) / 60
+        abweichung = (ist_stunden - soll) / soll
+        if abweichung > ALERT_ARBEITSZEIT_ABWEICHUNG:
+            richtungen.append(True)
+        elif abweichung < -ALERT_ARBEITSZEIT_ABWEICHUNG:
+            richtungen.append(False)
+        else:
+            richtungen.append(None)
+
+    if len(set(richtungen)) != 1 or richtungen[0] is None:
+        return []
+    ueberschreitung = richtungen[0]
+
+    ist_werte = []
+    for w in range(0, ALERT_ARBEITSZEIT_MIN_WOCHEN_FOLGE):
+        montag, sonntag = _alert_wochen_start_ende(heute, w)
+        ist_minuten = query(
+            "SELECT COALESCE(SUM((strftime('%s',ende)-strftime('%s',beginn))/60 - pause_minuten),0) AS m "
+            "FROM arbeitszeit WHERE mitarbeiter_id=? AND datum BETWEEN ? AND ? "
+            "AND beginn IS NOT NULL AND ende IS NOT NULL",
+            (mitarbeiter_id, montag.isoformat(), sonntag.isoformat()), one=True
+        )['m']
+        ist_werte.append((ist_minuten or 0) / 60)
+    ist_schnitt = sum(ist_werte) / len(ist_werte)
+    abweichung_pct = (ist_schnitt - soll) / soll * 100
+
+    if ueberschreitung:
+        detail = (f"{ma['name']}: seit {ALERT_ARBEITSZEIT_MIN_WOCHEN_FOLGE} Wochen in Folge "
+                  f"Ø {abweichung_pct:.0f}% über der vereinbarten Wochenarbeitszeit "
+                  f"({soll:.1f} Std. Soll → Ø {ist_schnitt:.1f} Std. Ist).")
+        return [('mittel', 'Wochenarbeitszeit dauerhaft über Vertragssoll', detail)]
+    else:
+        detail = (f"{ma['name']}: seit {ALERT_ARBEITSZEIT_MIN_WOCHEN_FOLGE} Wochen in Folge "
+                  f"Ø {abs(abweichung_pct):.0f}% unter der vereinbarten Wochenarbeitszeit "
+                  f"({soll:.1f} Std. Soll → Ø {ist_schnitt:.1f} Std. Ist).")
+        return [('mittel', 'Wochenarbeitszeit dauerhaft unter Vertragssoll', detail)]
+
+
+def _abweichungs_alerts_berechnen(heute=None):
+    """Prüft alle vier Alert-Typen für jeden aktiven Rep und legt neue Alert-Datensätze an
+    (Dedupe über UNIQUE(typ, mitarbeiter_id, berechnungswoche) – ein INSERT OR IGNORE pro
+    Fund reicht, bereits vorhandene Alerts derselben Woche werden nicht dupliziert oder
+    überschrieben). Gibt die Anzahl neu angelegter Alerts zurück."""
+    heute = heute or date.today()
+    woche = _iso_woche(heute)
+    reps = query("SELECT id FROM mitarbeiter WHERE rolle='rep' AND aktiv=1")
+    neu = 0
+
+    def _speichern(typ, mitarbeiter_id, schweregrad, titel, detail):
+        nonlocal neu
+        try:
+            execute(
+                "INSERT OR IGNORE INTO abweichungs_alert "
+                "(typ, mitarbeiter_id, schweregrad, titel, detail, berechnungswoche) "
+                "VALUES (?,?,?,?,?,?)",
+                (typ, mitarbeiter_id, schweregrad, titel, detail, woche)
+            )
+            neu += 1
+        except Exception as e:
+            app.logger.error(f"ABWEICHUNGS_ALERT: Speichern fehlgeschlagen ({typ}, MA {mitarbeiter_id}): {e}")
+
+    for r in reps:
+        ma_id = r['id']
+
+        treffer = _check_besuchsfrequenz(ma_id, heute)
+        if treffer:
+            _speichern('besuchsfrequenz', ma_id, *treffer)
+
+        for art in ('kisten', 'displays'):
+            treffer = _check_zielerreichung(ma_id, heute, art)
+            if treffer:
+                _speichern(f'ziel_{art}', ma_id, *treffer)
+
+        treffer = _check_aufbau_ablehnung(ma_id, heute)
+        if treffer:
+            _speichern('aufbau_ablehnung', ma_id, *treffer)
+
+        for treffer in _check_arbeitszeit_anomalie(ma_id, heute):
+            richtung = 'ueber' if 'über' in treffer[1] else 'unter'
+            _speichern(f'arbeitszeit_{richtung}', ma_id, *treffer)
+
+    return neu
+
+
+def abweichungs_alert_job():
+    """Täglich (siehe start_scheduler): berechnet neue Auffälligkeiten für das
+    VKL/Admin-Dashboard."""
+    with app.app_context():
+        try:
+            neu = _abweichungs_alerts_berechnen()
+            app.logger.info(f"ABWEICHUNGS_ALERT: Job durchgelaufen, {neu} Alert(s) neu/bereits vorhanden geprüft.")
+        except Exception as e:
+            app.logger.error(f"ABWEICHUNGS_ALERT: Job fehlgeschlagen: {e}")
 
 
 def _geo_ausreisser_finden(min_gruppe=3, schwelle_km=50):
@@ -9495,6 +10248,334 @@ def api_admin_verkaufsstellen_suche():
     return jsonify([dict(r) for r in rows])
 
 
+# ─── Verkaufsstellen-Vergleich (portiert aus Arco 2026-07-25) ────────────────
+
+@app.route('/verkaufsstellen-vergleich')
+@login_required
+def verkaufsstellen_vergleich():
+    """Kunden-Vergleich: entweder aggregierte Kennzahlen je Verkaufsstellen-Typ
+    (Segment-Modus, wenn keine einzelnen Kunden ausgewählt sind) oder eine einzelne
+    aggregierte Kachel für eine frei gewählte Kundenauswahl (Kunden-Modus, sobald
+    mindestens ein Kunde per Namenssuche ausgewählt wurde) – jeweils mit Trend ggü.
+    dem gleichen Zeitraum im Vorjahr. Filter (Typ, Landkreis, Ort, Mitarbeiter) sind
+    überall Mehrfachauswahl und wirken als UND-Bedingungen. VKL sieht nur sein Team
+    (via _team_ma_clause), Admin alles."""
+    if session.get('rolle') not in ('admin', 'verkaufsleiter'):
+        flash('Kein Zugriff.', 'danger')
+        return redirect(url_for('dashboard'))
+
+    periode = request.args.get('periode', 'jahr')
+    monat_param = request.args.get('monat', '')
+    start, end, label, monat_param, periode = _vergleich_zeitraum(periode, monat_param)
+
+    # Gleicher Zeitraum ein Jahr zuvor, für den Trend-Vergleich.
+    p_start = start.replace(year=start.year - 1)
+    p_end   = end.replace(year=end.year - 1)
+
+    # Bewusst ohne 'Firmenwagen-Tanken'/'Homeoffice'/'Verleger' – das sind keine echten
+    # Kunden (Sonderkategorien, siehe TANKEN_MODUS/Homeoffice-Stopp/Verleger-Gratisware).
+    alle_typen = [r['typ'] for r in query(
+        "SELECT DISTINCT typ FROM verkaufsstelle "
+        "WHERE typ IS NOT NULL AND typ NOT IN ('Firmenwagen-Tanken','Homeoffice','Verleger') AND aktiv=1 "
+        "ORDER BY typ"
+    )]
+    ausgewaehlt_typ = [t for t in request.args.getlist('typ') if t in alle_typen] or alle_typen
+
+    # Performance (analog Arco 2026-07-21): Landkreis/Ort werden nicht als vollständige
+    # Checkbox-Liste server-seitig gerendert, sondern per Suchfeld über
+    # /api/verkaufsstellen/filterwerte nachgeladen. Die Sets hier dienen nur noch der
+    # serverseitigen Validierung der übermittelten Auswahl, werden nicht an das
+    # Template weitergereicht.
+    _alle_landkreise = {r['landkreis'] for r in query(
+        "SELECT DISTINCT landkreis FROM verkaufsstelle WHERE landkreis IS NOT NULL AND landkreis != ''"
+    )}
+    ausgewaehlt_landkreis = [lk for lk in request.args.getlist('landkreis') if lk in _alle_landkreise]
+
+    _alle_orte = {r['ort'] for r in query(
+        "SELECT DISTINCT ort FROM verkaufsstelle WHERE ort IS NOT NULL AND ort != ''"
+    )}
+    ausgewaehlt_ort = [o for o in request.args.getlist('ort') if o in _alle_orte]
+
+    _t_m_sql, _t_m_p = _team_m_clause('m')
+    alle_mitarbeiter = query(
+        f"SELECT id, name FROM mitarbeiter m WHERE rolle IN ('rep','verkaufsleiter') AND aktiv=1 {_t_m_sql} ORDER BY name",
+        _t_m_p
+    )
+    mitarbeiter_ids_erlaubt = {m['id'] for m in alle_mitarbeiter}
+    ausgewaehlt_mitarbeiter = [mid for mid in request.args.getlist('mitarbeiter_id', type=int) if mid in mitarbeiter_ids_erlaubt]
+
+    # Analog Arco-Bugreport 2026-07-21 (Niedrig-mittel): vs_id nicht ungeprüft aus dem
+    # Query-String übernehmen – ein VKL könnte sonst per manuell angehängtem
+    # vs_id=<fremde-ID> Name/Ort einer Verkaufsstelle außerhalb des eigenen Teams einsehen.
+    ausgewaehlte_vs_ids = [vid for vid in request.args.getlist('vs_id', type=int)
+                           if vid and _verkaufsstelle_im_eigenen_gebiet(vid)]
+    ausgewaehlte_vs = query(
+        f"SELECT id, name, ort FROM verkaufsstelle WHERE id IN ({','.join('?'*len(ausgewaehlte_vs_ids))})",
+        tuple(ausgewaehlte_vs_ids)
+    ) if ausgewaehlte_vs_ids else []
+
+    BP = ("(SELECT bp.aktivitaet_id, SUM(bp.kisten_anzahl) AS kisten_total FROM bestellposition bp "
+          "JOIN biersorte bs ON bs.id=bp.biersorte_id WHERE COALESCE(bs.ist_gratisware,0)=0 GROUP BY bp.aktivitaet_id)")
+    t_ma_sql, t_ma_p = _team_ma_clause('a')
+
+    def _extra_filter_sql_v():
+        """Nur die Filter-Fragmente, die ausschließlich auf Alias 'v' wirken (Landkreis/Ort).
+        Separat von _extra_filter_sql(), da die historische Rückfalllogik (vs_historische_werte)
+        keine aktivitaet-Tabelle 'a' im Query hat und daher den Mitarbeiter-Filter nicht
+        anwenden kann – dieses Fragment ist dort trotzdem sicher nutzbar."""
+        sql, params = "", []
+        if ausgewaehlt_landkreis:
+            sql += f" AND v.landkreis IN ({','.join('?'*len(ausgewaehlt_landkreis))})"
+            params += ausgewaehlt_landkreis
+        if ausgewaehlt_ort:
+            sql += f" AND v.ort IN ({','.join('?'*len(ausgewaehlt_ort))})"
+            params += ausgewaehlt_ort
+        return sql, params
+
+    def _extra_filter_sql():
+        """UND-Filter-Fragment (Landkreis/Ort/Mitarbeiter) + Parameter, gemeinsam für
+        Segment- und Kunden-Modus verwendet."""
+        sql, params = _extra_filter_sql_v()
+        if ausgewaehlt_mitarbeiter:
+            sql += f" AND a.mitarbeiter_id IN ({','.join('?'*len(ausgewaehlt_mitarbeiter))})"
+            params += ausgewaehlt_mitarbeiter
+        return sql, params
+
+    def trend_str(neu, alt):
+        diff = neu - alt
+        if diff > 0: return f'+{diff}'
+        if diff < 0: return str(diff)
+        return '±0'
+
+    def trend_col(neu, alt):
+        if neu > alt: return '#2d8a4e'
+        if neu < alt: return '#c0392b'
+        return '#888'
+
+    ex_sql, ex_p = _extra_filter_sql()
+    ex_v_sql, ex_v_p = _extra_filter_sql_v()
+
+    # Historischer Vorjahres-Fallback: nur bei monatsgenauen Perioden sinnvoll (s.
+    # _hist_monate/_hist_zusatz oben). VKL sieht dabei nur historische Werte für VS
+    # seines eigenen Teams.
+    hist_faehig = periode in ('jahr', 'monat')
+    if session.get('rolle') == 'verkaufsleiter' and session.get('team_id'):
+        team_vs_sql = (" AND v.id IN (SELECT mv.verkaufsstelle_id FROM mitarbeiter_verkaufsstelle mv "
+                        "JOIN mitarbeiter m2 ON m2.id = mv.mitarbeiter_id WHERE m2.team_id = ?)")
+        team_vs_p = (session['team_id'],)
+    else:
+        team_vs_sql, team_vs_p = "", ()
+
+    def mit_hist_fallback(prev, vs_filter_sql, vs_filter_p):
+        """Ergänzt prev (Vorjahres-KPIs) um historische Backfill-Werte für VS+Monate ohne
+        echte Aktivität. vs_filter_sql/vs_filter_p filtern auf Alias 'v' (Typ oder Kunden-ID-Liste;
+        Landkreis/Ort werden vom Aufrufer bereits mit angehängt, s. ex_v_sql). Bei aktivem
+        Mitarbeiter-Filter wird der historische Zusatz nach der AKTUELLEN Gebietszuordnung
+        (mitarbeiter_verkaufsstelle) gefiltert, NICHT danach, wer die Aktivität im Vorjahr
+        tatsächlich erfasst hat – bei Gebietswechseln soll der Vorjahresvergleich trotzdem
+        die jetzt zugeordneten Stationen zeigen, unabhängig davon wer sie im Vorjahr
+        betreut hat (analog Arco-Bugreport 2026-07-20)."""
+        if not hist_faehig:
+            return prev
+        monate = _hist_monate(p_start, p_end)
+        erfasst = _akt_monate_set(vs_filter_sql, vs_filter_p, ex_sql, ex_p, t_ma_sql, t_ma_p, p_start, p_end)
+        hist_vs_filter_sql, hist_vs_filter_p = vs_filter_sql, vs_filter_p
+        if ausgewaehlt_mitarbeiter:
+            hist_vs_filter_sql += (
+                " AND v.id IN (SELECT mv.verkaufsstelle_id FROM mitarbeiter_verkaufsstelle mv "
+                f"WHERE mv.mitarbeiter_id IN ({','.join('?'*len(ausgewaehlt_mitarbeiter))}))"
+            )
+            hist_vs_filter_p = hist_vs_filter_p + tuple(ausgewaehlt_mitarbeiter)
+        zusatz = _hist_zusatz(hist_vs_filter_sql + team_vs_sql, hist_vs_filter_p + team_vs_p, erfasst, monate)
+        prev = dict(prev)
+        real_vs_besucht = {vs_id for (vs_id, _, _) in erfasst}
+        prev['besuche']      = (prev['besuche'] or 0) + zusatz['besuche']
+        prev['bestellungen'] = (prev['bestellungen'] or 0) + zusatz['bestellungen']
+        prev['kisten']       = (prev['kisten'] or 0) + zusatz['kisten']
+        prev['kunden_besucht'] = len(real_vs_besucht | zusatz['kunden_besucht_zusatz'])
+        return prev
+
+    if ausgewaehlte_vs_ids:
+        # ── Kunden-Modus: eine einzelne aggregierte Kachel für die freie Auswahl ──
+        vs_sql = f"v.id IN ({','.join('?'*len(ausgewaehlte_vs_ids))}) AND v.typ NOT IN ('Firmenwagen-Tanken','Homeoffice','Verleger')"
+
+        def kunden_kpis(von, bis):
+            return query(f"""
+                SELECT COUNT(a.id) AS besuche,
+                       SUM(CASE WHEN a.aktionstyp='Bestellung' THEN 1 ELSE 0 END) AS bestellungen,
+                       COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung' THEN b.kisten_total ELSE 0 END), 0) AS kisten,
+                       COUNT(DISTINCT a.verkaufsstelle_id) AS kunden_besucht
+                FROM aktivitaet a
+                JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id AND {vs_sql}{ex_sql}
+                LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
+                WHERE a.datum BETWEEN ? AND ? {t_ma_sql}
+            """, tuple(ausgewaehlte_vs_ids) + tuple(ex_p) + (von.isoformat(), bis.isoformat()) + t_ma_p, one=True)
+
+        kpi = kunden_kpis(start, end)
+        prev = mit_hist_fallback(kunden_kpis(p_start, p_end), vs_sql + ex_v_sql, tuple(ausgewaehlte_vs_ids) + tuple(ex_v_p))
+        segmente = [{
+            'typ': 'Ausgewählte Kunden',
+            'besuche': kpi['besuche'] or 0, 'p_besuche': prev['besuche'] or 0,
+            'bestellungen': kpi['bestellungen'] or 0, 'p_bestellungen': prev['bestellungen'] or 0,
+            'kisten': kpi['kisten'] or 0, 'p_kisten': prev['kisten'] or 0,
+            'kunden_besucht': kpi['kunden_besucht'] or 0,
+            'anzahl_kunden': len(ausgewaehlte_vs_ids),
+            'vs_ids': ausgewaehlte_vs_ids,
+        }]
+    else:
+        # ── Segment-Modus: eine Kachel je ausgewähltem Typ ──
+        def zeitraum_kpis(typ, von, bis):
+            return query(f"""
+                SELECT COUNT(a.id) AS besuche,
+                       SUM(CASE WHEN a.aktionstyp='Bestellung' THEN 1 ELSE 0 END) AS bestellungen,
+                       COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung' THEN b.kisten_total ELSE 0 END), 0) AS kisten,
+                       COUNT(DISTINCT a.verkaufsstelle_id) AS kunden_besucht
+                FROM aktivitaet a
+                JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id AND v.typ = ?{ex_sql}
+                LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
+                WHERE a.datum BETWEEN ? AND ? {t_ma_sql}
+            """, (typ,) + tuple(ex_p) + (von.isoformat(), bis.isoformat()) + t_ma_p, one=True)
+
+        segmente = []
+        for typ in alle_typen:
+            if typ not in ausgewaehlt_typ:
+                continue
+            kpi  = zeitraum_kpis(typ, start, end)
+            prev = mit_hist_fallback(zeitraum_kpis(typ, p_start, p_end), "v.typ = ?" + ex_v_sql, (typ,) + tuple(ex_v_p))
+            typ_vs_ids = _vergleich_vs_ids(typ, ausgewaehlt_landkreis, ausgewaehlt_ort, ausgewaehlt_mitarbeiter)
+            segmente.append({
+                'typ': typ,
+                'besuche': kpi['besuche'] or 0, 'p_besuche': prev['besuche'] or 0,
+                'bestellungen': kpi['bestellungen'] or 0, 'p_bestellungen': prev['bestellungen'] or 0,
+                'kisten': kpi['kisten'] or 0, 'p_kisten': prev['kisten'] or 0,
+                'kunden_besucht': kpi['kunden_besucht'] or 0,
+                'anzahl_kunden': len(typ_vs_ids),
+                'vs_ids': typ_vs_ids,
+            })
+
+    return render_template('verkaufsstellen_vergleich.html',
+        segmente=segmente, alle_typen=alle_typen, ausgewaehlt_typ=ausgewaehlt_typ,
+        ausgewaehlt_landkreis=ausgewaehlt_landkreis,
+        ausgewaehlt_ort=ausgewaehlt_ort,
+        alle_mitarbeiter=alle_mitarbeiter, ausgewaehlt_mitarbeiter=ausgewaehlt_mitarbeiter,
+        ausgewaehlte_vs=ausgewaehlte_vs,
+        periode=periode, label=label, monat_param=monat_param,
+        trend_str=trend_str, trend_col=trend_col)
+
+
+@app.route('/api/verkaufsstellen/filterwerte')
+@login_required
+def api_verkaufsstellen_filterwerte():
+    """Serverseitige Suche für die Landkreis-/Ort-Filter im Verkaufsstellen-Vergleich
+    (analog Arco-Performance-Fix 2026-07-21: ersetzt das serverseitige Rendern aller
+    Orte als Checkboxen, siehe verkaufsstellen_vergleich())."""
+    feld = request.args.get('feld', '')
+    if feld not in ('ort', 'landkreis'):
+        return jsonify([])
+    q = request.args.get('q', '').strip()
+    sql = f"SELECT DISTINCT {feld} AS wert FROM verkaufsstelle WHERE {feld} IS NOT NULL AND {feld} != ''"
+    params = []
+    if q:
+        sql += f" AND {feld} LIKE ?"
+        params.append(f'%{q}%')
+    sql += f" ORDER BY {feld} LIMIT 20"
+    rows = query(sql, params)
+    return jsonify([r['wert'] for r in rows])
+
+
+@app.route('/verkaufsstellen-vergleich/liste')
+@login_required
+def verkaufsstellen_vergleich_liste():
+    """Detail-Liste zu einer Kachel aus dem Kunden-Vergleich: alle zugehörigen
+    Verkaufsstellen einzeln, mit Besuchsanzahl im gewählten Zeitraum (0 = nicht
+    besucht). Nimmt dieselben Filterparameter wie verkaufsstellen_vergleich() –
+    entweder typ (+Landkreis/Ort/Mitarbeiter, Segment-Modus) oder vs_id (Kunden-Modus)."""
+    if session.get('rolle') not in ('admin', 'verkaufsleiter'):
+        flash('Kein Zugriff.', 'danger')
+        return redirect(url_for('dashboard'))
+
+    periode = request.args.get('periode', 'jahr')
+    monat_param = request.args.get('monat', '')
+    start, end, label, monat_param, periode = _vergleich_zeitraum(periode, monat_param)
+
+    typ = request.args.get('typ', '')
+    # Analog Arco-Bugreport 2026-07-21 (Niedrig-mittel): analog zu verkaufsstellen_vergleich() –
+    # vs_id nicht ungeprüft übernehmen, hier sogar mit Namen der zugeordneten Mitarbeiter.
+    ausgewaehlte_vs_ids = [vid for vid in request.args.getlist('vs_id', type=int)
+                           if vid and _verkaufsstelle_im_eigenen_gebiet(vid)]
+    landkreis_p    = request.args.getlist('landkreis')
+    ort_p          = request.args.getlist('ort')
+    mitarbeiter_p  = [mid for mid in request.args.getlist('mitarbeiter_id', type=int) if mid]
+
+    # "Zurück zum Vergleich" mit dem exakten Filterstand, von dem aus die Liste geöffnet
+    # wurde (inkl. aller ursprünglich ausgewählten Typen, nicht nur des hier gezeigten) –
+    # ohne das würde "Zurück" nur noch den einen angeklickten Typ zeigen (analog Arco-Bug
+    # vom 2026-07-20).
+    _zurueck = request.args.get('zurueck', '')
+    zurueck_vergleich_url = _zurueck if _zurueck.startswith('/') and '://' not in _zurueck else None
+
+    if ausgewaehlte_vs_ids:
+        titel = 'Ausgewählte Kunden'
+        vs_ids = ausgewaehlte_vs_ids
+    elif typ:
+        titel = typ
+        vs_ids = _vergleich_vs_ids(typ, landkreis_p, ort_p, mitarbeiter_p)
+    else:
+        flash('Kein Segment ausgewählt.', 'danger')
+        return redirect(url_for('verkaufsstellen_vergleich'))
+
+    stellen = query(
+        f"""SELECT v.id, v.name, v.ort, v.strasse,
+                   COALESCE((SELECT GROUP_CONCAT(m.name, ', ') FROM mitarbeiter_verkaufsstelle mv
+                             JOIN mitarbeiter m ON m.id = mv.mitarbeiter_id
+                             WHERE mv.verkaufsstelle_id = v.id), '') AS mitarbeiter
+            FROM verkaufsstelle v WHERE v.id IN ({','.join('?'*len(vs_ids))}) ORDER BY v.name""",
+        tuple(vs_ids)
+    ) if vs_ids else []
+
+    besuche = {}
+    if vs_ids:
+        t_ma_sql, t_ma_p = _team_ma_clause('a')
+        ma_sql = f" AND a.mitarbeiter_id IN ({','.join('?'*len(mitarbeiter_p))})" if mitarbeiter_p else ""
+        rows = query(f"""
+            SELECT verkaufsstelle_id AS vs_id, COUNT(*) AS n
+            FROM aktivitaet a
+            WHERE a.verkaufsstelle_id IN ({','.join('?'*len(vs_ids))}){ma_sql}
+              AND a.datum BETWEEN ? AND ? {t_ma_sql}
+            GROUP BY a.verkaufsstelle_id
+        """, tuple(vs_ids) + tuple(mitarbeiter_p) + (start.isoformat(), end.isoformat()) + t_ma_p)
+        besuche = {r['vs_id']: r['n'] for r in rows}
+
+        # Historischer Fallback nur für Kunden ganz ohne echte Aktivität im Zeitraum –
+        # die Liste zeigt nur eine Gesamtzahl je Kunde, keine Monatsaufschlüsselung wie
+        # die Kacheln, daher hier vereinfacht statt _hist_zusatz.
+        if periode in ('jahr', 'monat'):
+            ohne_echte = [vid for vid in vs_ids if vid not in besuche]
+            monate = _hist_monate(start, end) if ohne_echte else []
+            if monate:
+                ph = ','.join('(?,?)' for _ in monate)
+                hist_rows = query(f"""
+                    SELECT verkaufsstelle_id AS vs_id, SUM(besuche) AS n
+                    FROM vs_historische_werte
+                    WHERE verkaufsstelle_id IN ({','.join('?'*len(ohne_echte))}) AND (jahr,monat) IN ({ph})
+                    GROUP BY verkaufsstelle_id
+                """, tuple(ohne_echte) + tuple(x for paar in monate for x in paar))
+                for r in hist_rows:
+                    if r['n']:
+                        besuche[r['vs_id']] = r['n']
+
+    liste = [{'id': s['id'], 'name': s['name'], 'ort': s['ort'], 'strasse': s['strasse'],
+              'mitarbeiter': s['mitarbeiter'], 'besuche': besuche.get(s['id'], 0)} for s in stellen]
+    liste.sort(key=lambda x: (-x['besuche'], x['name']))
+
+    return render_template('verkaufsstellen_vergleich_liste.html',
+        titel=titel, label=label, periode=periode, monat_param=monat_param,
+        landkreis=landkreis_p, ort=ort_p, mitarbeiter_id=mitarbeiter_p,
+        typ=typ, ausgewaehlte_vs_ids=ausgewaehlte_vs_ids,
+        liste=liste, vs_ids=vs_ids, zurueck_url=request.full_path,
+        zurueck_vergleich_url=zurueck_vergleich_url)
+
+
 # ─── Karte ────────────────────────────────────────────────────────────────────
 
 @app.route('/karte')
@@ -9523,10 +10604,40 @@ def karte():
     km_kw          = _woche_montag.isocalendar()[1]
     km_prev_woche  = (_woche_montag - timedelta(days=7)).isoformat()
     km_next_woche  = (_woche_montag + timedelta(days=7)).isoformat()
+
+    # Optionaler Einstiegs-Filter aus dem Kunden-Vergleich ("Auf Karte anzeigen", portiert
+    # aus Arco 2026-07-25): zeigt nur die übergebenen VS-IDs, Karte selbst bleibt voll
+    # funktionsfähig (Marker anklickbar, Besuchsplanung/Tourenplanung unverändert nutzbar).
+    # Segment-Kacheln (Typ-Modus) können sehr viele VS-IDs umfassen – dafür wird statt der
+    # ausgeschriebenen ID-Liste (sprengt die Request-Line-Länge) nur der Typ + die Filter
+    # übergeben und die ID-Liste hier serverseitig neu aufgelöst (dieselbe Logik wie im
+    # Kunden-Vergleich selbst).
+    _vergleich_typ = request.args.get('vergleich_typ', '') if is_manager else ''
+    if _vergleich_typ:
+        _vk_landkreis = request.args.getlist('landkreis')
+        _vk_ort = request.args.getlist('ort')
+        _vk_t_m_sql, _vk_t_m_p = _team_m_clause('m')
+        _vk_erlaubte_ma = {r['id'] for r in query(
+            f"SELECT id FROM mitarbeiter m WHERE rolle IN ('rep','verkaufsleiter') AND aktiv=1 {_vk_t_m_sql}",
+            _vk_t_m_p
+        )}
+        _vk_mitarbeiter = [m for m in request.args.getlist('mitarbeiter_id', type=int) if m in _vk_erlaubte_ma]
+        vs_ids_filter = _vergleich_vs_ids(_vergleich_typ, _vk_landkreis, _vk_ort, _vk_mitarbeiter)
+    else:
+        _vs_ids_str = request.args.get('vs_ids', '')
+        vs_ids_filter = [int(v) for v in _vs_ids_str.split(',') if v.strip().isdigit()] if _vs_ids_str else []
+
+    # "Zurück"-Link zur Ursprungsseite (Kunden-Vergleich/Liste/Kundenhistorie) mit erhaltenem
+    # Filter – nur relative Pfade akzeptieren, kein offenes Redirect-Ziel.
+    _zurueck = request.args.get('zurueck', '')
+    zurueck_url = _zurueck if _zurueck.startswith('/') and '://' not in _zurueck else None
+
     return render_template('karte.html', reps=reps, is_manager=is_manager, karte_modus=KARTE_MODUS,
         datum_woche_karte=datum_woche_karte, today_str=_today.isoformat(),
         tomorrow_str=(_today + timedelta(days=1)).isoformat(),
-        km_kw=km_kw, km_prev_woche=km_prev_woche, km_next_woche=km_next_woche)
+        zurueck_url=zurueck_url,
+        km_kw=km_kw, km_prev_woche=km_prev_woche, km_next_woche=km_next_woche,
+        vs_ids_filter=vs_ids_filter)
 
 
 @app.route('/api/karte/daten')
@@ -10083,8 +11194,13 @@ try:
                        id='demo_tp_13',             replace_existing=True, timezone='Europe/Berlin')
     _scheduler.add_job(demo_tagesplan_fortschritt, 'cron', hour=16, minute=0,
                        id='demo_tp_16',             replace_existing=True, timezone='Europe/Berlin')
+    # Auffälligkeiten-Dashboard (2026-07-26, von Arco portiert): täglich vor dem
+    # 07:00-Wochenbericht, damit die Alerts schon frisch sind, wenn der VKL morgens
+    # als Erstes ins Dashboard schaut.
+    _scheduler.add_job(abweichungs_alert_job, 'cron', hour=6, minute=0,
+                       id='abweichungs_alert', replace_existing=True, timezone='Europe/Berlin')
     _scheduler.start()
-    app.logger.info("Scheduler gestartet (Backup täglich, Wochenbericht Mo 07:00, Monatsbericht 1. 07:00, Export 1. 08:00, Hotel-Report 1. 08:35, Foto-Cleanup 1. 09:00, Demo-Reset täglich 03:00, Tagesplan-Fortschritt 10/13/16 Uhr)")
+    app.logger.info("Scheduler gestartet (Backup täglich, Auffälligkeiten täglich 06:00, Wochenbericht Mo 07:00, Monatsbericht 1. 07:00, Export 1. 08:00, Hotel-Report 1. 08:35, Foto-Cleanup 1. 09:00, Demo-Reset täglich 03:00, Tagesplan-Fortschritt 10/13/16 Uhr)")
 except ImportError:
     app.logger.warning("APScheduler nicht installiert – automatische Jobs deaktiviert.")
 
