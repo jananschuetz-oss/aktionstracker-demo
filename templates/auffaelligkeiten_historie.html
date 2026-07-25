@@ -23,41 +23,63 @@
 
 <div class="card mb-3">
   <div class="card-body py-3">
-    <form method="GET" class="row g-2 align-items-end">
-      <div class="col-sm-4 col-md-3">
-        <label class="form-label" style="font-size:.82rem">Mitarbeiter</label>
-        <select name="ma" class="form-select form-select-sm" onchange="this.form.submit()">
-          <option value="">Alle</option>
+    <form method="GET" class="row g-3">
+      <div class="col-md-3">
+        <label class="form-label fw-semibold small">Zeitraum <span class="text-muted fw-normal">(Mehrfach, sonst letzte 12 Monate)</span></label>
+        <div class="d-flex flex-column gap-1" style="max-height:170px;overflow-y:auto">
+          {% for wert, label in verfuegbare_monate %}
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="monat" value="{{ wert }}" id="monat-{{ loop.index }}"
+                   {% if wert in monat_filter %}checked{% endif %}>
+            <label class="form-check-label small" for="monat-{{ loop.index }}">{{ label }}</label>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label fw-semibold small">Mitarbeiter <span class="text-muted fw-normal">(Mehrfach)</span></label>
+        <div class="d-flex flex-column gap-1" style="max-height:170px;overflow-y:auto">
           {% for m in alle_ma %}
-          <option value="{{ m.id }}" {% if ma_filter == m.id|string %}selected{% endif %}>{{ m.name }}</option>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="ma" value="{{ m.id }}" id="ma-{{ loop.index }}"
+                   {% if m.id in ma_filter %}checked{% endif %}>
+            <label class="form-check-label small" for="ma-{{ loop.index }}">{{ m.name }}</label>
+          </div>
           {% endfor %}
-        </select>
+        </div>
       </div>
-      <div class="col-sm-4 col-md-3">
-        <label class="form-label" style="font-size:.82rem">Typ</label>
-        <select name="typ" class="form-select form-select-sm" onchange="this.form.submit()">
-          <option value="">Alle</option>
+      <div class="col-md-3">
+        <label class="form-label fw-semibold small">Typ <span class="text-muted fw-normal">(Mehrfach)</span></label>
+        <div class="d-flex flex-column gap-1">
           {% for k, v in _AA_TYP_LABEL.items() %}
-          <option value="{{ k }}" {% if typ_filter == k %}selected{% endif %}>{{ v }}</option>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="typ" value="{{ k }}" id="typ-{{ loop.index }}"
+                   {% if k in typ_filter %}checked{% endif %}>
+            <label class="form-check-label small" for="typ-{{ loop.index }}">{{ v }}</label>
+          </div>
           {% endfor %}
-        </select>
+        </div>
       </div>
-      <div class="col-sm-4 col-md-3">
-        <label class="form-label" style="font-size:.82rem">Status</label>
-        <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
-          <option value="">Alle</option>
+      <div class="col-md-3">
+        <label class="form-label fw-semibold small">Status <span class="text-muted fw-normal">(Mehrfach)</span></label>
+        <div class="d-flex flex-column gap-1">
           {% for k, v in _AA_STATUS_LABEL.items() %}
-          <option value="{{ k }}" {% if status_filter == k %}selected{% endif %}>{{ v }}</option>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="status" value="{{ k }}" id="status-{{ loop.index }}"
+                   {% if k in status_filter %}checked{% endif %}>
+            <label class="form-check-label small" for="status-{{ loop.index }}">{{ v }}</label>
+          </div>
           {% endfor %}
-        </select>
+        </div>
       </div>
-      {% if ma_filter or typ_filter or status_filter %}
-      <div class="col-sm-12 col-md-3">
+      <div class="col-12 d-flex gap-2">
+        <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-funnel me-1"></i>Anwenden</button>
+        {% if ma_filter or typ_filter or status_filter or monat_filter %}
         <a href="{{ url_for('auffaelligkeiten_historie') }}" class="btn btn-sm btn-outline-secondary">
           <i class="bi bi-x-lg me-1"></i>Filter zurücksetzen
         </a>
+        {% endif %}
       </div>
-      {% endif %}
     </form>
   </div>
 </div>

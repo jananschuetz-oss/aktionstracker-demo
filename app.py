@@ -2969,30 +2969,56 @@ def auffaelligkeit_verwerfen(alert_id):
     return redirect(url_for('dashboard'))
 
 
+def _letzte_12_monate():
+    """Liefert die letzten 12 Kalendermonate (aktueller zuerst) als Liste von
+    (wert 'YYYY-MM', Label 'Monatsname Jahr')-Tupeln, für die Monats-Checkboxen
+    der Hinweishistorie. Von Arco portiert."""
+    _monat_namen = ['Januar','Februar','März','April','Mai','Juni',
+                    'Juli','August','September','Oktober','November','Dezember']
+    heute = date.today()
+    jahr, monat = heute.year, heute.month
+    monate = []
+    for _ in range(12):
+        monate.append((f"{jahr:04d}-{monat:02d}", f"{_monat_namen[monat - 1]} {jahr}"))
+        monat -= 1
+        if monat == 0:
+            monat = 12
+            jahr -= 1
+    return monate
+
+
 @app.route('/auffaelligkeiten/historie')
 @manager_required
 def auffaelligkeiten_historie():
     """Hinweishistorie (2026-07-26, von Arco portiert): zeigt alle abweichungs_alert-Einträge
     der letzten 12 Monate, nicht nur die offenen ('neu') vom Dashboard – damit VKL/Admin
     Muster über Zeit erkennen können, statt dass jeder Alert nach dem Quittieren spurlos
-    verschwindet."""
-    ma_filter = request.args.get('ma', '', type=str)
-    typ_filter = request.args.get('typ', '', type=str)
-    status_filter = request.args.get('status', '', type=str)
+    verschwindet. Alle Filter sind Mehrfachauswahl über Checkboxen (Nutzerwunsch, gleiches
+    Muster wie Verkaufsstellen-Vergleich) statt Einzelauswahl-Dropdowns."""
+    ma_filter = request.args.getlist('ma')
+    typ_filter = request.args.getlist('typ')
+    status_filter = request.args.getlist('status')
+    monat_filter = request.args.getlist('monat')
 
     _aa_team_sql, _aa_team_params = _team_ma_clause('aa')
-    where = ["aa.erstellt_am >= datetime('now', '-12 months')"]
+    where = []
     params = list(_aa_team_params)
 
+    if monat_filter:
+        where.append(f"strftime('%Y-%m', aa.erstellt_am) IN ({','.join('?' * len(monat_filter))})")
+        params.extend(monat_filter)
+    else:
+        where.append("aa.erstellt_am >= datetime('now', '-12 months')")
+
     if ma_filter:
-        where.append('aa.mitarbeiter_id = ?')
-        params.append(ma_filter)
+        where.append(f"aa.mitarbeiter_id IN ({','.join('?' * len(ma_filter))})")
+        params.extend(ma_filter)
     if typ_filter:
-        where.append('aa.typ = ?')
-        params.append(typ_filter)
+        where.append(f"aa.typ IN ({','.join('?' * len(typ_filter))})")
+        params.extend(typ_filter)
     if status_filter:
-        where.append('aa.status = ?')
-        params.append(status_filter)
+        where.append(f"aa.status IN ({','.join('?' * len(status_filter))})")
+        params.extend(status_filter)
 
     historie = query(f'''
         SELECT aa.id, aa.typ, aa.schweregrad, aa.titel, aa.detail, aa.status,
@@ -3013,8 +3039,9 @@ def auffaelligkeiten_historie():
     )
 
     return render_template('auffaelligkeiten_historie.html',
-        historie=historie, alle_ma=alle_ma,
-        ma_filter=ma_filter, typ_filter=typ_filter, status_filter=status_filter)
+        historie=historie, alle_ma=alle_ma, verfuegbare_monate=_letzte_12_monate(),
+        ma_filter=[int(x) for x in ma_filter], typ_filter=typ_filter,
+        status_filter=status_filter, monat_filter=monat_filter)
 
 
 # ─── Routes: Dashboard ────────────────────────────────────────────────────────

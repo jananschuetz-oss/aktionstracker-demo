@@ -391,7 +391,7 @@
 </nav>
 {% endif %}
 
-{% set _vkl_seiten = ('vergleich','tourenplanung','karte','einstellungen_wochenbericht','bestellungen_uebersicht','team_verwaltung','zielzahlen','bestellung_detail','verkaufsstellen_liste','verkaufsstellen_vergleich','aufbauten_freigabe') %}
+{% set _vkl_seiten = ('vergleich','tourenplanung','karte','einstellungen_wochenbericht','bestellungen_uebersicht','team_verwaltung','zielzahlen','bestellung_detail','verkaufsstellen_liste','verkaufsstellen_vergleich','aufbauten_freigabe','auffaelligkeiten_historie') %}
 {% if session.user_id and (session.rolle == 'verkaufsleiter' or (session.rolle == 'admin' and request.endpoint in _vkl_seiten)) %}
 <nav id="vkl-subnav">
   <a href="{{ url_for('vergleich') }}"
@@ -428,6 +428,10 @@
     {% if offene_aufbauten_freigaben and offene_aufbauten_freigaben > 0 %}
     <span class="badge bg-danger ms-1">{{ offene_aufbauten_freigaben }}</span>
     {% endif %}
+  </a>
+  <a href="{{ url_for('auffaelligkeiten_historie') }}"
+     class="vkl-tab {% if request.endpoint == 'auffaelligkeiten_historie' %}active{% endif %}">
+    <i class="bi bi-exclamation-triangle"></i>Auffälligkeiten
   </a>
   <a href="{{ url_for('team_verwaltung') }}"
      class="vkl-tab {% if request.endpoint in ('team_verwaltung', 'zielzahlen') %}active{% endif %}">

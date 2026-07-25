@@ -236,8 +236,8 @@ document.addEventListener('DOMContentLoaded', function(){
   <div class="card-header d-flex justify-content-between align-items-center" style="background:#1a3a5c">
     <span><i class="bi bi-exclamation-triangle me-2"></i>Auffälligkeiten</span>
     <span class="d-flex align-items-center gap-2">
-      <a href="{{ url_for('auffaelligkeiten_historie') }}" class="text-white-50" style="font-size:.8rem;text-decoration:none">
-        <i class="bi bi-clock-history me-1"></i>Historie
+      <a href="{{ url_for('auffaelligkeiten_historie') }}" class="btn btn-sm btn-outline-light" style="font-size:.78rem">
+        <i class="bi bi-clock-history me-1"></i>Dashboard Historie Auffälligkeiten
       </a>
       {% if auffaelligkeiten %}
       <span class="badge" style="background:#f5a623;color:#4a2e00">{{ auffaelligkeiten|length }} neu</span>
