@@ -2,35 +2,54 @@
      und eigene Kennzahlen-Seite, damit die Kachel-Markup nicht doppelt gepflegt werden
      muss. Erwartet im Kontext: kpi_daten (nur berechnete Werte für aktivierte Keys, siehe
      _kpi_werte_berechnen()), jahr, unit_label. Kein "Listungsquote"-Block – Demo hat das
-     zugrundeliegende Listungsbild-Feature nicht. -->
+     zugrundeliegende Listungsbild-Feature nicht.
+     Optik (2026-07-26, von Arco portiert, Nutzerwunsch "Mischung aus Icon-Akzent und
+     Rangliste mit Balken"): jede Kachel bekommt ein farbiges Icon-Badge zur Kategorie,
+     Kennzahlen mit Vergleichswert (Ist/Soll, Quote, pro-Rep-Werte) einen dünnen
+     Fortschrittsbalken, Ranglisten einen grün hervorgehobenen Spitzenreiter mit
+     Pokal-Icon statt einer reinen Textzeile. -->
 {% if is_manager and kpi_daten %}
 <div class="card mb-4">
   <div class="card-header" style="background:#1a3a5c"><i class="bi bi-graph-up-arrow me-2"></i>Kennzahlen</div>
   <div class="card-body">
     <div class="row g-3">
       {% if 'besuche_gesamt' in kpi_daten %}
+      {% set max_besuche = kpi_daten.besuche_gesamt.pro_rep[0].besuche if kpi_daten.besuche_gesamt.pro_rep else 0 %}
       <div class="col-md-6 col-lg-4">
         <div class="p-3 rounded-3 h-100" style="background:#f8fafc;border:1px solid #e2e8f0">
-          <div class="text-muted small">Besuche gesamt {{ jahr }}</div>
-          <div class="fs-3 fw-bold" style="color:#1a3a5c">{{ kpi_daten.besuche_gesamt.gesamt }}</div>
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <div class="d-flex align-items-center justify-content-center rounded-2 flex-shrink-0" style="width:28px;height:28px;background:#e6f1fb">
+              <i class="bi bi-people-fill" style="font-size:14px;color:#185fa5"></i>
+            </div>
+            <span class="text-muted small">Besuche gesamt {{ jahr }}</span>
+          </div>
+          <div class="fs-3 fw-bold mb-2" style="color:#1a3a5c">{{ kpi_daten.besuche_gesamt.gesamt }}</div>
           {% for r in kpi_daten.besuche_gesamt.pro_rep %}
-          <div class="d-flex justify-content-between small text-muted">
-            <span>{{ r.name }}</span><span>{{ r.besuche }}</span>
+          <div class="d-flex justify-content-between small mb-1"><span>{{ r.name }}</span><span class="fw-semibold">{{ r.besuche }}</span></div>
+          <div class="rounded-pill overflow-hidden mb-2" style="height:4px;background:#e2e8f0">
+            <div style="height:100%;width:{{ ((r.besuche / max_besuche * 100) if max_besuche else 0) | round(1) }}%;background:#185fa5"></div>
           </div>
           {% endfor %}
         </div>
       </div>
       {% endif %}
       {% if 'besuchsfrequenz' in kpi_daten %}
+      {% set max_freq = kpi_daten.besuchsfrequenz.pro_rep[0].frequenz if kpi_daten.besuchsfrequenz.pro_rep else 0 %}
       <div class="col-md-6 col-lg-4">
         <div class="p-3 rounded-3 h-100" style="background:#f8fafc;border:1px solid #e2e8f0">
-          <div class="text-muted small">Besuchsfrequenz (aktuelle Woche)</div>
-          <div class="fs-3 fw-bold" style="color:#1a3a5c">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <div class="d-flex align-items-center justify-content-center rounded-2 flex-shrink-0" style="width:28px;height:28px;background:#e6f1fb">
+              <i class="bi bi-calendar2-week" style="font-size:14px;color:#185fa5"></i>
+            </div>
+            <span class="text-muted small">Besuchsfrequenz (aktuelle Woche)</span>
+          </div>
+          <div class="fs-3 fw-bold mb-2" style="color:#1a3a5c">
             {{ kpi_daten.besuchsfrequenz.team_avg if kpi_daten.besuchsfrequenz.team_avg is not none else '–' }} <span class="text-muted fs-6">Besuche/Arbeitstag</span>
           </div>
           {% for r in kpi_daten.besuchsfrequenz.pro_rep %}
-          <div class="d-flex justify-content-between small text-muted">
-            <span>{{ r.name }}</span><span>{{ r.frequenz }}</span>
+          <div class="d-flex justify-content-between small mb-1"><span>{{ r.name }}</span><span class="fw-semibold">{{ r.frequenz }}</span></div>
+          <div class="rounded-pill overflow-hidden mb-2" style="height:4px;background:#e2e8f0">
+            <div style="height:100%;width:{{ ((r.frequenz / max_freq * 100) if max_freq else 0) | round(1) }}%;background:#185fa5"></div>
           </div>
           {% endfor %}
         </div>
@@ -39,16 +58,19 @@
       {% if 'zielerreichung_kisten_displays' in kpi_daten %}
       <div class="col-md-6 col-lg-4">
         <div class="p-3 rounded-3 h-100" style="background:#f8fafc;border:1px solid #e2e8f0">
-          <div class="text-muted small">Zielerreichung {{ jahr }} (Team)</div>
-          <div class="d-flex gap-3">
-            <div>
-              <div class="fs-4 fw-bold" style="color:#1a3a5c">{{ (kpi_daten.zielerreichung_kisten_displays.kisten_pct ~ '%') if kpi_daten.zielerreichung_kisten_displays.kisten_pct is not none else '–' }}</div>
-              <div class="small text-muted">Kisten</div>
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <div class="d-flex align-items-center justify-content-center rounded-2 flex-shrink-0" style="width:28px;height:28px;background:#eeedfe">
+              <i class="bi bi-bullseye" style="font-size:14px;color:#534ab7"></i>
             </div>
-            <div>
-              <div class="fs-4 fw-bold" style="color:#1a3a5c">{{ (kpi_daten.zielerreichung_kisten_displays.displays_pct ~ '%') if kpi_daten.zielerreichung_kisten_displays.displays_pct is not none else '–' }}</div>
-              <div class="small text-muted">Displays</div>
-            </div>
+            <span class="text-muted small">Zielerreichung {{ jahr }} (Team)</span>
+          </div>
+          <div class="d-flex justify-content-between small mb-1"><span>Kisten</span><span class="fw-semibold">{{ (kpi_daten.zielerreichung_kisten_displays.kisten_pct ~ '%') if kpi_daten.zielerreichung_kisten_displays.kisten_pct is not none else '–' }}</span></div>
+          <div class="rounded-pill overflow-hidden mb-2" style="height:4px;background:#e2e8f0">
+            <div style="height:100%;width:{{ ([kpi_daten.zielerreichung_kisten_displays.kisten_pct, 100] | min) if kpi_daten.zielerreichung_kisten_displays.kisten_pct is not none else 0 }}%;background:#534ab7"></div>
+          </div>
+          <div class="d-flex justify-content-between small mb-1"><span>Displays</span><span class="fw-semibold">{{ (kpi_daten.zielerreichung_kisten_displays.displays_pct ~ '%') if kpi_daten.zielerreichung_kisten_displays.displays_pct is not none else '–' }}</span></div>
+          <div class="rounded-pill overflow-hidden mb-2" style="height:4px;background:#e2e8f0">
+            <div style="height:100%;width:{{ ([kpi_daten.zielerreichung_kisten_displays.displays_pct, 100] | min) if kpi_daten.zielerreichung_kisten_displays.displays_pct is not none else 0 }}%;background:#534ab7"></div>
           </div>
           {% for k in kpi_daten.zielerreichung_kisten_displays.kategorien %}
           <div class="d-flex justify-content-between small text-muted mt-1">
@@ -59,12 +81,39 @@
         </div>
       </div>
       {% endif %}
+      {% if 'listungsquote' in kpi_daten %}
+      <div class="col-md-6 col-lg-4">
+        <div class="p-3 rounded-3 h-100" style="background:#f8fafc;border:1px solid #e2e8f0">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <div class="d-flex align-items-center justify-content-center rounded-2 flex-shrink-0" style="width:28px;height:28px;background:#eeedfe">
+              <i class="bi bi-clipboard2-check" style="font-size:14px;color:#534ab7"></i>
+            </div>
+            <span class="text-muted small">Listungsquote {{ jahr }}</span>
+          </div>
+          <div class="fs-3 fw-bold mb-1" style="color:#1a3a5c">
+            {{ (kpi_daten.listungsquote.quote ~ '%') if kpi_daten.listungsquote.quote is not none else '–' }}
+          </div>
+          <div class="rounded-pill overflow-hidden mb-2" style="height:4px;background:#e2e8f0">
+            <div style="height:100%;width:{{ ([kpi_daten.listungsquote.quote, 100] | min) if kpi_daten.listungsquote.quote is not none else 0 }}%;background:#534ab7"></div>
+          </div>
+          <div class="small text-muted">{{ kpi_daten.listungsquote.neue_listungen }} neue Listungen im Zeitraum</div>
+        </div>
+      </div>
+      {% endif %}
       {% if 'freigabequote_aufbauten' in kpi_daten %}
       <div class="col-md-6 col-lg-4">
         <div class="p-3 rounded-3 h-100" style="background:#f8fafc;border:1px solid #e2e8f0">
-          <div class="text-muted small">Freigabequote Aufbauten {{ jahr }}</div>
-          <div class="fs-3 fw-bold" style="color:#1a3a5c">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <div class="d-flex align-items-center justify-content-center rounded-2 flex-shrink-0" style="width:28px;height:28px;background:#eaf3de">
+              <i class="bi bi-check2-circle" style="font-size:14px;color:#3b6d11"></i>
+            </div>
+            <span class="text-muted small">Freigabequote Aufbauten {{ jahr }}</span>
+          </div>
+          <div class="fs-3 fw-bold mb-1" style="color:#1a3a5c">
             {{ kpi_daten.freigabequote_aufbauten.quote ~ '%' if kpi_daten.freigabequote_aufbauten.quote is not none else '–' }}
+          </div>
+          <div class="rounded-pill overflow-hidden mb-2" style="height:4px;background:#e2e8f0">
+            <div style="height:100%;width:{{ ([kpi_daten.freigabequote_aufbauten.quote, 100] | min) if kpi_daten.freigabequote_aufbauten.quote is not none else 0 }}%;background:#3b6d11"></div>
           </div>
           <div class="small text-muted">{{ kpi_daten.freigabequote_aufbauten.freigegeben }} freigegeben · {{ kpi_daten.freigabequote_aufbauten.abgelehnt }} abgelehnt</div>
         </div>
@@ -73,7 +122,12 @@
       {% if 'gratisware_menge' in kpi_daten %}
       <div class="col-md-6 col-lg-4">
         <div class="p-3 rounded-3 h-100" style="background:#f8fafc;border:1px solid #e2e8f0">
-          <div class="text-muted small">Gratisware-Menge {{ jahr }}</div>
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <div class="d-flex align-items-center justify-content-center rounded-2 flex-shrink-0" style="width:28px;height:28px;background:#fbeaf0">
+              <i class="bi bi-gift-fill" style="font-size:14px;color:#993556"></i>
+            </div>
+            <span class="text-muted small">Gratisware-Menge {{ jahr }}</span>
+          </div>
           <div class="fs-3 fw-bold" style="color:#1a3a5c">{{ kpi_daten.gratisware_menge }} <span class="text-muted fs-6">{{ unit_label }}</span></div>
         </div>
       </div>
@@ -81,7 +135,12 @@
       {% if 'aktive_vs' in kpi_daten %}
       <div class="col-md-6 col-lg-4">
         <div class="p-3 rounded-3 h-100" style="background:#f8fafc;border:1px solid #e2e8f0">
-          <div class="text-muted small">Aktive Verkaufsstellen</div>
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <div class="d-flex align-items-center justify-content-center rounded-2 flex-shrink-0" style="width:28px;height:28px;background:#e1f5ee">
+              <i class="bi bi-shop" style="font-size:14px;color:#0f6e56"></i>
+            </div>
+            <span class="text-muted small">Aktive Verkaufsstellen</span>
+          </div>
           <div class="fs-3 fw-bold" style="color:#1a3a5c">{{ kpi_daten.aktive_vs }}</div>
         </div>
       </div>
@@ -89,7 +148,12 @@
       {% if 'neuzugaenge_monat' in kpi_daten %}
       <div class="col-md-6 col-lg-4">
         <div class="p-3 rounded-3 h-100" style="background:#f8fafc;border:1px solid #e2e8f0">
-          <div class="text-muted small">Neuzugänge diesen Monat</div>
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <div class="d-flex align-items-center justify-content-center rounded-2 flex-shrink-0" style="width:28px;height:28px;background:#e1f5ee">
+              <i class="bi bi-plus-circle-fill" style="font-size:14px;color:#0f6e56"></i>
+            </div>
+            <span class="text-muted small">Neuzugänge diesen Monat</span>
+          </div>
           <div class="fs-3 fw-bold" style="color:#1a3a5c">{{ kpi_daten.neuzugaenge_monat }}</div>
           <div class="small text-muted">Verkaufsstellen</div>
         </div>
@@ -98,9 +162,17 @@
       {% if 'wochenarbeitszeit_vs_soll' in kpi_daten %}
       <div class="col-md-6 col-lg-4">
         <div class="p-3 rounded-3 h-100" style="background:#f8fafc;border:1px solid #e2e8f0">
-          <div class="text-muted small">Ø Wochenarbeitszeit vs. Soll (aktuelle Woche)</div>
-          <div class="fs-3 fw-bold" style="color:#1a3a5c">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <div class="d-flex align-items-center justify-content-center rounded-2 flex-shrink-0" style="width:28px;height:28px;background:#faeeda">
+              <i class="bi bi-clock-history" style="font-size:14px;color:#854f0b"></i>
+            </div>
+            <span class="text-muted small">Ø Wochenarbeitszeit vs. Soll (aktuelle Woche)</span>
+          </div>
+          <div class="fs-3 fw-bold mb-1" style="color:#1a3a5c">
             {{ kpi_daten.wochenarbeitszeit_vs_soll.ist_std }}h <span class="text-muted fs-6">/ {{ kpi_daten.wochenarbeitszeit_vs_soll.soll_std }}h Soll</span>
+          </div>
+          <div class="rounded-pill overflow-hidden mb-2" style="height:4px;background:#e2e8f0">
+            <div style="height:100%;width:{{ ([(kpi_daten.wochenarbeitszeit_vs_soll.ist_std / kpi_daten.wochenarbeitszeit_vs_soll.soll_std * 100), 100] | min) if kpi_daten.wochenarbeitszeit_vs_soll.soll_std else 0 }}%;background:#854f0b"></div>
           </div>
           <div class="small text-muted">{{ kpi_daten.wochenarbeitszeit_vs_soll.anzahl }} Mitarbeiter mit hinterlegter Wochenarbeitszeit</div>
         </div>
@@ -109,9 +181,17 @@
       {% if 'krankheitsquote' in kpi_daten %}
       <div class="col-md-6 col-lg-4">
         <div class="p-3 rounded-3 h-100" style="background:#f8fafc;border:1px solid #e2e8f0">
-          <div class="text-muted small">Krankheitsquote {{ jahr }}</div>
-          <div class="fs-3 fw-bold" style="color:#1a3a5c">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <div class="d-flex align-items-center justify-content-center rounded-2 flex-shrink-0" style="width:28px;height:28px;background:#fcebeb">
+              <i class="bi bi-heart-pulse" style="font-size:14px;color:#a32d2d"></i>
+            </div>
+            <span class="text-muted small">Krankheitsquote {{ jahr }}</span>
+          </div>
+          <div class="fs-3 fw-bold mb-1" style="color:#1a3a5c">
             {{ (kpi_daten.krankheitsquote.quote ~ '%') if kpi_daten.krankheitsquote.quote is not none else '–' }}
+          </div>
+          <div class="rounded-pill overflow-hidden mb-2" style="height:4px;background:#e2e8f0">
+            <div style="height:100%;width:{{ ([kpi_daten.krankheitsquote.quote, 100] | min) if kpi_daten.krankheitsquote.quote is not none else 0 }}%;background:#a32d2d"></div>
           </div>
           <div class="small text-muted">{{ kpi_daten.krankheitsquote.krank_tage }} von {{ kpi_daten.krankheitsquote.moegliche_tage }} möglichen Arbeitstagen</div>
         </div>
@@ -120,14 +200,26 @@
       {% if 'rep_ranking_zielerreichung' in kpi_daten %}
       <div class="col-md-6 col-lg-4">
         <div class="p-3 rounded-3 h-100" style="background:#f8fafc;border:1px solid #e2e8f0">
-          <div class="text-muted small mb-1">Rep-Ranking nach Zielerreichung {{ jahr }}</div>
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <div class="d-flex align-items-center justify-content-center rounded-2 flex-shrink-0" style="width:28px;height:28px;background:#faeeda">
+              <i class="bi bi-trophy-fill" style="font-size:14px;color:#854f0b"></i>
+            </div>
+            <span class="text-muted small">Rep-Ranking nach Zielerreichung {{ jahr }}</span>
+          </div>
           {% if not kpi_daten.rep_ranking_zielerreichung %}
           <div class="small text-muted">Keine Zielzahlen für {{ jahr }} hinterlegt.</div>
           {% endif %}
           {% for r in kpi_daten.rep_ranking_zielerreichung %}
-          <div class="d-flex justify-content-between small">
+          {% if loop.first %}
+          <div class="d-flex justify-content-between align-items-center rounded-2 px-2 py-1 mb-1" style="background:#eaf3de">
+            <span class="small fw-semibold" style="color:#3b6d11"><i class="bi bi-trophy-fill me-1"></i>{{ r.name }}</span>
+            <span class="small fw-semibold" style="color:#3b6d11">{{ r.quote }}%</span>
+          </div>
+          {% else %}
+          <div class="d-flex justify-content-between small px-2 py-1">
             <span>{{ loop.index }}. {{ r.name }}</span><span class="fw-semibold">{{ r.quote }}%</span>
           </div>
+          {% endif %}
           {% endfor %}
         </div>
       </div>
@@ -135,7 +227,12 @@
       {% if 'vorjahresvergleich' in kpi_daten %}
       <div class="col-md-6 col-lg-4">
         <div class="p-3 rounded-3 h-100" style="background:#f8fafc;border:1px solid #e2e8f0">
-          <div class="text-muted small mb-1">Vorjahresvergleich {{ kpi_daten.vorjahresvergleich.jahr }} vs. {{ kpi_daten.vorjahresvergleich.vorjahr }}</div>
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <div class="d-flex align-items-center justify-content-center rounded-2 flex-shrink-0" style="width:28px;height:28px;background:#e6f1fb">
+              <i class="bi bi-graph-up-arrow" style="font-size:14px;color:#185fa5"></i>
+            </div>
+            <span class="text-muted small">Vorjahresvergleich {{ kpi_daten.vorjahresvergleich.jahr }} vs. {{ kpi_daten.vorjahresvergleich.vorjahr }}</span>
+          </div>
           <div class="d-flex justify-content-between small">
             <span>Besuche</span>
             <span class="fw-semibold">{{ kpi_daten.vorjahresvergleich.besuche }}
