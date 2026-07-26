@@ -1218,8 +1218,12 @@ def init_db():
             """CREATE TABLE IF NOT EXISTS kpi_einstellungen (
                 kpi_key       TEXT PRIMARY KEY,
                 aktiv         INTEGER NOT NULL DEFAULT 0,
-                sichtbar_fuer TEXT NOT NULL DEFAULT 'alle'
+                sichtbar_fuer TEXT NOT NULL DEFAULT 'alle',
+                highlight     INTEGER NOT NULL DEFAULT 0
             )""",
+            # Dashboard-Highlights (2026-07-26, von Arco portiert): max. 3 KPIs sollen direkt
+            # im Dashboard erscheinen, alle aktivierten weiterhin auf /kennzahlen.
+            "ALTER TABLE kpi_einstellungen ADD COLUMN highlight INTEGER NOT NULL DEFAULT 0",
             # KPI "Neuzugänge/Monat": kein DEFAULT CURRENT_TIMESTAMP direkt auf der Spalte,
             # siehe Arco-Kommentar – SQLite würde beim ALTER TABLE alle Bestandszeilen mit
             # dem ALTER-Zeitpunkt befüllen. Bleibt für Bestandsdaten NULL, Trigger stempelt
@@ -3102,15 +3106,17 @@ _KPI_KATALOG = [
 
 
 def _kpi_aktive_einstellungen():
-    """Liefert {kpi_key: {'aktiv': bool, 'sichtbar_fuer': str}} für alle Katalog-Einträge,
-    mit Default aktiv=False für Keys ohne Zeile in kpi_einstellungen (frisches Deployment)."""
-    rows = {r['kpi_key']: r for r in query("SELECT kpi_key, aktiv, sichtbar_fuer FROM kpi_einstellungen")}
+    """Liefert {kpi_key: {'aktiv': bool, 'sichtbar_fuer': str, 'highlight': bool}} für alle
+    Katalog-Einträge, mit Default aktiv=False/highlight=False für Keys ohne Zeile in
+    kpi_einstellungen (frisches Deployment)."""
+    rows = {r['kpi_key']: r for r in query("SELECT kpi_key, aktiv, sichtbar_fuer, highlight FROM kpi_einstellungen")}
     ergebnis = {}
     for eintrag in _KPI_KATALOG:
         r = rows.get(eintrag['key'])
         ergebnis[eintrag['key']] = {
             'aktiv': bool(r['aktiv']) if r else False,
             'sichtbar_fuer': r['sichtbar_fuer'] if r else 'alle',
+            'highlight': bool(r['highlight']) if r else False,
         }
     return ergebnis
 
@@ -3363,16 +3369,26 @@ def kennzahlen():
 def admin_kpi_einstellungen():
     """Checkbox-Liste zum Aktivieren der KPI-Katalog-Einträge – die andere Hälfte des
     KPI-Mechanismus (siehe _KPI_KATALOG). 'sichtbar_fuer' steuert, ob eine aktive
-    Kennzahl auch VKLs sehen (nicht nur Admin)."""
+    Kennzahl auch VKLs sehen (nicht nur Admin). 'highlight' markiert, welche der aktiven
+    Kennzahlen zusätzlich aufs Dashboard sollen (max. 3, von Arco portiert – alle
+    aktivierten bleiben trotzdem vollständig auf /kennzahlen sichtbar)."""
     if request.method == 'POST':
+        highlight_keys = [
+            eintrag['key'] for eintrag in _KPI_KATALOG
+            if request.form.get(f'highlight_{eintrag["key"]}') == 'on'
+        ]
+        if len(highlight_keys) > 3:
+            flash('Maximal 3 Kennzahlen können als Dashboard-Highlight ausgewählt werden.', 'danger')
+            return redirect(url_for('admin_kpi_einstellungen'))
         for eintrag in _KPI_KATALOG:
             key = eintrag['key']
             aktiv = 1 if request.form.get(f'aktiv_{key}') == 'on' else 0
             sichtbar_fuer = 'alle' if request.form.get(f'sichtbar_{key}') == 'on' else 'admin'
+            highlight = 1 if key in highlight_keys else 0
             execute(
-                "INSERT INTO kpi_einstellungen (kpi_key, aktiv, sichtbar_fuer) VALUES (?,?,?) "
-                "ON CONFLICT(kpi_key) DO UPDATE SET aktiv=excluded.aktiv, sichtbar_fuer=excluded.sichtbar_fuer",
-                (key, aktiv, sichtbar_fuer)
+                "INSERT INTO kpi_einstellungen (kpi_key, aktiv, sichtbar_fuer, highlight) VALUES (?,?,?,?) "
+                "ON CONFLICT(kpi_key) DO UPDATE SET aktiv=excluded.aktiv, sichtbar_fuer=excluded.sichtbar_fuer, highlight=excluded.highlight",
+                (key, aktiv, sichtbar_fuer, highlight)
             )
         flash('KPI-Einstellungen gespeichert.', 'success')
         return redirect(url_for('admin_kpi_einstellungen'))
@@ -3751,9 +3767,12 @@ def dashboard():
 
     # KPI-Katalog (2026-07-26, von Arco portiert): nur aktivierte Kennzahlen berechnen.
     kpi_einstellungen = _kpi_aktive_einstellungen()
+    # Dashboard zeigt nur die als Highlight markierten KPIs (max. 3, von Arco portiert –
+    # sonst überlagert die Kennzahlen-Card das restliche Dashboard). Alle aktivierten
+    # Kennzahlen bleiben vollständig auf der eigenen /kennzahlen-Seite sichtbar.
     _kpi_sichtbare_keys = [
         k for k, v in kpi_einstellungen.items()
-        if v['aktiv'] and (v['sichtbar_fuer'] == 'alle' or is_admin)
+        if v['aktiv'] and v['highlight'] and (v['sichtbar_fuer'] == 'alle' or is_admin)
     ]
     kpi_daten = _kpi_werte_berechnen(_kpi_sichtbare_keys, jahr, is_manager)
 

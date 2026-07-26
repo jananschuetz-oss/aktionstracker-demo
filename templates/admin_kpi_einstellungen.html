@@ -12,7 +12,16 @@
   </a>
 </div>
 
-<form method="POST">
+<div class="alert alert-info d-flex align-items-start gap-2 mb-4">
+  <i class="bi bi-info-circle mt-1"></i>
+  <div>
+    <strong>Aktiv</strong> zeigt die Kennzahl auf der <a href="{{ url_for('kennzahlen') }}">Kennzahlen-Seite</a>.
+    <strong>Dashboard-Highlight</strong> zeigt sie zusätzlich direkt im Dashboard –
+    hier maximal <span id="highlightRemaining">3</span> auswählbar, damit das Dashboard nicht überladen wird.
+  </div>
+</div>
+
+<form method="POST" id="kpiForm">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   {% for kategorie, kpis in kategorien.items() %}
   <div class="card mb-3">
@@ -32,6 +41,11 @@
                    name="sichtbar_{{ kpi.key }}" id="sichtbar_{{ kpi.key }}" {% if kpi.sichtbar_fuer == 'alle' %}checked{% endif %}>
             <label class="form-check-label small" for="sichtbar_{{ kpi.key }}">Auch für VKL sichtbar</label>
           </div>
+          <div class="form-check">
+            <input class="form-check-input kpi-highlight" type="checkbox"
+                   name="highlight_{{ kpi.key }}" id="highlight_{{ kpi.key }}" {% if kpi.highlight %}checked{% endif %}>
+            <label class="form-check-label small" for="highlight_{{ kpi.key }}">Dashboard-Highlight</label>
+          </div>
         </div>
       </div>
       {% endfor %}
@@ -40,4 +54,20 @@
   {% endfor %}
   <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Speichern</button>
 </form>
+
+<script>
+(function() {
+  var boxes = document.querySelectorAll('.kpi-highlight');
+  var remaining = document.getElementById('highlightRemaining');
+  function update() {
+    var checked = document.querySelectorAll('.kpi-highlight:checked').length;
+    remaining.textContent = Math.max(0, 3 - checked);
+    boxes.forEach(function(b) {
+      b.disabled = !b.checked && checked >= 3;
+    });
+  }
+  boxes.forEach(function(b) { b.addEventListener('change', update); });
+  update();
+})();
+</script>
 {% endblock %}
