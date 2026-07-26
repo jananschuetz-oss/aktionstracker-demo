@@ -1213,6 +1213,33 @@ def init_db():
             )""",
             "CREATE INDEX IF NOT EXISTS idx_abweichungs_alert_status ON abweichungs_alert(status)",
             "CREATE INDEX IF NOT EXISTS idx_abweichungs_alert_mitarbeiter ON abweichungs_alert(mitarbeiter_id)",
+            # KPI-Katalog (2026-07-26, von Arco portiert): kpi_einstellungen ist die zweite
+            # Hälfte des Katalog-Mechanismus (siehe _KPI_KATALOG) – pro Installation eigene DB.
+            """CREATE TABLE IF NOT EXISTS kpi_einstellungen (
+                kpi_key       TEXT PRIMARY KEY,
+                aktiv         INTEGER NOT NULL DEFAULT 0,
+                sichtbar_fuer TEXT NOT NULL DEFAULT 'alle'
+            )""",
+            # KPI "Neuzugänge/Monat": kein DEFAULT CURRENT_TIMESTAMP direkt auf der Spalte,
+            # siehe Arco-Kommentar – SQLite würde beim ALTER TABLE alle Bestandszeilen mit
+            # dem ALTER-Zeitpunkt befüllen. Bleibt für Bestandsdaten NULL, Trigger stempelt
+            # nur echte Neuanlagen.
+            "ALTER TABLE verkaufsstelle ADD COLUMN erstellt_am TIMESTAMP",
+            """CREATE TRIGGER IF NOT EXISTS trg_verkaufsstelle_erstellt_am
+               AFTER INSERT ON verkaufsstelle WHEN NEW.erstellt_am IS NULL
+               BEGIN UPDATE verkaufsstelle SET erstellt_am = datetime('now','localtime') WHERE id = NEW.id; END""",
+            # KPI "Zielerreichung nach Kategorie LEH-GAM": zielzahlen_kategorie gab es in
+            # Demo bisher nicht (von Arco portiert, dort ebenfalls schon vorhanden).
+            """CREATE TABLE IF NOT EXISTS zielzahlen_kategorie (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mitarbeiter_id INTEGER NOT NULL,
+                jahr INTEGER NOT NULL,
+                kategorie TEXT NOT NULL,
+                displays_ziel INTEGER DEFAULT 0,
+                kisten_ziel INTEGER DEFAULT 0,
+                UNIQUE(mitarbeiter_id, jahr, kategorie),
+                FOREIGN KEY (mitarbeiter_id) REFERENCES mitarbeiter(id)
+            )""",
             # Historische Werte (portiert aus Arco 2026-07-25): Backfill für Jahre vor der
             # digitalen Erfassung, damit Kundenhistorie/Kunden-Vergleich einen echten
             # Vorjahresvergleich zeigen können statt gegen eine leere Baseline. Granularität:
@@ -3049,6 +3076,314 @@ def auffaelligkeiten_historie():
         status_filter=status_filter, monat_filter=monat_filter)
 
 
+# ─── KPI-Katalog (2026-07-26, von Arco portiert) ──────────────────────────────
+# Zwei Hälften eines Mechanismus (siehe Memory): Katalog hier im Code (identisch bei
+# jedem Kunden, ändert sich selten) + kpi_einstellungen-Tabelle (pro Installation
+# unterschiedlich, jederzeit änderbar). Jede Kennzahl bekommt Key/Name/Kategorie; die
+# eigentliche Berechnung steckt in _kpi_werte_berechnen(), damit nur aktivierte KPIs
+# überhaupt Queries auslösen.
+# "Listungsquote" (KPI aus dem Arco-Katalog) fehlt hier bewusst – Demo hat das
+# zugrundeliegende Listungsbild-Feature (Produktplatzierungs-Check) nicht, das war
+# separat bewusst zurückgestellt (siehe Memory project_demo_feature_sync).
+
+_KPI_KATALOG = [
+    {'key': 'besuche_gesamt', 'name': 'Besuche gesamt/pro Rep/Team', 'kategorie': 'Vertrieb & Aktivität'},
+    {'key': 'besuchsfrequenz', 'name': 'Besuchsfrequenz (Besuche/Arbeitstag)', 'kategorie': 'Vertrieb & Aktivität'},
+    {'key': 'zielerreichung_kisten_displays', 'name': 'Zielerreichung Kisten & Displays (gesamt/Kategorie LEH-GAM)', 'kategorie': 'Vertrieb & Aktivität'},
+    {'key': 'freigabequote_aufbauten', 'name': 'Freigabequote Aufbauten', 'kategorie': 'Vertrieb & Aktivität'},
+    {'key': 'gratisware_menge', 'name': 'Gratisware-Menge', 'kategorie': 'Vertrieb & Aktivität'},
+    {'key': 'aktive_vs', 'name': 'Anzahl aktive Verkaufsstellen', 'kategorie': 'Kunden/Verkaufsstellen'},
+    {'key': 'neuzugaenge_monat', 'name': 'Neuzugänge/Monat', 'kategorie': 'Kunden/Verkaufsstellen'},
+    {'key': 'wochenarbeitszeit_vs_soll', 'name': 'Ø Wochenarbeitszeit vs. Soll', 'kategorie': 'Arbeitszeit/Personal'},
+    {'key': 'krankheitsquote', 'name': 'Krankheitsquote', 'kategorie': 'Arbeitszeit/Personal'},
+    {'key': 'rep_ranking_zielerreichung', 'name': 'Rep-Ranking nach Zielerreichung', 'kategorie': 'Vergleich/Benchmark'},
+    {'key': 'vorjahresvergleich', 'name': 'Vorjahresvergleich', 'kategorie': 'Vergleich/Benchmark'},
+]
+
+
+def _kpi_aktive_einstellungen():
+    """Liefert {kpi_key: {'aktiv': bool, 'sichtbar_fuer': str}} für alle Katalog-Einträge,
+    mit Default aktiv=False für Keys ohne Zeile in kpi_einstellungen (frisches Deployment)."""
+    rows = {r['kpi_key']: r for r in query("SELECT kpi_key, aktiv, sichtbar_fuer FROM kpi_einstellungen")}
+    ergebnis = {}
+    for eintrag in _KPI_KATALOG:
+        r = rows.get(eintrag['key'])
+        ergebnis[eintrag['key']] = {
+            'aktiv': bool(r['aktiv']) if r else False,
+            'sichtbar_fuer': r['sichtbar_fuer'] if r else 'alle',
+        }
+    return ergebnis
+
+
+def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
+    """Berechnet nur die tatsächlich aktivierten KPIs (Team-gescoped für VKL wie überall
+    sonst). Gibt {kpi_key: <renderfertige Daten>} zurück."""
+    werte = {}
+    if not is_manager or not aktive_keys:
+        return werte
+
+    if 'besuche_gesamt' in aktive_keys:
+        t_m_sql, t_m_p = _team_m_clause('m')
+        rows = query(f'''
+            SELECT m.name, COUNT(a.id) AS besuche
+            FROM mitarbeiter m
+            LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND strftime('%Y', a.datum) = ?
+            WHERE m.rolle IN ('rep','verkaufsleiter') AND m.aktiv = 1{t_m_sql}
+            GROUP BY m.id ORDER BY besuche DESC
+        ''', (str(jahr),) + t_m_p)
+        werte['besuche_gesamt'] = {
+            'gesamt': sum(r['besuche'] for r in rows),
+            'pro_rep': rows,
+        }
+
+    if 'besuchsfrequenz' in aktive_keys:
+        t_m_sql, t_m_p = _team_m_clause('m')
+        reps = query(f"SELECT id, name FROM mitarbeiter m WHERE m.rolle IN ('rep','verkaufsleiter') AND m.aktiv=1{t_m_sql}", t_m_p)
+        heute = date.today()
+        montag = heute - timedelta(days=heute.weekday())
+        sonntag = montag + timedelta(days=6)
+        pro_rep = []
+        for r in reps:
+            arbeitstage = _alert_arbeitstage_in_woche(r['id'], montag, sonntag)
+            if arbeitstage > 0:
+                besuche = _alert_besuche_in_woche(r['id'], montag, sonntag)
+                pro_rep.append({'name': r['name'], 'frequenz': round(besuche / arbeitstage, 2)})
+        pro_rep.sort(key=lambda x: -x['frequenz'])
+        werte['besuchsfrequenz'] = {
+            'team_avg': round(sum(x['frequenz'] for x in pro_rep) / len(pro_rep), 2) if pro_rep else None,
+            'pro_rep': pro_rep,
+        }
+
+    if 'zielerreichung_kisten_displays' in aktive_keys:
+        t_m_sql, t_m_p = _team_m_clause('m')
+        t_a_sql, t_a_p = _team_ma_clause('a')
+        BP_Z = "(SELECT aktivitaet_id, SUM(kisten_anzahl) AS kisten_total FROM bestellposition GROUP BY aktivitaet_id)"
+        ziel_gesamt = query(f'''
+            SELECT COALESCE(SUM(z.kisten_ziel),0) AS kisten_ziel, COALESCE(SUM(z.displays_ziel),0) AS displays_ziel
+            FROM zielzahlen z JOIN mitarbeiter m ON m.id = z.mitarbeiter_id
+            WHERE z.jahr=? AND m.aktiv=1{t_m_sql}
+        ''', (jahr,) + t_m_p, one=True)
+        ist_gesamt = query(f'''
+            SELECT COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung' THEN b.kisten_total ELSE 0 END),0) AS kisten_ist,
+                   COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.anzahl_displays ELSE 0 END),0) AS displays_ist
+            FROM aktivitaet a LEFT JOIN {BP_Z} b ON b.aktivitaet_id = a.id
+            WHERE strftime('%Y', a.datum)=?{t_a_sql}
+        ''', (str(jahr),) + t_a_p, one=True)
+        kategorien_ziel = query(f'''
+            SELECT zk.kategorie, COALESCE(SUM(zk.kisten_ziel),0) AS kisten_ziel, COALESCE(SUM(zk.displays_ziel),0) AS displays_ziel
+            FROM zielzahlen_kategorie zk JOIN mitarbeiter m ON m.id = zk.mitarbeiter_id
+            WHERE zk.jahr=? AND m.aktiv=1{t_m_sql}
+            GROUP BY zk.kategorie
+        ''', (jahr,) + t_m_p)
+        kategorie_werte = []
+        for k in kategorien_ziel:
+            ist_k = query(f'''
+                SELECT COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung' THEN b.kisten_total ELSE 0 END),0) AS kisten_ist,
+                       COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.anzahl_displays ELSE 0 END),0) AS displays_ist
+                FROM aktivitaet a JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id
+                LEFT JOIN {BP_Z} b ON b.aktivitaet_id = a.id
+                WHERE strftime('%Y', a.datum)=? AND v.typ=?{t_a_sql}
+            ''', (str(jahr), k['kategorie']) + t_a_p, one=True)
+            kategorie_werte.append({
+                'kategorie': k['kategorie'],
+                'kisten_pct': round(ist_k['kisten_ist'] / k['kisten_ziel'] * 100) if k['kisten_ziel'] else None,
+                'displays_pct': round(ist_k['displays_ist'] / k['displays_ziel'] * 100) if k['displays_ziel'] else None,
+            })
+        werte['zielerreichung_kisten_displays'] = {
+            'kisten_pct': round(ist_gesamt['kisten_ist'] / ziel_gesamt['kisten_ziel'] * 100) if ziel_gesamt['kisten_ziel'] else None,
+            'displays_pct': round(ist_gesamt['displays_ist'] / ziel_gesamt['displays_ziel'] * 100) if ziel_gesamt['displays_ziel'] else None,
+            'kategorien': kategorie_werte,
+        }
+
+    if 'freigabequote_aufbauten' in aktive_keys:
+        t_a_sql, t_a_p = _team_ma_clause('a')
+        row = query(f'''
+            SELECT COUNT(CASE WHEN dp.status='freigegeben' THEN 1 END) AS freigegeben,
+                   COUNT(CASE WHEN dp.status='abgelehnt' THEN 1 END) AS abgelehnt
+            FROM displayposition dp JOIN aktivitaet a ON a.id = dp.aktivitaet_id
+            WHERE strftime('%Y', a.datum) = ? AND dp.status IN ('freigegeben','abgelehnt'){t_a_sql}
+        ''', (str(jahr),) + t_a_p, one=True)
+        entschieden = row['freigegeben'] + row['abgelehnt']
+        werte['freigabequote_aufbauten'] = {
+            'freigegeben': row['freigegeben'], 'abgelehnt': row['abgelehnt'],
+            'quote': round(row['freigegeben'] / entschieden * 100) if entschieden else None,
+        }
+
+    if 'gratisware_menge' in aktive_keys:
+        t_ma_sql, t_ma_p = _team_ma_clause('a')
+        BPG_K = "(SELECT bp.aktivitaet_id, SUM(bp.kisten_anzahl) AS gratis_total FROM bestellposition bp JOIN biersorte bs ON bs.id=bp.biersorte_id WHERE COALESCE(bs.ist_gratisware,0)=1 GROUP BY bp.aktivitaet_id)"
+        row = query(f'''
+            SELECT COALESCE(SUM(g.gratis_total),0) AS gesamt
+            FROM aktivitaet a LEFT JOIN {BPG_K} g ON g.aktivitaet_id = a.id
+            WHERE strftime('%Y', a.datum)=? AND a.aktionstyp IN ('Bestellung','Besuch'){t_ma_sql}
+        ''', (str(jahr),) + t_ma_p, one=True)
+        werte['gratisware_menge'] = row['gesamt']
+
+    if 'aktive_vs' in aktive_keys:
+        werte['aktive_vs'] = query("SELECT COUNT(*) AS n FROM verkaufsstelle WHERE aktiv=1", one=True)['n']
+
+    if 'neuzugaenge_monat' in aktive_keys:
+        monat_start = date.today().replace(day=1).isoformat()
+        werte['neuzugaenge_monat'] = query(
+            "SELECT COUNT(*) AS n FROM verkaufsstelle WHERE erstellt_am IS NOT NULL AND erstellt_am >= ?",
+            (monat_start,), one=True
+        )['n']
+
+    if 'wochenarbeitszeit_vs_soll' in aktive_keys:
+        heute = date.today()
+        woche_start = (heute - timedelta(days=heute.weekday())).isoformat()
+        woche_ende = (heute + timedelta(days=6 - heute.weekday())).isoformat()
+        t_m_sql, t_m_p = _team_m_clause('m')
+        rows = query(f'''
+            SELECT m.id, m.wochenarbeitszeit_stunden,
+                   COALESCE(SUM((strftime('%s', az.ende) - strftime('%s', az.beginn)) / 60.0
+                                - COALESCE(az.pause_minuten, 0)), 0) AS ist_minuten
+            FROM mitarbeiter m
+            LEFT JOIN arbeitszeit az ON az.mitarbeiter_id = m.id AND az.datum BETWEEN ? AND ?
+            WHERE m.rolle IN ('rep','verkaufsleiter') AND m.aktiv = 1
+                  AND m.wochenarbeitszeit_stunden IS NOT NULL{t_m_sql}
+            GROUP BY m.id
+        ''', (woche_start, woche_ende) + t_m_p)
+        if rows:
+            ist_h = sum(r['ist_minuten'] for r in rows) / 60 / len(rows)
+            soll_h = sum(r['wochenarbeitszeit_stunden'] for r in rows) / len(rows)
+        else:
+            ist_h = soll_h = 0
+        werte['wochenarbeitszeit_vs_soll'] = {
+            'ist_std': round(ist_h, 1), 'soll_std': round(soll_h, 1), 'anzahl': len(rows),
+        }
+
+    if 'krankheitsquote' in aktive_keys:
+        t_m_sql, t_m_p = _team_m_clause('m')
+        reps = query(f"SELECT id FROM mitarbeiter m WHERE m.rolle IN ('rep','verkaufsleiter') AND m.aktiv=1{t_m_sql}", t_m_p)
+        heute = date.today()
+        jahr_start = date(jahr, 1, 1)
+        jahr_ende = date(jahr, 12, 31) if jahr < heute.year else heute
+        werktage_kalender = sum(
+            1 for i in range((jahr_ende - jahr_start).days + 1)
+            if (jahr_start + timedelta(days=i)).weekday() < 5
+        )
+        moegliche = werktage_kalender * len(reps)
+        krank_tage = 0
+        if reps:
+            urlaub_map = _urlaub_daten_alle([r['id'] for r in reps], jahr_start.isoformat(), jahr_ende.isoformat())
+            krank_tage = sum(
+                1 for (mid, d), infos in urlaub_map.items()
+                if date.fromisoformat(d).weekday() < 5 and any(e['typ'] == 'krankheit' for e in infos)
+            )
+        werte['krankheitsquote'] = {
+            'quote': round(krank_tage / moegliche * 100, 1) if moegliche else None,
+            'krank_tage': krank_tage, 'moegliche_tage': moegliche,
+        }
+
+    if 'rep_ranking_zielerreichung' in aktive_keys:
+        BP = "(SELECT aktivitaet_id, SUM(kisten_anzahl) AS kisten_total FROM bestellposition GROUP BY aktivitaet_id)"
+        t_m_sql, t_m_p = _team_m_clause('m')
+        rows = query(f'''
+            SELECT m.id, m.name, z.kisten_ziel, z.displays_ziel,
+                   COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung' THEN b.kisten_total ELSE 0 END), 0) AS kisten_ist,
+                   COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.anzahl_displays ELSE 0 END), 0) AS displays_ist
+            FROM mitarbeiter m
+            JOIN zielzahlen z ON z.mitarbeiter_id = m.id AND z.jahr = ?
+            LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND strftime('%Y', a.datum) = ?
+            LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
+            WHERE m.rolle IN ('rep','verkaufsleiter') AND m.aktiv = 1{t_m_sql}
+            GROUP BY m.id
+        ''', (jahr, str(jahr)) + t_m_p)
+        ranking = []
+        for r in rows:
+            quoten = []
+            if r['kisten_ziel']:
+                quoten.append(r['kisten_ist'] / r['kisten_ziel'])
+            if r['displays_ziel']:
+                quoten.append(r['displays_ist'] / r['displays_ziel'])
+            if quoten:
+                ranking.append({'name': r['name'], 'quote': round(sum(quoten) / len(quoten) * 100)})
+        ranking.sort(key=lambda x: x['quote'], reverse=True)
+        werte['rep_ranking_zielerreichung'] = ranking
+
+    if 'vorjahresvergleich' in aktive_keys:
+        t_ma_sql, t_ma_p = _team_ma_clause('a')
+        BP_V = "(SELECT aktivitaet_id, SUM(kisten_anzahl) AS kisten_total FROM bestellposition GROUP BY aktivitaet_id)"
+
+        def _jahreswerte(j):
+            return query(f'''
+                SELECT COUNT(DISTINCT a.id) AS besuche,
+                       COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung' THEN b.kisten_total ELSE 0 END),0) AS kisten,
+                       COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.anzahl_displays ELSE 0 END),0) AS displays
+                FROM aktivitaet a LEFT JOIN {BP_V} b ON b.aktivitaet_id = a.id
+                WHERE strftime('%Y', a.datum) = ?{t_ma_sql}
+            ''', (str(j),) + t_ma_p, one=True)
+
+        aktuell = _jahreswerte(jahr)
+        vorjahr = _jahreswerte(jahr - 1)
+
+        def _delta(neu, alt):
+            return round((neu - alt) / alt * 100, 1) if alt else None
+
+        werte['vorjahresvergleich'] = {
+            'jahr': jahr, 'vorjahr': jahr - 1,
+            'besuche': aktuell['besuche'], 'besuche_vj': vorjahr['besuche'],
+            'besuche_delta': _delta(aktuell['besuche'], vorjahr['besuche']),
+            'kisten': aktuell['kisten'], 'kisten_vj': vorjahr['kisten'],
+            'kisten_delta': _delta(aktuell['kisten'], vorjahr['kisten']),
+            'displays': aktuell['displays'], 'displays_vj': vorjahr['displays'],
+            'displays_delta': _delta(aktuell['displays'], vorjahr['displays']),
+        }
+
+    return werte
+
+
+@app.route('/kennzahlen')
+@manager_required
+def kennzahlen():
+    """Eigene Seite mit allen aktivierten KPI-Kacheln (2026-07-26, von Arco portiert) –
+    nicht zu verwechseln mit /admin/kpi-einstellungen (Admin-Settings, welche Kennzahlen
+    aktiv sind). Nutzt dasselbe Partial _kpi_karten.html wie die Dashboard-Card."""
+    jahr = request.args.get('jahr', date.today().year, type=int)
+    is_admin = session.get('rolle') == 'admin'
+    kpi_einstellungen = _kpi_aktive_einstellungen()
+    kpi_sichtbare_keys = [
+        k for k, v in kpi_einstellungen.items()
+        if v['aktiv'] and (v['sichtbar_fuer'] == 'alle' or is_admin)
+    ]
+    kpi_daten = _kpi_werte_berechnen(kpi_sichtbare_keys, jahr, True)
+    verfuegbare_jahre = [r[0] for r in query(
+        "SELECT DISTINCT CAST(strftime('%Y', datum) AS INTEGER) FROM aktivitaet ORDER BY 1 DESC"
+    )]
+    if not verfuegbare_jahre:
+        verfuegbare_jahre = [date.today().year]
+    return render_template('kennzahlen.html',
+        jahr=jahr, verfuegbare_jahre=verfuegbare_jahre,
+        kpi_daten=kpi_daten, is_manager=True, is_admin=is_admin)
+
+
+@app.route('/admin/kpi-einstellungen', methods=['GET', 'POST'])
+@admin_required
+def admin_kpi_einstellungen():
+    """Checkbox-Liste zum Aktivieren der KPI-Katalog-Einträge – die andere Hälfte des
+    KPI-Mechanismus (siehe _KPI_KATALOG). 'sichtbar_fuer' steuert, ob eine aktive
+    Kennzahl auch VKLs sehen (nicht nur Admin)."""
+    if request.method == 'POST':
+        for eintrag in _KPI_KATALOG:
+            key = eintrag['key']
+            aktiv = 1 if request.form.get(f'aktiv_{key}') == 'on' else 0
+            sichtbar_fuer = 'alle' if request.form.get(f'sichtbar_{key}') == 'on' else 'admin'
+            execute(
+                "INSERT INTO kpi_einstellungen (kpi_key, aktiv, sichtbar_fuer) VALUES (?,?,?) "
+                "ON CONFLICT(kpi_key) DO UPDATE SET aktiv=excluded.aktiv, sichtbar_fuer=excluded.sichtbar_fuer",
+                (key, aktiv, sichtbar_fuer)
+            )
+        flash('KPI-Einstellungen gespeichert.', 'success')
+        return redirect(url_for('admin_kpi_einstellungen'))
+
+    einstellungen = _kpi_aktive_einstellungen()
+    kategorien = {}
+    for eintrag in _KPI_KATALOG:
+        kategorien.setdefault(eintrag['kategorie'], []).append({**eintrag, **einstellungen[eintrag['key']]})
+    return render_template('admin_kpi_einstellungen.html', kategorien=kategorien)
+
+
 # ─── Routes: Dashboard ────────────────────────────────────────────────────────
 
 @app.route('/dashboard')
@@ -3414,9 +3749,17 @@ def dashboard():
             ORDER BY CASE aa.schweregrad WHEN 'hoch' THEN 0 ELSE 1 END, aa.erstellt_am DESC
         ''', _aa_team_params)
 
+    # KPI-Katalog (2026-07-26, von Arco portiert): nur aktivierte Kennzahlen berechnen.
+    kpi_einstellungen = _kpi_aktive_einstellungen()
+    _kpi_sichtbare_keys = [
+        k for k, v in kpi_einstellungen.items()
+        if v['aktiv'] and (v['sichtbar_fuer'] == 'alle' or is_admin)
+    ]
+    kpi_daten = _kpi_werte_berechnen(_kpi_sichtbare_keys, jahr, is_manager)
+
     return render_template('dashboard.html',
         jahr=jahr, kw_data=kw_data, jahres=jahres,
-        rep_stats=rep_stats, letzte=letzte,
+        rep_stats=rep_stats, letzte=letzte, kpi_daten=kpi_daten,
         auffaelligkeiten=auffaelligkeiten,
         verfuegbare_jahre=verfuegbare_jahre,
         chart_kw=json.dumps(chart_kw),

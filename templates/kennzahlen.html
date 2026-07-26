@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% block title %}Kennzahlen – {{ company_short }} – Aktions Tracker{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start flex-wrap gap-2">
+  <div>
+    <h1><i class="bi bi-graph-up-arrow me-2"></i>Kennzahlen</h1>
+    <p>Übersicht der aktivierten KPIs</p>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <form method="GET" class="d-flex align-items-center gap-2">
+      <select name="jahr" class="form-select form-select-sm" onchange="this.form.submit()">
+        {% for j in verfuegbare_jahre %}
+        <option value="{{ j }}" {% if j == jahr %}selected{% endif %}>{{ j }}</option>
+        {% endfor %}
+      </select>
+    </form>
+    {% if is_admin %}
+    <a href="{{ url_for('admin_kpi_einstellungen') }}" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-sliders me-1"></i>Einstellungen
+    </a>
+    {% endif %}
+  </div>
+</div>
+
+{% if not kpi_daten %}
+<div class="alert alert-info">
+  <i class="bi bi-info-circle me-2"></i>Keine Kennzahlen aktiviert.
+  {% if is_admin %}Unter <a href="{{ url_for('admin_kpi_einstellungen') }}">KPI-Einstellungen</a> lassen sich Kennzahlen aktivieren.{% endif %}
+</div>
+{% endif %}
+
+{% include '_kpi_karten.html' %}
+{% endblock %}
