@@ -9651,11 +9651,6 @@ def _do_send_wochenbericht(force=False):
                 if neu < alt: return '#c0392b'
                 return '#888'
 
-            def _offen_col(n):
-                if n > 0:
-                    return f'<span style="color:#c8860a;font-weight:bold">{n}</span>'
-                return f'<span style="color:#aaa">0</span>'
-
             def build_html(team_id=None, team_name=None):
                 t_p = [team_id] if team_id else []
                 tf  = ' AND m.team_id=?' if team_id else ''
@@ -9687,6 +9682,9 @@ def _do_send_wochenbericht(force=False):
                                                THEN a.id END) AS bestellungen,
                            COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,\'Aufbau\')=\'Aufbau\'
                                                THEN a.id END) AS aufbauten,
+                           COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,\'Aufbau\')=\'Aufbau\'
+                                               AND EXISTS(SELECT 1 FROM displayposition dp WHERE dp.aktivitaet_id=a.id AND dp.status=\'freigegeben\')
+                                               THEN a.id END) AS genehmigt,
                            COALESCE(SUM(CASE WHEN a.aktionstyp=\'Bestellung\'
                                              THEN bp.kisten_anzahl END), 0) AS kisten
                     FROM mitarbeiter m
@@ -9715,14 +9713,6 @@ def _do_send_wochenbericht(force=False):
                     ts  = trend_str(val, prev)
                     return f'<div style="font-size:9px;font-weight:bold;color:{col};margin-top:1px">{ts}</div>'
 
-                offen_map = {r['mitarbeiter_id']: r['n'] for r in query(
-                    "SELECT a.mitarbeiter_id, COUNT(*) AS n FROM aktivitaet a "
-                    "JOIN mitarbeiter m ON m.id=a.mitarbeiter_id "
-                    "WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen' "
-                    f"AND (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id))){tf} GROUP BY a.mitarbeiter_id",
-                    t_p
-                )}
-
                 if team_id:
                     pipeline = query(
                         "SELECT COALESCE(SUM(CASE WHEN COALESCE(a.bestell_status,'offen')='offen' THEN 1 END),0) AS offen,"
@@ -9731,16 +9721,6 @@ def _do_send_wochenbericht(force=False):
                         "FROM aktivitaet a JOIN mitarbeiter m ON m.id=a.mitarbeiter_id "
                         "WHERE a.aktionstyp='Bestellung' AND m.team_id=?",
                         (team_id,), one=True)
-                    ue_rows = query(
-                        "SELECT v.name AS station, m.name AS rep, a.datum, "
-                        "CAST(julianday('now') - julianday(a.datum) AS INTEGER) AS tage "
-                        "FROM aktivitaet a "
-                        "JOIN mitarbeiter m ON m.id=a.mitarbeiter_id "
-                        "JOIN verkaufsstelle v ON v.id=a.verkaufsstelle_id "
-                        "WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen' "
-                        "AND julianday('now') - julianday(a.datum) > 28 AND m.team_id=? "
-                        "ORDER BY tage DESC LIMIT 10",
-                        (team_id,))
                 else:
                     pipeline = query(
                         "SELECT COALESCE(SUM(CASE WHEN COALESCE(bestell_status,'offen')='offen' THEN 1 END),0) AS offen,"
@@ -9749,38 +9729,6 @@ def _do_send_wochenbericht(force=False):
                         "FROM aktivitaet WHERE aktionstyp='Bestellung'",
                         one=True
                     )
-                    ue_rows = query(
-                        "SELECT v.name AS station, m.name AS rep, a.datum, "
-                        "CAST(julianday('now') - julianday(a.datum) AS INTEGER) AS tage "
-                        "FROM aktivitaet a "
-                        "JOIN mitarbeiter m ON m.id=a.mitarbeiter_id "
-                        "JOIN verkaufsstelle v ON v.id=a.verkaufsstelle_id "
-                        "WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen' "
-                        "AND julianday('now') - julianday(a.datum) > 28 "
-                        "ORDER BY tage DESC LIMIT 10"
-                    )
-
-                if ue_rows:
-                    ue_trs = ''.join(f'''
-                  <tr>
-                    <td style="padding:7px 16px;border-bottom:1px solid #f0e8d0;font-size:12px;font-weight:600">{u["station"]}</td>
-                    <td style="padding:7px 8px;border-bottom:1px solid #f0e8d0;font-size:12px;color:#666">{u["rep"]}</td>
-                    <td style="padding:7px 16px;border-bottom:1px solid #f0e8d0;font-size:12px;text-align:right">
-                      <span style="background:#fdecc8;color:#8a5a00;padding:2px 8px;border-radius:4px">{u["tage"]} Tage</span>
-                    </td>
-                  </tr>''' for u in ue_rows)
-                    ueberfaellig_html = f'''
-  <div style="padding:0 32px 20px">
-    <div style="background:#fff8f0;border:1px solid #f0c674;border-radius:8px;overflow:hidden">
-      <div style="background:#fdecc8;padding:10px 16px;font-size:13px;font-weight:bold;color:#8a5a00">
-        &#9888; &Uuml;berf&auml;llig &ndash; Bestellungen offen seit &uuml;ber 4 Wochen ({len(ue_rows)})
-      </div>
-      <table width="100%" cellpadding="0" cellspacing="0">{ue_trs}
-      </table>
-    </div>
-  </div>'''
-                else:
-                    ueberfaellig_html = ''
 
                 # Tagesplan-Erfüllung berichtete Woche (= montag_diese, gleiche Periode wie Haupt-KPIs)
                 _tp_team_row = query(f'''
@@ -9819,11 +9767,11 @@ def _do_send_wochenbericht(force=False):
                 <tr>
                   <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px">{r["name"]}</td>
                   <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}{_delta_w(r["besuche"], r["mitarbeiter_id"], "besuche")}</td>
-                  <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["bestellungen"]}</td>
-                  <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
-                  <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}{_delta_w(r["kisten"], r["mitarbeiter_id"], "kisten")}</td>
-                  <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{_offen_col(offen_map.get(r["mitarbeiter_id"], 0))}</td>
                   <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center">{_plan_badge(tp_map.get(r["mitarbeiter_id"],{}).get("geplant",0), tp_map.get(r["mitarbeiter_id"],{}).get("erledigt",0))}</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["bestellungen"]}</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}{_delta_w(r["kisten"], r["mitarbeiter_id"], "kisten")}</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#5a3e9e">{r["genehmigt"]}</td>
                 </tr>''' for r in rs) or \
                 '<tr><td colspan="7" style="padding:12px 14px;color:#999;text-align:center">Keine Aktivitäten diese Woche</td></tr>'
 
@@ -9888,8 +9836,6 @@ def _do_send_wochenbericht(force=False):
     </span>
   </div>
 
-  {ueberfaellig_html}
-
   <div class="plan-bar" style="padding:14px 32px;background:#f0f4f8;border-top:1px solid #e4eaf0">
     <span style="font-size:13px;font-weight:bold;color:#1a3a5c">&#128203; Besuchsplanung diese Woche:</span>
     <span style="margin-left:10px;font-size:13px">
@@ -9911,11 +9857,11 @@ def _do_send_wochenbericht(force=False):
         <tr style="background:#edf2f7">
           <th style="padding:8px 10px;text-align:left;font-size:10px;color:#666;font-weight:600;letter-spacing:.5px">MITARBEITER</th>
           <th style="padding:8px 10px;text-align:center;font-size:10px;color:#666;font-weight:600;letter-spacing:.5px">BESUCHE</th>
-          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#2e6da4;font-weight:600;letter-spacing:.5px">BESTELL.</th>
-          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#27ae60;font-weight:600;letter-spacing:.5px">AUFBAUT.</th>
-          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#c8860a;font-weight:600;letter-spacing:.5px">{UNIT_LABEL.upper()[:7]}</th>
-          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#c8860a;font-weight:600;letter-spacing:.5px">OFFEN</th>
           <th style="padding:8px 10px;text-align:center;font-size:10px;color:#5a3e9e;font-weight:600;letter-spacing:.5px">BESUCHSPL.</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#2e6da4;font-weight:600;letter-spacing:.5px">BESTELL.</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#c8860a;font-weight:600;letter-spacing:.5px">{UNIT_LABEL.upper()[:7]}</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#27ae60;font-weight:600;letter-spacing:.5px">AKTIVITÄTEN</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#5a3e9e;font-weight:600;letter-spacing:.5px">GENEHMIGT</th>
         </tr>
       </thead>
       <tbody>{rep_rows}</tbody>
@@ -10677,6 +10623,9 @@ def wochenbericht_vorschau():
                COUNT(DISTINCT a.id) AS besuche,
                COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung' THEN a.id END) AS bestellungen,
                COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.id END) AS aufbauten,
+               COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                   AND EXISTS(SELECT 1 FROM displayposition dp WHERE dp.aktivitaet_id=a.id AND dp.status='freigegeben')
+                                   THEN a.id END) AS genehmigt,
                COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
                                  THEN bp.kisten_anzahl END), 0) AS kisten
         FROM mitarbeiter m
@@ -10735,12 +10684,6 @@ def wochenbericht_vorschau():
         f'</div></div>'
     ) if tp_g_v else ''
 
-    offene_map = {r['mitarbeiter_id']: r['n'] for r in query(
-        "SELECT a.mitarbeiter_id, COUNT(*) AS n FROM aktivitaet a "
-        "JOIN mitarbeiter m ON m.id=a.mitarbeiter_id "
-        "WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen' "
-        "AND (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id))) GROUP BY a.mitarbeiter_id"
-    )}
     pipeline = query(
         "SELECT COALESCE(SUM(CASE WHEN COALESCE(bestell_status,'offen')='offen' THEN 1 END),0) AS offen,"
         "       COALESCE(SUM(CASE WHEN bestell_status='aufgebaut' THEN 1 END),0) AS aufgebaut,"
@@ -10749,47 +10692,11 @@ def wochenbericht_vorschau():
         one=True
     )
 
-    ue_rows_v = query(
-        "SELECT v.name AS station, m.name AS rep, a.datum, "
-        "CAST(julianday('now') - julianday(a.datum) AS INTEGER) AS tage "
-        "FROM aktivitaet a "
-        "JOIN mitarbeiter m ON m.id=a.mitarbeiter_id "
-        "JOIN verkaufsstelle v ON v.id=a.verkaufsstelle_id "
-        "WHERE a.aktionstyp='Bestellung' AND COALESCE(a.bestell_status,'offen')='offen' "
-        "AND julianday('now') - julianday(a.datum) > 28 "
-        "ORDER BY tage DESC LIMIT 10"
-    )
-    if ue_rows_v:
-        ue_trs_v = ''.join(f'''
-          <tr>
-            <td style="padding:7px 16px;border-bottom:1px solid #f0e8d0;font-size:12px;font-weight:600">{u["station"]}</td>
-            <td style="padding:7px 8px;border-bottom:1px solid #f0e8d0;font-size:12px;color:#666">{u["rep"]}</td>
-            <td style="padding:7px 16px;border-bottom:1px solid #f0e8d0;font-size:12px;text-align:right">
-              <span style="background:#fdecc8;color:#8a5a00;padding:2px 8px;border-radius:4px">{u["tage"]} Tage</span>
-            </td>
-          </tr>''' for u in ue_rows_v)
-        ueberfaellig_html_v = f'''
-  <div style="padding:0 32px 20px">
-    <div style="background:#fff8f0;border:1px solid #f0c674;border-radius:8px;overflow:hidden">
-      <div style="background:#fdecc8;padding:10px 16px;font-size:13px;font-weight:bold;color:#8a5a00">
-        &#9888; &Uuml;berf&auml;llig &ndash; Bestellungen offen seit &uuml;ber 4 Wochen ({len(ue_rows_v)})
-      </div>
-      <table width="100%" cellpadding="0" cellspacing="0">{ue_trs_v}
-      </table>
-    </div>
-  </div>'''
-    else:
-        ueberfaellig_html_v = ''
-
     def trend_str(neu, alt):
         d = neu - alt
         return f'+{d}' if d > 0 else (str(d) if d < 0 else '±0')
     def trend_col(neu, alt):
         return '#2d8a4e' if neu > alt else ('#c0392b' if neu < alt else '#888')
-
-    def _offen_col(n):
-        return (f'<span style="color:#c8860a;font-weight:bold">{n}</span>'
-                if n > 0 else f'<span style="color:#aaa">0</span>')
 
     def _trend_cell_w(neu, alt):
         d = neu - alt
@@ -10802,11 +10709,11 @@ def wochenbericht_vorschau():
         <tr>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px">{r["name"]}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}<br>{_trend_cell_w(r["besuche"], letzte_map_w.get(r["mitarbeiter_id"], _rep_0)["besuche"])}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["bestellungen"]}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}<br>{_trend_cell_w(r["kisten"], letzte_map_w.get(r["mitarbeiter_id"], _rep_0)["kisten"])}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{_offen_col(offene_map.get(r["mitarbeiter_id"], 0))}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center">{_plan_badge_v(tp_map_v.get(r["mitarbeiter_id"],{}).get("geplant",0), tp_map_v.get(r["mitarbeiter_id"],{}).get("erledigt",0))}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["bestellungen"]}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}<br>{_trend_cell_w(r["kisten"], letzte_map_w.get(r["mitarbeiter_id"], _rep_0)["kisten"])}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#5a3e9e">{r["genehmigt"]}</td>
         </tr>''' for r in rep_stats) or \
         '<tr><td colspan="7" style="padding:12px;color:#999;text-align:center">Keine Aktivitäten diese Woche</td></tr>'
 
@@ -10861,7 +10768,6 @@ def wochenbericht_vorschau():
       <span style="color:#6c757d;font-weight:bold">{pipeline["storniert"]}</span><span style="color:#777"> storniert</span>
     </span>
   </div>
-  {ueberfaellig_html_v}
   {tp_summary_v}
   <div style="padding:24px 32px">
     <div style="font-size:15px;font-weight:bold;color:#1a3a5c;margin-bottom:12px">Mitarbeiter diese Woche</div>
@@ -10870,11 +10776,11 @@ def wochenbericht_vorschau():
         <tr style="background:#edf2f7">
           <th style="padding:8px 10px;text-align:left;font-size:10px;color:#666;font-weight:600;letter-spacing:.5px">MITARBEITER</th>
           <th style="padding:8px 10px;text-align:center;font-size:10px;color:#666;font-weight:600;letter-spacing:.5px">BESUCHE</th>
-          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#2e6da4;font-weight:600;letter-spacing:.5px">BESTELL.</th>
-          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#27ae60;font-weight:600;letter-spacing:.5px">AUFBAUT.</th>
-          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#c8860a;font-weight:600;letter-spacing:.5px">{UNIT_LABEL[:7].upper()}</th>
-          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#c8860a;font-weight:600;letter-spacing:.5px">OFFEN</th>
           <th style="padding:8px 10px;text-align:center;font-size:10px;color:#5a3e9e;font-weight:600;letter-spacing:.5px">BESUCHSPL.</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#2e6da4;font-weight:600;letter-spacing:.5px">BESTELL.</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#c8860a;font-weight:600;letter-spacing:.5px">{UNIT_LABEL[:7].upper()}</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#27ae60;font-weight:600;letter-spacing:.5px">AKTIVITÄTEN</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#5a3e9e;font-weight:600;letter-spacing:.5px">GENEHMIGT</th>
         </tr>
       </thead>
       <tbody>{rep_rows}</tbody>
