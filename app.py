@@ -5421,6 +5421,13 @@ def api_aktivitaet_offline_sync():
     )}
     anzahl_displays = 0
 
+    # Bugreport 2026-07-27 (von Arco portiert): ohne erfassten Aufbautyp blieb aktionstyp
+    # trotzdem auf dem Spalten-Default 'Aufbau' stehen – die Aktivität landete dadurch ohne
+    # jeden displayposition-Eintrag im Wochenbericht als "Aufbau", obwohl es faktisch nur ein
+    # Besuch war. Analog zum Online-Pfad (neue_aktivitaet()) korrigieren.
+    _hat_aufbau_positionen = any(str(v).lstrip('-').isdigit() and int(v) > 0 for v in displays.values())
+    aktionstyp = 'Aufbau' if _hat_aufbau_positionen else 'Besuch'
+
     # Bugreport 2026-07-21/24 (von Arco portiert): Dedupe gegen doppelte Sync-Versuche
     # derselben Offline-Warteschlangen-Aktivität (Netzwerk-Retry) UND gegen wiederholtes
     # manuelles Neu-Eintragen, falls ohne sichtbare Erfolgsmeldung nicht erkennbar ist, dass
@@ -5430,18 +5437,18 @@ def api_aktivitaet_offline_sync():
     # VS am selben Tag fälschlich als Duplikat erkannt.
     _duplikat = query(
         "SELECT id FROM aktivitaet WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? "
-        "AND COALESCE(aktionstyp,'Aufbau')='Aufbau' "
+        "AND COALESCE(aktionstyp,'Aufbau')=? "
         "AND COALESCE(von_uhrzeit,'')=? AND COALESCE(bis_uhrzeit,'')=? "
         "AND erstellt_am >= datetime('now', '-3 minutes') ORDER BY id DESC LIMIT 1",
-        (session['user_id'], vs_id, datum, von_uhrzeit or '', bis_uhrzeit or ''), one=True
+        (session['user_id'], vs_id, datum, aktionstyp, von_uhrzeit or '', bis_uhrzeit or ''), one=True
     )
     if _duplikat:
         return jsonify({'ok': True, 'akt_id': _duplikat['id']})
 
     akt_id = execute(
         "INSERT INTO aktivitaet (datum, mitarbeiter_id, verkaufsstelle_id, "
-        "anzahl_displays, notizen, foto_pfad, foto_pfad_2, foto_pfad_3, von_uhrzeit, bis_uhrzeit) VALUES (?,?,?,?,?,?,?,?,?,?)",
-        (datum, session['user_id'], vs_id, anzahl_displays, notizen, foto_pfad, foto_pfad_2, foto_pfad_3, von_uhrzeit, bis_uhrzeit)
+        "anzahl_displays, notizen, foto_pfad, foto_pfad_2, foto_pfad_3, von_uhrzeit, bis_uhrzeit, aktionstyp) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (datum, session['user_id'], vs_id, anzahl_displays, notizen, foto_pfad, foto_pfad_2, foto_pfad_3, von_uhrzeit, bis_uhrzeit, aktionstyp)
     )
 
     for ds_id, menge in displays.items():
@@ -5719,6 +5726,13 @@ def neue_aktivitaet():
             if menge_str and menge_str.isdigit() and int(menge_str) > 0:
                 menge = int(menge_str)
                 disp_positionen.append((ds['id'], menge, ds['zaehlt_zur_zielerreichung']))
+
+        # Bugreport 2026-07-27 (von Arco portiert): aktionstyp blieb bisher auf 'Aufbau'
+        # (Formular-Default) stehen, auch wenn gar kein Aufbautyp ausgefüllt wurde – die
+        # Aktivität landete dadurch ohne jeden displayposition-Eintrag im Wochenbericht als
+        # "Aufbau", obwohl es faktisch nur ein Besuch war. Serverseitig korrigieren.
+        if aktionstyp == 'Aufbau' and not disp_positionen:
+            aktionstyp = 'Besuch'
 
         # Fotos verarbeiten + komprimieren (max. 3)
         foto_pfade = [None, None, None]
@@ -6147,6 +6161,15 @@ def aktivitaet_bearbeiten(akt_id):
     if aktionstyp not in ('Aufbau', 'Bestellung', 'Besuch'):
         flash('Ungültiger Aktivitätstyp.', 'danger')
         return redirect(url_for('aktivitaeten_liste'))
+
+    # Bugreport 2026-07-27 (von Arco portiert, angepasst an dieses ältere Edit-Formular ohne
+    # Aufbautyp-Breakdown): aktionstyp='Aufbau' ohne jede erfasste Menge (weder neu noch schon
+    # vorhanden) auf 'Besuch' korrigieren – sonst zählt der Wochenbericht eine leere Aktivität
+    # fälschlich als "Aufbau" mit.
+    if aktionstyp == 'Aufbau' and not anzahl_displays and not (
+        a['anzahl_displays'] or query("SELECT 1 FROM displayposition WHERE aktivitaet_id=?", (akt_id,), one=True)
+    ):
+        aktionstyp = 'Besuch'
 
     execute(
         "UPDATE aktivitaet SET datum=?, verkaufsstelle_id=?, aktionstyp=?, anzahl_displays=?, notizen=?, bestell_status=? WHERE id=?",
