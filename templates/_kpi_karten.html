@@ -115,7 +115,13 @@
           <div class="rounded-pill overflow-hidden mb-2" style="height:4px;background:#e2e8f0">
             <div style="height:100%;width:{{ ([kpi_daten.freigabequote_aufbauten.quote, 100] | min) if kpi_daten.freigabequote_aufbauten.quote is not none else 0 }}%;background:#3b6d11"></div>
           </div>
-          <div class="small text-muted">{{ kpi_daten.freigabequote_aufbauten.freigegeben }} freigegeben · {{ kpi_daten.freigabequote_aufbauten.abgelehnt }} abgelehnt</div>
+          <div class="small text-muted mb-2">{{ kpi_daten.freigabequote_aufbauten.freigegeben }} freigegeben · {{ kpi_daten.freigabequote_aufbauten.abgelehnt }} abgelehnt</div>
+          {% for r in kpi_daten.freigabequote_aufbauten.pro_mitarbeiter %}
+          <div class="d-flex justify-content-between small mb-1"><span>{{ r.name }}</span><span class="fw-semibold">{{ r.quote }}%</span></div>
+          <div class="rounded-pill overflow-hidden mb-2" style="height:4px;background:#e2e8f0">
+            <div style="height:100%;width:{{ [r.quote, 100] | min }}%;background:#3b6d11"></div>
+          </div>
+          {% endfor %}
         </div>
       </div>
       {% endif %}
@@ -174,7 +180,13 @@
           <div class="rounded-pill overflow-hidden mb-2" style="height:4px;background:#e2e8f0">
             <div style="height:100%;width:{{ ([(kpi_daten.wochenarbeitszeit_vs_soll.ist_std / kpi_daten.wochenarbeitszeit_vs_soll.soll_std * 100), 100] | min) if kpi_daten.wochenarbeitszeit_vs_soll.soll_std else 0 }}%;background:#854f0b"></div>
           </div>
-          <div class="small text-muted">{{ kpi_daten.wochenarbeitszeit_vs_soll.anzahl }} Mitarbeiter mit hinterlegter Wochenarbeitszeit</div>
+          <div class="small text-muted mb-2">{{ kpi_daten.wochenarbeitszeit_vs_soll.anzahl }} Mitarbeiter mit hinterlegter Wochenarbeitszeit</div>
+          {% for r in kpi_daten.wochenarbeitszeit_vs_soll.pro_mitarbeiter %}
+          <div class="d-flex justify-content-between small mb-1"><span>{{ r.name }}</span><span class="fw-semibold">{{ (r.quote ~ '%') if r.quote is not none else '–' }}</span></div>
+          <div class="rounded-pill overflow-hidden mb-2" style="height:4px;background:#e2e8f0">
+            <div style="height:100%;width:{{ ([r.quote, 100] | min) if r.quote is not none else 0 }}%;background:#854f0b"></div>
+          </div>
+          {% endfor %}
         </div>
       </div>
       {% endif %}
@@ -193,7 +205,13 @@
           <div class="rounded-pill overflow-hidden mb-2" style="height:4px;background:#e2e8f0">
             <div style="height:100%;width:{{ ([kpi_daten.krankheitsquote.quote, 100] | min) if kpi_daten.krankheitsquote.quote is not none else 0 }}%;background:#a32d2d"></div>
           </div>
-          <div class="small text-muted">{{ kpi_daten.krankheitsquote.krank_tage }} von {{ kpi_daten.krankheitsquote.moegliche_tage }} möglichen Arbeitstagen</div>
+          <div class="small text-muted mb-2">{{ kpi_daten.krankheitsquote.krank_tage }} von {{ kpi_daten.krankheitsquote.moegliche_tage }} möglichen Arbeitstagen</div>
+          {% for r in kpi_daten.krankheitsquote.pro_mitarbeiter %}
+          <div class="d-flex justify-content-between small mb-1"><span>{{ r.name }}</span><span class="fw-semibold">{{ (r.quote ~ '%') if r.quote is not none else '–' }}</span></div>
+          <div class="rounded-pill overflow-hidden mb-2" style="height:4px;background:#e2e8f0">
+            <div style="height:100%;width:{{ ([r.quote, 100] | min) if r.quote is not none else 0 }}%;background:#a32d2d"></div>
+          </div>
+          {% endfor %}
         </div>
       </div>
       {% endif %}

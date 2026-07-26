@@ -3210,9 +3210,25 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
             WHERE strftime('%Y', a.datum) = ? AND dp.status IN ('freigegeben','abgelehnt'){t_a_sql}
         ''', (str(jahr),) + t_a_p, one=True)
         entschieden = row['freigegeben'] + row['abgelehnt']
+        rows_ma = query(f'''
+            SELECT m.name AS name,
+                   COUNT(CASE WHEN dp.status='freigegeben' THEN 1 END) AS freigegeben,
+                   COUNT(CASE WHEN dp.status='abgelehnt' THEN 1 END) AS abgelehnt
+            FROM displayposition dp JOIN aktivitaet a ON a.id = dp.aktivitaet_id
+            JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
+            WHERE strftime('%Y', a.datum) = ? AND dp.status IN ('freigegeben','abgelehnt'){t_a_sql}
+            GROUP BY m.id
+        ''', (str(jahr),) + t_a_p)
+        pro_mitarbeiter = []
+        for r in rows_ma:
+            entschieden_r = r['freigegeben'] + r['abgelehnt']
+            if entschieden_r:
+                pro_mitarbeiter.append({'name': r['name'], 'quote': round(r['freigegeben'] / entschieden_r * 100)})
+        pro_mitarbeiter.sort(key=lambda x: -x['quote'])
         werte['freigabequote_aufbauten'] = {
             'freigegeben': row['freigegeben'], 'abgelehnt': row['abgelehnt'],
             'quote': round(row['freigegeben'] / entschieden * 100) if entschieden else None,
+            'pro_mitarbeiter': pro_mitarbeiter,
         }
 
     if 'gratisware_menge' in aktive_keys:
@@ -3241,7 +3257,7 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
         woche_ende = (heute + timedelta(days=6 - heute.weekday())).isoformat()
         t_m_sql, t_m_p = _team_m_clause('m')
         rows = query(f'''
-            SELECT m.id, m.wochenarbeitszeit_stunden,
+            SELECT m.id, m.name, m.wochenarbeitszeit_stunden,
                    COALESCE(SUM((strftime('%s', az.ende) - strftime('%s', az.beginn)) / 60.0
                                 - COALESCE(az.pause_minuten, 0)), 0) AS ist_minuten
             FROM mitarbeiter m
@@ -3255,13 +3271,23 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
             soll_h = sum(r['wochenarbeitszeit_stunden'] for r in rows) / len(rows)
         else:
             ist_h = soll_h = 0
+        pro_mitarbeiter = []
+        for r in rows:
+            ist_h_r = r['ist_minuten'] / 60
+            soll_h_r = r['wochenarbeitszeit_stunden']
+            pro_mitarbeiter.append({
+                'name': r['name'], 'ist_std': round(ist_h_r, 1), 'soll_std': round(soll_h_r, 1),
+                'quote': round(ist_h_r / soll_h_r * 100) if soll_h_r else None,
+            })
+        pro_mitarbeiter.sort(key=lambda x: -(x['quote'] or 0))
         werte['wochenarbeitszeit_vs_soll'] = {
             'ist_std': round(ist_h, 1), 'soll_std': round(soll_h, 1), 'anzahl': len(rows),
+            'pro_mitarbeiter': pro_mitarbeiter,
         }
 
     if 'krankheitsquote' in aktive_keys:
         t_m_sql, t_m_p = _team_m_clause('m')
-        reps = query(f"SELECT id FROM mitarbeiter m WHERE m.rolle IN ('rep','verkaufsleiter') AND m.aktiv=1{t_m_sql}", t_m_p)
+        reps = query(f"SELECT id, name FROM mitarbeiter m WHERE m.rolle IN ('rep','verkaufsleiter') AND m.aktiv=1{t_m_sql}", t_m_p)
         heute = date.today()
         jahr_start = date(jahr, 1, 1)
         jahr_ende = date(jahr, 12, 31) if jahr < heute.year else heute
@@ -3271,15 +3297,25 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
         )
         moegliche = werktage_kalender * len(reps)
         krank_tage = 0
+        krank_tage_pro_ma = {r['id']: 0 for r in reps}
         if reps:
             urlaub_map = _urlaub_daten_alle([r['id'] for r in reps], jahr_start.isoformat(), jahr_ende.isoformat())
-            krank_tage = sum(
-                1 for (mid, d), infos in urlaub_map.items()
-                if date.fromisoformat(d).weekday() < 5 and any(e['typ'] == 'krankheit' for e in infos)
-            )
+            for (mid, d), infos in urlaub_map.items():
+                if date.fromisoformat(d).weekday() < 5 and any(e['typ'] == 'krankheit' for e in infos):
+                    krank_tage += 1
+                    krank_tage_pro_ma[mid] = krank_tage_pro_ma.get(mid, 0) + 1
+        pro_mitarbeiter = []
+        for r in reps:
+            kt = krank_tage_pro_ma.get(r['id'], 0)
+            pro_mitarbeiter.append({
+                'name': r['name'], 'krank_tage': kt,
+                'quote': round(kt / werktage_kalender * 100, 1) if werktage_kalender else None,
+            })
+        pro_mitarbeiter.sort(key=lambda x: -(x['quote'] or 0))
         werte['krankheitsquote'] = {
             'quote': round(krank_tage / moegliche * 100, 1) if moegliche else None,
             'krank_tage': krank_tage, 'moegliche_tage': moegliche,
+            'pro_mitarbeiter': pro_mitarbeiter,
         }
 
     if 'rep_ranking_zielerreichung' in aktive_keys:
