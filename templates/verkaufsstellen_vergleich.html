@@ -66,7 +66,7 @@
           <label class="form-label fw-semibold small">Landkreis <span class="text-muted fw-normal">(Mehrfach)</span></label>
           <div id="landkreisChips" class="d-flex flex-wrap gap-1 mb-1">
             {% for lk in ausgewaehlt_landkreis %}
-            <span class="badge bg-secondary d-flex align-items-center gap-1" style="font-size:.76rem;padding:.35rem .5rem">
+            <span class="badge bg-secondary d-flex align-items-center gap-1" style="font-size:.76rem;padding:.35rem .5rem" data-wert="{{ lk }}">
               {{ lk }}
               <input type="hidden" name="landkreis" value="{{ lk }}">
               <a href="#" class="text-white filterwert-entfernen" style="text-decoration:none">&times;</a>
@@ -83,7 +83,7 @@
           <label class="form-label fw-semibold small">Ort <span class="text-muted fw-normal">(Mehrfach)</span></label>
           <div id="ortChips" class="d-flex flex-wrap gap-1 mb-1">
             {% for o in ausgewaehlt_ort %}
-            <span class="badge bg-secondary d-flex align-items-center gap-1" style="font-size:.76rem;padding:.35rem .5rem">
+            <span class="badge bg-secondary d-flex align-items-center gap-1" style="font-size:.76rem;padding:.35rem .5rem" data-wert="{{ o }}">
               {{ o }}
               <input type="hidden" name="ort" value="{{ o }}">
               <a href="#" class="text-white filterwert-entfernen" style="text-decoration:none">&times;</a>
@@ -219,20 +219,26 @@ document.querySelectorAll('.filterwert-suche').forEach(function (input) {
     const span = document.createElement('span');
     span.className = 'badge bg-secondary d-flex align-items-center gap-1';
     span.style.cssText = 'font-size:.76rem;padding:.35rem .5rem';
+    span.dataset.wert = wert;
     span.innerHTML = escapeHtml(wert) +
       '<input type="hidden" name="' + feld + '" value="' + wert.replace(/"/g, '&quot;') + '">' +
       '<a href="#" class="text-white filterwert-entfernen" style="text-decoration:none">&times;</a>';
     chips.appendChild(span);
-    input.value = '';
-    schliessen();
-    input.focus();
+  }
+  function removeChip(wert) {
+    const span = Array.from(chips.children).find(s => s.dataset.wert === wert);
+    if (span) span.remove();
   }
 
   chips.addEventListener('click', function (e) {
     const link = e.target.closest('.filterwert-entfernen');
     if (!link) return;
     e.preventDefault();
-    link.closest('span').remove();
+    const span = link.closest('span');
+    const wert = span.dataset.wert;
+    span.remove();
+    const cb = dropdown.querySelector('.filterwert-checkbox[data-wert="' + CSS.escape(wert) + '"]');
+    if (cb) cb.checked = false;
   });
 
   input.addEventListener('input', function () {
@@ -243,15 +249,24 @@ document.querySelectorAll('.filterwert-suche').forEach(function (input) {
         .then(r => r.json())
         .then(list => {
           dropdown.innerHTML = '';
-          const treffer = list.filter(w => !ausgewaehlteWerte().includes(w)).slice(0, 20);
+          const treffer = list.slice(0, 20);
           if (!treffer.length) { schliessen(); return; }
           treffer.forEach(function (wert) {
-            const item = document.createElement('a');
-            item.href = '#';
-            item.className = 'list-group-item list-group-item-action py-1';
+            const item = document.createElement('label');
+            item.className = 'list-group-item list-group-item-action py-1 d-flex align-items-center gap-2 mb-0';
             item.style.fontSize = '.82rem';
-            item.textContent = wert;
-            item.addEventListener('mousedown', function (e) { e.preventDefault(); addChip(wert); });
+            item.style.cursor = 'pointer';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'form-check-input filterwert-checkbox mt-0';
+            cb.dataset.wert = wert;
+            cb.checked = ausgewaehlteWerte().includes(wert);
+            cb.addEventListener('mousedown', function (e) { e.preventDefault(); });
+            cb.addEventListener('change', function () {
+              if (cb.checked) addChip(wert); else removeChip(wert);
+            });
+            item.appendChild(cb);
+            item.appendChild(document.createTextNode(wert));
             dropdown.appendChild(item);
           });
           dropdown.classList.remove('d-none');
