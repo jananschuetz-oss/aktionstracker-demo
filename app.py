@@ -11407,6 +11407,12 @@ def verkaufsstellen_vergleich():
         if neu < alt: return '#c0392b'
         return '#888'
 
+    def trend_pct(neu, alt):
+        if not alt:
+            return None
+        pct = (neu - alt) / alt * 100
+        return f'+{pct:.0f}%' if pct > 0 else f'{pct:.0f}%'
+
     ex_sql, ex_p = _extra_filter_sql()
     ex_v_sql, ex_v_p = _extra_filter_sql_v()
 
@@ -11515,7 +11521,7 @@ def verkaufsstellen_vergleich():
         alle_mitarbeiter=alle_mitarbeiter, ausgewaehlt_mitarbeiter=ausgewaehlt_mitarbeiter,
         ausgewaehlte_vs=ausgewaehlte_vs,
         periode=periode, label=label, monat_param=monat_param,
-        trend_str=trend_str, trend_col=trend_col)
+        trend_str=trend_str, trend_col=trend_col, trend_pct=trend_pct)
 
 
 @app.route('/api/verkaufsstellen/filterwerte')

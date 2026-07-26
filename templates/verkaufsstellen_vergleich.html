@@ -138,6 +138,7 @@
             <div style="font-size:1.5rem;font-weight:700;color:#1a3a5c">{{ s.besuche }}</div>
             <div class="small" style="color:{{ trend_col(s.besuche, s.p_besuche) }}">
               {{ trend_str(s.besuche, s.p_besuche) }} ggü. VJ
+              {% if trend_pct(s.besuche, s.p_besuche) is not none %}<br>({{ trend_pct(s.besuche, s.p_besuche) }}){% endif %}
             </div>
           </div>
           <div class="col-6">
@@ -145,6 +146,7 @@
             <div style="font-size:1.5rem;font-weight:700;color:#2c7a7b">{{ s.bestellungen }}</div>
             <div class="small" style="color:{{ trend_col(s.bestellungen, s.p_bestellungen) }}">
               {{ trend_str(s.bestellungen, s.p_bestellungen) }} ggü. VJ
+              {% if trend_pct(s.bestellungen, s.p_bestellungen) is not none %}<br>({{ trend_pct(s.bestellungen, s.p_bestellungen) }}){% endif %}
             </div>
           </div>
         </div>
@@ -154,6 +156,7 @@
             <div style="font-size:1.3rem;font-weight:700;color:#c8860a">{{ s.kisten }}</div>
             <div class="small" style="color:{{ trend_col(s.kisten, s.p_kisten) }}">
               {{ trend_str(s.kisten, s.p_kisten) }} ggü. VJ
+              {% if trend_pct(s.kisten, s.p_kisten) is not none %}<br>({{ trend_pct(s.kisten, s.p_kisten) }}){% endif %}
             </div>
           </div>
           <div class="col-6">
