@@ -676,7 +676,12 @@ def _az_standard_tag_minuten(wochenarbeitszeit_stunden) -> int | None:
 
 def _az_tag_anrechnung_minuten(datum_iso: str, ma_id: int, urlaub_map: dict, wochenarbeitszeit_stunden) -> int | None:
     """Anrechenbare Minuten für EINEN Tag ohne erfassten Arbeitszeit-Eintrag, wenn dort eine
-    anrechenbare Abwesenheit vorliegt – sonst None. Für die tagesgenaue Anzeige (Wochenansicht)."""
+    anrechenbare Abwesenheit vorliegt – sonst None. Für die tagesgenaue Anzeige (Wochenansicht).
+    Bugreport 2026-07-26 (von Arco portiert): Sa/So sind keine Werktage und wurden hier – anders
+    als im äquivalenten _arbeitszeit_tage_zaehlen() – bislang trotzdem mit einem vollen
+    Tagessatz angerechnet, wenn ein Urlaubsantrag übers Wochenende lief."""
+    if date.fromisoformat(datum_iso).weekday() >= 5:
+        return None
     tag_minuten = _az_standard_tag_minuten(wochenarbeitszeit_stunden)
     if not tag_minuten:
         return None
