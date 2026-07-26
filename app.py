@@ -5906,6 +5906,8 @@ def _aktivitaeten_filter(is_manager):
     vs_ids     = [x.strip() for x in vs_filter.split(',') if x.strip()] if vs_filter else []
     typ_filter = request.args.get('typ',   '', type=str)   # kommagetrennte Typen
     typ_ids    = [x.strip() for x in typ_filter.split(',') if x.strip()] if typ_filter else []
+    at_filter  = request.args.get('at',    '', type=str)   # Aktivitätstyp (Aufbau/Bestellung/Besuch), kommagetrennt
+    at_ids     = [x.strip() for x in at_filter.split(',') if x.strip()] if at_filter else []
 
     where_sql = ' WHERE 1=1'
     params = []
@@ -5960,6 +5962,11 @@ def _aktivitaeten_filter(is_manager):
         where_sql += f" AND v.typ IN ({_ph})"
         params.extend(typ_ids)
 
+    if at_ids:
+        _ph = ','.join('?' * len(at_ids))
+        where_sql += f" AND COALESCE(a.aktionstyp,'Aufbau') IN ({_ph})"
+        params.extend(at_ids)
+
     return {
         'where_sql': where_sql, 'params': params,
         'jahr': jahr, 'kw_filter': kw_filter,
@@ -5967,6 +5974,7 @@ def _aktivitaeten_filter(is_manager):
         'ma_filter': ma_filter, 'ma_ids': ma_ids,
         'vs_filter': vs_filter, 'vs_ids': vs_ids,
         'typ_filter': typ_filter, 'typ_ids': typ_ids,
+        'at_filter': at_filter, 'at_ids': at_ids,
         'vs_history_mode': vs_history_mode,
     }
 
@@ -6048,6 +6056,7 @@ def aktivitaeten_liste():
     ma_filter, ma_ids = filt['ma_filter'], filt['ma_ids']
     vs_filter, vs_ids, vs_history_mode = filt['vs_filter'], filt['vs_ids'], filt['vs_history_mode']
     typ_filter, typ_ids = filt['typ_filter'], filt['typ_ids']
+    at_filter, at_ids = filt['at_filter'], filt['at_ids']
 
     _tm_sql, _tm_p = _team_m_clause('m')
     alle_ma = query(
@@ -6078,6 +6087,7 @@ def aktivitaeten_liste():
         ma_filter=ma_filter, ma_ids=ma_ids,
         vs_filter=vs_filter, vs_ids=vs_ids, vs_history_mode=vs_history_mode,
         typ_filter=typ_filter, typ_ids=typ_ids, alle_typen=alle_typen,
+        at_filter=at_filter, at_ids=at_ids,
         alle_ma=alle_ma, alle_vs=alle_vs,
         is_admin=is_admin, is_manager=is_manager,
         gesamt_anzahl=gesamt_anzahl, seite=seite, seiten_gesamt=seiten_gesamt,
