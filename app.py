@@ -9685,6 +9685,9 @@ def _do_send_wochenbericht(force=False):
                            COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,\'Aufbau\')=\'Aufbau\'
                                                AND EXISTS(SELECT 1 FROM displayposition dp WHERE dp.aktivitaet_id=a.id AND dp.status=\'freigegeben\')
                                                THEN a.id END) AS genehmigt,
+                           COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,\'Aufbau\')=\'Aufbau\'
+                                               AND EXISTS(SELECT 1 FROM displayposition dp WHERE dp.aktivitaet_id=a.id)
+                                               THEN a.id END) AS freigabepflichtig,
                            COALESCE(SUM(CASE WHEN a.aktionstyp=\'Bestellung\'
                                              THEN bp.kisten_anzahl END), 0) AS kisten
                     FROM mitarbeiter m
@@ -9712,6 +9715,14 @@ def _do_send_wochenbericht(force=False):
                     col = trend_col(val, prev)
                     ts  = trend_str(val, prev)
                     return f'<div style="font-size:9px;font-weight:bold;color:{col};margin-top:1px">{ts}</div>'
+
+                def _genehmigt_cell(genehmigt, pflichtig):
+                    # Nenner = nur freigabepflichtige Aufbauten (mit displayposition-Eintrag) –
+                    # sonst wirkt die Quote fälschlich unvollständig, wenn ein Teil der
+                    # Aufbau-Aktivitäten gar keinen zielrelevanten Aufbautyp enthielt.
+                    if not pflichtig:
+                        return '–'
+                    return f'{genehmigt}/{pflichtig}'
 
                 if team_id:
                     pipeline = query(
@@ -9771,7 +9782,7 @@ def _do_send_wochenbericht(force=False):
                   <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["bestellungen"]}</td>
                   <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}{_delta_w(r["kisten"], r["mitarbeiter_id"], "kisten")}</td>
                   <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
-                  <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#5a3e9e">{r["genehmigt"]}</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#5a3e9e">{_genehmigt_cell(r["genehmigt"], r["freigabepflichtig"])}</td>
                 </tr>''' for r in rs) or \
                 '<tr><td colspan="7" style="padding:12px 14px;color:#999;text-align:center">Keine Aktivitäten diese Woche</td></tr>'
 
@@ -10626,6 +10637,9 @@ def wochenbericht_vorschau():
                COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
                                    AND EXISTS(SELECT 1 FROM displayposition dp WHERE dp.aktivitaet_id=a.id AND dp.status='freigegeben')
                                    THEN a.id END) AS genehmigt,
+               COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                   AND EXISTS(SELECT 1 FROM displayposition dp WHERE dp.aktivitaet_id=a.id)
+                                   THEN a.id END) AS freigabepflichtig,
                COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
                                  THEN bp.kisten_anzahl END), 0) AS kisten
         FROM mitarbeiter m
@@ -10704,6 +10718,14 @@ def wochenbericht_vorschau():
         if d < 0:   return f'<span style="color:#c0392b;font-size:11px">&#x2193;{d}</span>'
         return '<span style="color:#888;font-size:11px">±0</span>'
 
+    def _genehmigt_cell(genehmigt, pflichtig):
+        # Nenner = nur freigabepflichtige Aufbauten (mit displayposition-Eintrag) –
+        # sonst wirkt die Quote fälschlich unvollständig, wenn ein Teil der
+        # Aufbau-Aktivitäten gar keinen zielrelevanten Aufbautyp enthielt.
+        if not pflichtig:
+            return '–'
+        return f'{genehmigt}/{pflichtig}'
+
     _rep_0 = {'besuche': 0, 'kisten': 0}
     rep_rows = ''.join(f'''
         <tr>
@@ -10713,7 +10735,7 @@ def wochenbericht_vorschau():
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["bestellungen"]}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}<br>{_trend_cell_w(r["kisten"], letzte_map_w.get(r["mitarbeiter_id"], _rep_0)["kisten"])}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#5a3e9e">{r["genehmigt"]}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#5a3e9e">{_genehmigt_cell(r["genehmigt"], r["freigabepflichtig"])}</td>
         </tr>''' for r in rep_stats) or \
         '<tr><td colspan="7" style="padding:12px;color:#999;text-align:center">Keine Aktivitäten diese Woche</td></tr>'
 
