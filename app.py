@@ -10066,10 +10066,14 @@ def _do_send_monatsbericht(force=False):
                        COUNT(DISTINCT a.id) AS besuche,
                        COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung' THEN a.id END) AS bestellungen,
                        COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.id END) AS aufbauten,
+                       COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                           AND EXISTS(SELECT 1 FROM displayposition dp WHERE dp.aktivitaet_id=a.id AND dp.status='freigegeben')
+                                           THEN a.id END) AS genehmigt,
+                       COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                           AND EXISTS(SELECT 1 FROM displayposition dp WHERE dp.aktivitaet_id=a.id)
+                                           THEN a.id END) AS freigabepflichtig,
                        COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
-                                         THEN bp.kisten_anzahl END), 0) AS kisten,
-                       COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
-                                         THEN a.anzahl_displays END), 0) AS displays
+                                         THEN bp.kisten_anzahl END), 0) AS kisten
                 FROM mitarbeiter m
                 LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
                 LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
@@ -10081,9 +10085,7 @@ def _do_send_monatsbericht(force=False):
                 SELECT m.id AS mitarbeiter_id,
                        COUNT(DISTINCT a.id) AS besuche,
                        COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
-                                         THEN bp.kisten_anzahl END), 0) AS kisten,
-                       COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
-                                         THEN a.anzahl_displays END), 0) AS displays
+                                         THEN bp.kisten_anzahl END), 0) AS kisten
                 FROM aktivitaet a
                 JOIN mitarbeiter m ON m.id=a.mitarbeiter_id
                 LEFT JOIN bestellposition bp ON bp.aktivitaet_id=a.id
@@ -10097,6 +10099,14 @@ def _do_send_monatsbericht(force=False):
                 col = trend_col(val, prev)
                 ts  = trend_str(val, prev)
                 return f'<div style="font-size:9px;font-weight:bold;color:{col};margin-top:1px">{ts}</div>'
+
+            def _genehmigt_cell(genehmigt, pflichtig):
+                if not pflichtig:
+                    return '–'
+                pct = round(genehmigt / pflichtig * 100)
+                col = '#2d8a4e' if pct >= 80 else '#c8860a' if pct >= 60 else '#c0392b'
+                return (f'{genehmigt}/{pflichtig}'
+                        f'<div style="font-size:9px;font-weight:bold;color:{col};margin-top:1px">{pct}%</div>')
 
             # Tagesplan-Erfüllung Vormonat (Team + pro Rep)
             _mtp_team_row = query(f'''
@@ -10143,11 +10153,11 @@ def _do_send_monatsbericht(force=False):
               <tr>
                 <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px">{r["name"]}</td>
                 <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}{_delta_m(r["besuche"], r["mitarbeiter_id"], "besuche")}</td>
-                <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["bestellungen"]}</td>
-                <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
-                <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}{_delta_m(r["kisten"], r["mitarbeiter_id"], "kisten")}</td>
-                <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["displays"]}{_delta_m(r["displays"], r["mitarbeiter_id"], "displays")}</td>
                 <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center">{_mplan_badge(mtp_map.get(r["mitarbeiter_id"],{}).get("geplant",0), mtp_map.get(r["mitarbeiter_id"],{}).get("erledigt",0))}</td>
+                <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["bestellungen"]}</td>
+                <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}{_delta_m(r["kisten"], r["mitarbeiter_id"], "kisten")}</td>
+                <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
+                <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#5a3e9e">{_genehmigt_cell(r["genehmigt"], r["freigabepflichtig"])}</td>
               </tr>''' for r in rs) or \
             '<tr><td colspan="7" style="padding:12px 14px;color:#999;text-align:center">Keine Aktivitäten im Vormonat</td></tr>'
 
@@ -10239,11 +10249,11 @@ def _do_send_monatsbericht(force=False):
         <tr style="background:#edf2f7">
           <th style="padding:8px 10px;text-align:left;font-size:10px;color:#666;font-weight:600;letter-spacing:.5px">MITARBEITER</th>
           <th style="padding:8px 10px;text-align:center;font-size:10px;color:#666;font-weight:600;letter-spacing:.5px">BESUCHE</th>
-          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#2e6da4;font-weight:600;letter-spacing:.5px">BESTELL.</th>
-          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#27ae60;font-weight:600;letter-spacing:.5px">AUFBAUT.</th>
-          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#c8860a;font-weight:600;letter-spacing:.5px">{UNIT_LABEL.upper()[:7]}</th>
-          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#2e6da4;font-weight:600;letter-spacing:.5px">AUFBAUT.GES.</th>
           <th style="padding:8px 10px;text-align:center;font-size:10px;color:#5a3e9e;font-weight:600;letter-spacing:.5px">BESUCHSPL.</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#2e6da4;font-weight:600;letter-spacing:.5px">BESTELL.</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#c8860a;font-weight:600;letter-spacing:.5px">{UNIT_LABEL.upper()[:7]}</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#27ae60;font-weight:600;letter-spacing:.5px">AKTIVITÄTEN</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#5a3e9e;font-weight:600;letter-spacing:.5px">GENEHMIGT</th>
         </tr>
       </thead>
       <tbody>{rep_rows}</tbody>
@@ -10903,10 +10913,14 @@ def monatsbericht_vorschau():
                COUNT(DISTINCT a.id) AS besuche,
                COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung' THEN a.id END) AS bestellungen,
                COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.id END) AS aufbauten,
+               COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                   AND EXISTS(SELECT 1 FROM displayposition dp WHERE dp.aktivitaet_id=a.id AND dp.status='freigegeben')
+                                   THEN a.id END) AS genehmigt,
+               COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
+                                   AND EXISTS(SELECT 1 FROM displayposition dp WHERE dp.aktivitaet_id=a.id)
+                                   THEN a.id END) AS freigabepflichtig,
                COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
-                                 THEN bp.kisten_anzahl END), 0) AS kisten,
-               COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
-                                 THEN a.anzahl_displays END), 0) AS displays
+                                 THEN bp.kisten_anzahl END), 0) AS kisten
         FROM mitarbeiter m
         LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
         LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
@@ -10981,16 +10995,24 @@ def monatsbericht_vorschau():
         if d < 0:   return f'<span style="color:#c0392b;font-size:11px">&#x2193;{d}</span>'
         return '<span style="color:#888;font-size:11px">±0</span>'
 
+    def _genehmigt_cell(genehmigt, pflichtig):
+        if not pflichtig:
+            return '–'
+        pct = round(genehmigt / pflichtig * 100)
+        col = '#2d8a4e' if pct >= 80 else '#c8860a' if pct >= 60 else '#c0392b'
+        return (f'{genehmigt}/{pflichtig}'
+                f'<br><span style="font-size:11px;font-weight:bold;color:{col}">{pct}%</span>')
+
     _rep_0 = {'besuche': 0, 'kisten': 0}
     rep_rows = ''.join(f'''
         <tr>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px">{r["name"]}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}<br>{_trend_cell_m(r["besuche"], letzte_map_m.get(r["mitarbeiter_id"], _rep_0)["besuche"])}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["bestellungen"]}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}<br>{_trend_cell_m(r["kisten"], letzte_map_m.get(r["mitarbeiter_id"], _rep_0)["kisten"])}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["displays"]}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center">{_mplan_badge_v(mtp_map_v.get(r["mitarbeiter_id"],{}).get("geplant",0), mtp_map_v.get(r["mitarbeiter_id"],{}).get("erledigt",0))}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["bestellungen"]}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}<br>{_trend_cell_m(r["kisten"], letzte_map_m.get(r["mitarbeiter_id"], _rep_0)["kisten"])}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#5a3e9e">{_genehmigt_cell(r["genehmigt"], r["freigabepflichtig"])}</td>
         </tr>''' for r in rep_stats) or \
         '<tr><td colspan="7" style="padding:12px;color:#999;text-align:center">Noch keine Aktivitäten diesen Monat</td></tr>'
 
@@ -11056,11 +11078,11 @@ def monatsbericht_vorschau():
         <tr style="background:#edf2f7">
           <th style="padding:8px 10px;text-align:left;font-size:10px;color:#666;font-weight:600;letter-spacing:.5px">MITARBEITER</th>
           <th style="padding:8px 10px;text-align:center;font-size:10px;color:#666;font-weight:600;letter-spacing:.5px">BESUCHE</th>
-          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#2e6da4;font-weight:600;letter-spacing:.5px">BESTELL.</th>
-          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#27ae60;font-weight:600;letter-spacing:.5px">AUFBAUT.</th>
-          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#c8860a;font-weight:600;letter-spacing:.5px">{UNIT_LABEL.upper()[:7]}</th>
-          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#2e6da4;font-weight:600;letter-spacing:.5px">AUFBAUT.GES.</th>
           <th style="padding:8px 10px;text-align:center;font-size:10px;color:#5a3e9e;font-weight:600;letter-spacing:.5px">BESUCHSPL.</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#2e6da4;font-weight:600;letter-spacing:.5px">BESTELL.</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#c8860a;font-weight:600;letter-spacing:.5px">{UNIT_LABEL.upper()[:7]}</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#27ae60;font-weight:600;letter-spacing:.5px">AKTIVITÄTEN</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;color:#5a3e9e;font-weight:600;letter-spacing:.5px">GENEHMIGT</th>
         </tr>
       </thead>
       <tbody>{rep_rows}</tbody>
