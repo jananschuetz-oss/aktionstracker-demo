@@ -604,6 +604,7 @@
               <option value="sonderurlaub">Sonderurlaub</option>
               <option value="unbezahlt">Unbezahlter Urlaub</option>
               <option value="hotel">Hotelübernachtung</option>
+              <option value="kein_arbeitstag">Kein Arbeitstag (variable Teilzeit)</option>
             </select>
           </div>
           <div class="mb-2" id="vertretungHotelFeld" style="display:none">
@@ -646,7 +647,7 @@
         {% if meine_vertretungen %}
         <hr class="my-3">
         <div class="small fw-bold text-muted mb-2">Meine Urlaube / Anträge:</div>
-        {% set typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'unbezahlt': 'Unbezahlt', 'hotel': 'Hotelübernachtung'} %}
+        {% set typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'unbezahlt': 'Unbezahlt', 'hotel': 'Hotelübernachtung', 'kein_arbeitstag': 'Kein Arbeitstag'} %}
         {% for vtr in meine_vertretungen %}
         {% set heute = now.date().isoformat() %}
         <div class="d-flex align-items-center justify-content-between py-1 border-bottom">

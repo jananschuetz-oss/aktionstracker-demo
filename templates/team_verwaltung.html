@@ -180,6 +180,7 @@
               <option value="sonderurlaub">Sonderurlaub</option>
               <option value="unbezahlt">Unbezahlt</option>
               <option value="hotel">Hotelübernachtung</option>
+              <option value="kein_arbeitstag">Kein Arbeitstag (variable Teilzeit)</option>
             </select>
           </div>
           <div class="col-sm-3">
@@ -234,7 +235,7 @@
     <div class="table-responsive">
     <table class="table table-sm mb-0">
       <tbody>
-        {% set typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'unbezahlt': 'Unbezahlt', 'hotel': 'Hotelübernachtung'} %}
+        {% set typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'unbezahlt': 'Unbezahlt', 'hotel': 'Hotelübernachtung', 'kein_arbeitstag': 'Kein Arbeitstag'} %}
         {% for vtr in offene %}
         <tr>
           <td class="ps-3 align-middle fw-semibold">{{ vtr.abwesender }}</td>
@@ -274,7 +275,7 @@
         </tr>
       </thead>
       <tbody>
-        {% set typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'unbezahlt': 'Unbezahlt', 'hotel': 'Hotelübernachtung'} %}
+        {% set typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'unbezahlt': 'Unbezahlt', 'hotel': 'Hotelübernachtung', 'kein_arbeitstag': 'Kein Arbeitstag'} %}
         {% for vtr in vertretungen %}
         {% set today = heute.isoformat() if heute is defined else '' %}
         <tr class="{% if vtr.bis < today %}text-muted{% endif %}">

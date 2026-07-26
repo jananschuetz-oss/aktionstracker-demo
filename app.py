@@ -209,13 +209,15 @@ def check_session_lifetime():
 # Abwesenheit außer 'frei_sonderurlaub' hart "Urlaub" an (auch Arbeitsunfähigkeit/Unbezahlt/
 # Hotel) - Typ->Label-Zuordnung global verfügbar machen, damit alle Stellen konsistent sind.
 _AZ_TYP_BADGE_LABEL = {'urlaub': 'Urlaub', 'sonderurlaub': 'Urlaub', 'frei_sonderurlaub': 'Urlaub',
-                        'krankheit': 'AU', 'unbezahlt': 'Unbezahlt', 'hotel': 'Hotel'}
+                        'krankheit': 'AU', 'unbezahlt': 'Unbezahlt', 'hotel': 'Hotel',
+                        'kein_arbeitstag': 'Kein Arbeitstag'}
 _AZ_TYP_COUNT_LABEL = {'urlaub': 'Urlaub', 'sonderurlaub': 'Sonderurlaub', 'frei_sonderurlaub': 'Frei/Sonderurlaub',
-                        'krankheit': 'AU', 'unbezahlt': 'Unbezahlt'}
+                        'krankheit': 'AU', 'unbezahlt': 'Unbezahlt', 'kein_arbeitstag': 'kein Arbeitstag'}
 _AZ_TYP_BADGE_FARBE = {'urlaub': ('#e8f5ec', '#2d8a4e'), 'sonderurlaub': ('#e8f5ec', '#2d8a4e'),
                         'frei_sonderurlaub': ('#e8f5ec', '#2d8a4e'), 'krankheit': ('#fdeceb', '#c0392b'),
-                        'unbezahlt': ('#f1ecfa', '#7a5fb0'), 'hotel': ('#fff3e0', '#c8860a')}
-_AZ_TYP_PRIORITAET = ['krankheit', 'unbezahlt', 'urlaub', 'sonderurlaub', 'frei_sonderurlaub', 'hotel']
+                        'unbezahlt': ('#f1ecfa', '#7a5fb0'), 'hotel': ('#fff3e0', '#c8860a'),
+                        'kein_arbeitstag': ('#eceff1', '#546e7a')}
+_AZ_TYP_PRIORITAET = ['krankheit', 'unbezahlt', 'urlaub', 'sonderurlaub', 'frei_sonderurlaub', 'hotel', 'kein_arbeitstag']
 
 
 @app.context_processor
@@ -7924,7 +7926,7 @@ def admin_vertretung_neu():
     bis           = request.form.get('bis', '').strip()
     typ           = request.form.get('typ', 'urlaub').strip()
     grund         = request.form.get('grund', '').strip()
-    if typ not in ('urlaub', 'krankheit', 'sonderurlaub', 'frei_sonderurlaub', 'unbezahlt', 'hotel'):
+    if typ not in ('urlaub', 'krankheit', 'sonderurlaub', 'frei_sonderurlaub', 'unbezahlt', 'hotel', 'kein_arbeitstag'):
         typ = 'urlaub'
     if not all([abwesender_id, von, bis]):
         flash('Abwesender Mitarbeiter, Von und Bis sind Pflichtfelder.', 'danger')
@@ -8271,7 +8273,7 @@ def profil_vertretung_neu():
     bis          = request.form.get('bis', '').strip()
     typ          = request.form.get('typ', 'urlaub').strip()
     grund        = request.form.get('grund', '').strip()
-    if typ not in ('urlaub', 'krankheit', 'sonderurlaub', 'frei_sonderurlaub', 'unbezahlt', 'hotel'):
+    if typ not in ('urlaub', 'krankheit', 'sonderurlaub', 'frei_sonderurlaub', 'unbezahlt', 'hotel', 'kein_arbeitstag'):
         typ = 'urlaub'
     if not all([von, bis]):
         flash('Von und Bis sind Pflichtfelder.', 'danger')
@@ -8287,14 +8289,19 @@ def profil_vertretung_neu():
         flash('Sie können sich nicht selbst als Vertreter eintragen.', 'danger')
         return redirect(request.referrer or url_for('dashboard'))
     # VKL/GF tragen ihren eigenen Urlaub direkt bestätigt ein; Reps müssen anfragen.
-    _status = 'bestätigt' if session.get('rolle') in ('admin', 'verkaufsleiter') else 'angefragt'
+    # "Kein Arbeitstag" ist keine Abwesenheit im eigentlichen Sinn (kein Vertretungsbedarf,
+    # keine Genehmigung nötig) – für jede Rolle direkt bestätigt (von Arco portiert).
+    if typ == 'kein_arbeitstag':
+        _status = 'bestätigt'
+    else:
+        _status = 'bestätigt' if session.get('rolle') in ('admin', 'verkaufsleiter') else 'angefragt'
     execute(
         "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis, status, typ, grund, erstellt_am, "
         "hotel_name_adresse, hotel_kosten_pro_nacht) VALUES (?,?,?,?,?,?,?,?,?,?)",
         (session['user_id'], vertreter_id, von, bis, _status, typ, grund or None, date.today().isoformat(),
          hotel_name_adresse, hotel_kosten_pro_nacht)
     )
-    _typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'frei_sonderurlaub': 'Frei/Sonderurlaub', 'unbezahlt': 'Unbezahlter Urlaub', 'hotel': 'Hotelübernachtung'}[typ]
+    _typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'frei_sonderurlaub': 'Frei/Sonderurlaub', 'unbezahlt': 'Unbezahlter Urlaub', 'hotel': 'Hotelübernachtung', 'kein_arbeitstag': 'Kein Arbeitstag'}[typ]
     if typ == 'urlaub':
         _tage = _werktage_zaehlen(von, bis, query("SELECT bundesland FROM mitarbeiter WHERE id=?", (session['user_id'],), one=True)['bundesland'])
         _konto = _urlaub_konto(session['user_id'], date.fromisoformat(von).year)
