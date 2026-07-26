@@ -182,7 +182,10 @@
           </div>
           <div class="small text-muted mb-2">{{ kpi_daten.wochenarbeitszeit_vs_soll.anzahl }} Mitarbeiter mit hinterlegter Wochenarbeitszeit</div>
           {% for r in kpi_daten.wochenarbeitszeit_vs_soll.pro_mitarbeiter %}
-          <div class="d-flex justify-content-between small mb-1"><span>{{ r.name }}</span><span class="fw-semibold">{{ (r.quote ~ '%') if r.quote is not none else '–' }}</span></div>
+          <div class="d-flex justify-content-between small mb-1">
+            <span>{{ r.name }}</span>
+            <span class="fw-semibold">{{ r.ist_std }}h / {{ r.soll_std }}h <span class="text-muted fw-normal">({{ (r.quote ~ '%') if r.quote is not none else '–' }})</span></span>
+          </div>
           <div class="rounded-pill overflow-hidden mb-2" style="height:4px;background:#e2e8f0">
             <div style="height:100%;width:{{ ([r.quote, 100] | min) if r.quote is not none else 0 }}%;background:#854f0b"></div>
           </div>
