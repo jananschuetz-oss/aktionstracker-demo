@@ -9722,7 +9722,10 @@ def _do_send_wochenbericht(force=False):
                     # Aufbau-Aktivitäten gar keinen zielrelevanten Aufbautyp enthielt.
                     if not pflichtig:
                         return '–'
-                    return f'{genehmigt}/{pflichtig}'
+                    pct = round(genehmigt / pflichtig * 100)
+                    col = '#2d8a4e' if pct >= 80 else '#c8860a' if pct >= 60 else '#c0392b'
+                    return (f'{genehmigt}/{pflichtig}'
+                            f'<div style="font-size:9px;font-weight:bold;color:{col};margin-top:1px">{pct}%</div>')
 
                 if team_id:
                     pipeline = query(
@@ -10724,7 +10727,10 @@ def wochenbericht_vorschau():
         # Aufbau-Aktivitäten gar keinen zielrelevanten Aufbautyp enthielt.
         if not pflichtig:
             return '–'
-        return f'{genehmigt}/{pflichtig}'
+        pct = round(genehmigt / pflichtig * 100)
+        col = '#2d8a4e' if pct >= 80 else '#c8860a' if pct >= 60 else '#c0392b'
+        return (f'{genehmigt}/{pflichtig}'
+                f'<br><span style="font-size:11px;font-weight:bold;color:{col}">{pct}%</span>')
 
     _rep_0 = {'besuche': 0, 'kisten': 0}
     rep_rows = ''.join(f'''
