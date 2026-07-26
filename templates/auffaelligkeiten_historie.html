@@ -119,6 +119,22 @@
           {% endif %}
         </div>
       </div>
+      {% if a.status == 'neu' %}
+      <div class="d-flex gap-1 flex-shrink-0">
+        <form method="POST" action="{{ url_for('auffaelligkeit_gesehen', alert_id=a.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-outline-secondary btn-sm" title="Als gesehen markieren">
+            <i class="bi bi-check-lg"></i>
+          </button>
+        </form>
+        <form method="POST" action="{{ url_for('auffaelligkeit_verwerfen', alert_id=a.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-outline-secondary btn-sm" title="Verwerfen">
+            <i class="bi bi-x-lg"></i>
+          </button>
+        </form>
+      </div>
+      {% endif %}
     </div>
     {% endfor %}
   </div>

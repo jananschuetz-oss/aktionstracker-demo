@@ -2988,7 +2988,7 @@ def auffaelligkeit_gesehen(alert_id):
         "UPDATE abweichungs_alert SET status='gesehen', entschieden_von=?, entschieden_am=datetime('now','localtime') WHERE id=?",
         (session['user_id'], alert_id)
     )
-    return redirect(url_for('dashboard'))
+    return redirect(request.referrer or url_for('dashboard'))
 
 
 @app.route('/auffaelligkeit/<int:alert_id>/verwerfen', methods=['POST'])
@@ -3004,7 +3004,7 @@ def auffaelligkeit_verwerfen(alert_id):
         "UPDATE abweichungs_alert SET status='verworfen', entschieden_von=?, entschieden_am=datetime('now','localtime') WHERE id=?",
         (session['user_id'], alert_id)
     )
-    return redirect(url_for('dashboard'))
+    return redirect(request.referrer or url_for('dashboard'))
 
 
 def _letzte_12_monate():
