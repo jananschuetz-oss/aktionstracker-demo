@@ -106,7 +106,10 @@ function _updateDot() {
 
 // Alle ausstehenden Besuche zum Server hochladen
 async function oqSync() {
-  if (!navigator.onLine) return;
+  // Bugreport 2026-07-27: navigator.onLine ist auf Mobilgeräten unzuverlässig (spiegelt oft
+  // nur, ob das Funkmodul aktiv ist, nicht ob eine echte Verbindung zum Server besteht) –
+  // dadurch tat der Sync-Button trotz vorhandenem Empfang manchmal einfach gar nichts. Statt
+  // hier vorab abzubrechen, entscheidet jetzt der tatsächliche Fetch-Versuch pro Eintrag.
   const items = await _dbGetAll();
   if (!items.length) return;
 
@@ -140,10 +143,10 @@ async function oqSync() {
 async function _init() {
   await _updateBanner();
   _updateDot();
-  if (navigator.onLine) {
-    const c = await _dbCount();
-    if (c > 0) oqSync();
-  }
+  // Auch hier nicht auf navigator.onLine verlassen (siehe Kommentar in oqSync) –
+  // ein vorhandener Eintrag reicht, oqSync() versucht es und scheitert notfalls sauber.
+  const c = await _dbCount();
+  if (c > 0) oqSync();
 }
 document.addEventListener('DOMContentLoaded', _init);
 window.addEventListener('pageshow', e => { if (e.persisted) _init(); }); // bfcache
