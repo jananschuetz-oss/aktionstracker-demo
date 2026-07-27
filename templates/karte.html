@@ -233,8 +233,27 @@
         </div>
 
         {% if besuchsplanung_erlaubt %}
-        <!-- Stopp für den gewählten Tag einplanen -->
+        <!-- Stopp für einen frei wählbaren Tag dieser Woche einplanen (unabhängig vom
+             oben in der Besuchsplanungs-Leiste global gewählten Tag) -->
         <div class="mb-3">
+          <div class="small fw-semibold mb-1" style="color:#1a3a5c">Tag wählen</div>
+          <input type="hidden" id="msPlanungsDatum" value="{{ start_auswahl }}">
+          <div class="d-flex flex-wrap gap-1 mb-2">
+            {% for d in datum_woche_karte %}
+            {% set is_today = d == today_str %}
+            <button type="button"
+                    class="btn btn-sm ms-datum-tile {% if d == start_auswahl %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+                    data-datum="{{ d }}"
+                    style="font-size:.75rem;padding:3px 8px;min-width:52px;text-align:center">
+              <span class="d-block fw-semibold">
+                {% if is_today %}Heute
+                {% elif d == tomorrow_str %}Morgen
+                {% else %}{{ d | weekday_de }}{% endif %}
+              </span>
+              <span style="font-size:.65rem;opacity:.75">{{ d[8:10] }}.{{ d[5:7] }}</span>
+            </button>
+            {% endfor %}
+          </div>
           <button type="button" class="btn btn-sm w-100" id="btnMsStoppHinzufuegen"
                   style="background:#e6f4f4;border:1px solid #2c7a7b;color:#1a3a5c">
             <i class="bi bi-calendar-plus me-1" style="color:#2c7a7b"></i>
@@ -469,6 +488,17 @@ function openStationModal(stelleId) {
     if (status) status.classList.add('d-none');
   }
 
+  // Tagesauswahl im Popup auf den zuletzt global gewählten Tag zurücksetzen
+  // (unabhängig davon, welchen Tag man beim letzten Öffnen im Popup selbst gewählt hatte)
+  const msDatumInput = document.getElementById('msPlanungsDatum');
+  if (msDatumInput) {
+    msDatumInput.value = planungsDatumInput.value;
+    document.querySelectorAll('.ms-datum-tile').forEach(function(t) {
+      const aktiv = t.dataset.datum === msDatumInput.value;
+      t.classList.toggle('btn-primary', aktiv);
+      t.classList.toggle('btn-outline-secondary', !aktiv);
+    });
+  }
   // Stopp-einplanen-Button zurücksetzen (Text mit gewähltem Datum)
   aktualisiereStoppButton();
   const stoppStatus = document.getElementById('msStoppStatus');
@@ -487,10 +517,22 @@ function formatDatumDE(iso) {
 }
 function aktualisiereStoppButton() {
   const textEl = document.getElementById('btnMsStoppText');
-  const dateEl = document.getElementById('planungsDatum');
+  const dateEl = document.getElementById('msPlanungsDatum') || document.getElementById('planungsDatum');
   if (!textEl || !dateEl) return;
   textEl.textContent = 'Für ' + formatDatumDE(dateEl.value) + ' einplanen';
 }
+document.querySelectorAll('.ms-datum-tile').forEach(function(tile) {
+  tile.addEventListener('click', function() {
+    document.querySelectorAll('.ms-datum-tile').forEach(function(t) {
+      t.classList.remove('btn-primary');
+      t.classList.add('btn-outline-secondary');
+    });
+    tile.classList.remove('btn-outline-secondary');
+    tile.classList.add('btn-primary');
+    document.getElementById('msPlanungsDatum').value = tile.dataset.datum;
+    aktualisiereStoppButton();
+  });
+});
 const planungsDatumInput = document.getElementById('planungsDatum');
 function waehleDatumTile(tile) {
   document.querySelectorAll('.planungs-datum-tile').forEach(function(t) {
@@ -522,7 +564,7 @@ document.getElementById('btnMsStoppHinzufuegen')?.addEventListener('click', func
   if (!aktiverStelleId) return;
   const btn = this;
   const status = document.getElementById('msStoppStatus');
-  const datum = document.getElementById('planungsDatum').value;
+  const datum = document.getElementById('msPlanungsDatum').value;
   btn.disabled = true;
   status.classList.remove('d-none', 'text-danger', 'text-success');
   status.textContent = 'Wird eingeplant…';
