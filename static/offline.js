@@ -116,7 +116,7 @@ async function oqSync() {
   const btn = document.getElementById('btnOqSync');
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Synchronisiere…'; }
 
-  let ok = 0, fail = 0;
+  let ok = 0, fail = 0, sessionAbgelaufen = false;
   for (const item of items) {
     try {
       const r = await fetch('/api/aktivitaet/offline-sync', {
@@ -125,6 +125,13 @@ async function oqSync() {
         body: JSON.stringify(item.data),
         credentials: 'same-origin',
       });
+      // Bugreport 2026-07-27: bei abgelaufener Sitzung lieferte der Server früher ein
+      // redirect() auf die Login-Seite – der Browser folgte dem automatisch, sodass hier
+      // 200 + HTML statt JSON ankam und der Sync ohne jeden Hinweis für den Nutzer
+      // scheiterte ("lädt kurz, aber nichts passiert"). 401 jetzt explizit erkennen und
+      // die restliche Warteschlange NICHT weiter versuchen (würde nur denselben Fehler
+      // wiederholen) – die Einträge bleiben dabei unangetastet in der Warteschlange.
+      if (r.status === 401) { sessionAbgelaufen = true; break; }
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const j = await r.json();
       if (j.ok) { await _dbDelete(item.id); ok++; }
@@ -134,6 +141,11 @@ async function oqSync() {
 
   if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-cloud-upload me-1"></i>Jetzt synchronisieren'; }
   await _updateBanner();
+
+  if (sessionAbgelaufen) {
+    _showAlert('<i class="bi bi-exclamation-triangle me-2"></i><strong>Sitzung abgelaufen.</strong> Bitte neu einloggen, danach automatisch synchronisieren.', 'warning');
+    return;
+  }
 
   if (ok > 0)   _showAlert('<i class="bi bi-check-circle me-2"></i><strong>' + ok + (ok === 1 ? ' Besuch' : ' Besuche') + ' synchronisiert!</strong> Die Daten sind jetzt auf dem Server gespeichert.');
   if (fail > 0) _showAlert('<i class="bi bi-exclamation-triangle me-2"></i>' + fail + (fail === 1 ? ' Besuch konnte' : ' Besuche konnten') + ' nicht übertragen werden. Bitte erneut versuchen.', 'warning');

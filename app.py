@@ -2133,12 +2133,23 @@ def demo_tagesplan_fortschritt():
 
 # ─── Auth ─────────────────────────────────────────────────────────────────────
 
+def _api_oder_redirect_login():
+    """Bugreport 2026-07-27: abgelaufene Sitzungen führten bei /api/-Fetch-Aufrufen
+    (z.B. Offline-Sync-Warteschlange) zu einem redirect() auf die Login-Seite. Der
+    Browser folgt dem Redirect automatisch und liefert 200 + HTML statt JSON zurück –
+    der Client sah nur "await r.json()" fehlschlagen und scheiterte scheinbar
+    grundlos/stillschweigend, ohne dass der Nutzer je einen Hinweis auf die
+    abgelaufene Sitzung bekam. Für /api/-Pfade daher ein echtes 401-JSON liefern."""
+    if request.path.startswith('/api/'):
+        return jsonify({'ok': False, 'error': 'Sitzung abgelaufen. Bitte neu einloggen.'}), 401
+    return redirect(url_for('login'))
+
 def login_required(f):
     from functools import wraps
     @wraps(f)
     def decorated(*args, **kwargs):
         if 'user_id' not in session:
-            return redirect(url_for('login'))
+            return _api_oder_redirect_login()
         if session.get('muss_passwort_aendern'):
             return redirect(url_for('erstes_passwort'))
         return f(*args, **kwargs)
@@ -2149,7 +2160,7 @@ def admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if 'user_id' not in session:
-            return redirect(url_for('login'))
+            return _api_oder_redirect_login()
         # Bugreport 2026-07-21 (Mittel): muss_passwort_aendern wurde bisher nur von
         # login_required erzwungen.
         if session.get('muss_passwort_aendern'):
@@ -2165,7 +2176,7 @@ def manager_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if 'user_id' not in session:
-            return redirect(url_for('login'))
+            return _api_oder_redirect_login()
         if session.get('muss_passwort_aendern'):
             return redirect(url_for('erstes_passwort'))
         if session.get('rolle') not in ('admin', 'verkaufsleiter'):
