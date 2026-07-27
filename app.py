@@ -3257,6 +3257,12 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
         heute = date.today()
         woche_start = (heute - timedelta(days=heute.weekday())).isoformat()
         woche_ende = (heute + timedelta(days=6 - heute.weekday())).isoformat()
+        # Soll wird anteilig auf die bereits vergangenen Werktage (Mo-Fr) der Woche
+        # heruntergerechnet – sonst steht Montagfrüh immer 0% gegen das volle Wochensoll,
+        # unabhängig davon ob jemand im Soll liegt (Bugreport 2026-07-27).
+        gesamt_werktage = 5
+        elapsed_werktage = min(heute.weekday() + 1, gesamt_werktage) if heute.weekday() < 5 else gesamt_werktage
+        anteil = elapsed_werktage / gesamt_werktage
         t_m_sql, t_m_p = _team_m_clause('m')
         rows = query(f'''
             SELECT m.id, m.name, m.wochenarbeitszeit_stunden,
@@ -3270,21 +3276,24 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
         ''', (woche_start, woche_ende) + t_m_p)
         if rows:
             ist_h = sum(r['ist_minuten'] for r in rows) / 60 / len(rows)
-            soll_h = sum(r['wochenarbeitszeit_stunden'] for r in rows) / len(rows)
+            soll_h_voll = sum(r['wochenarbeitszeit_stunden'] for r in rows) / len(rows)
         else:
-            ist_h = soll_h = 0
+            ist_h = soll_h_voll = 0
+        soll_h = soll_h_voll * anteil
         pro_mitarbeiter = []
         for r in rows:
             ist_h_r = r['ist_minuten'] / 60
-            soll_h_r = r['wochenarbeitszeit_stunden']
+            soll_h_voll_r = r['wochenarbeitszeit_stunden']
+            soll_h_r = soll_h_voll_r * anteil
             pro_mitarbeiter.append({
                 'name': r['name'], 'ist_std': round(ist_h_r, 1), 'soll_std': round(soll_h_r, 1),
                 'quote': round(ist_h_r / soll_h_r * 100) if soll_h_r else None,
             })
         pro_mitarbeiter.sort(key=lambda x: -(x['quote'] or 0))
         werte['wochenarbeitszeit_vs_soll'] = {
-            'ist_std': round(ist_h, 1), 'soll_std': round(soll_h, 1), 'anzahl': len(rows),
-            'pro_mitarbeiter': pro_mitarbeiter,
+            'ist_std': round(ist_h, 1), 'soll_std': round(soll_h, 1), 'soll_std_voll': round(soll_h_voll, 1),
+            'elapsed_werktage': elapsed_werktage, 'gesamt_werktage': gesamt_werktage,
+            'anzahl': len(rows), 'pro_mitarbeiter': pro_mitarbeiter,
         }
 
     if 'krankheitsquote' in aktive_keys:

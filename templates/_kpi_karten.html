@@ -172,15 +172,18 @@
             <div class="d-flex align-items-center justify-content-center rounded-2 flex-shrink-0" style="width:28px;height:28px;background:#faeeda">
               <i class="bi bi-clock-history" style="font-size:14px;color:#854f0b"></i>
             </div>
-            <span class="text-muted small">Ø Wochenarbeitszeit vs. Soll (aktuelle Woche)</span>
+            <span class="text-muted small">Ø Wochenarbeitszeit vs. anteiliges Soll</span>
           </div>
           <div class="fs-3 fw-bold mb-1" style="color:#1a3a5c">
-            {{ kpi_daten.wochenarbeitszeit_vs_soll.ist_std }}h <span class="text-muted fs-6">/ {{ kpi_daten.wochenarbeitszeit_vs_soll.soll_std }}h Soll</span>
+            {{ kpi_daten.wochenarbeitszeit_vs_soll.ist_std }}h <span class="text-muted fs-6">/ {{ kpi_daten.wochenarbeitszeit_vs_soll.soll_std }}h Soll bisher</span>
           </div>
           <div class="rounded-pill overflow-hidden mb-2" style="height:4px;background:#e2e8f0">
             <div style="height:100%;width:{{ ([(kpi_daten.wochenarbeitszeit_vs_soll.ist_std / kpi_daten.wochenarbeitszeit_vs_soll.soll_std * 100), 100] | min) if kpi_daten.wochenarbeitszeit_vs_soll.soll_std else 0 }}%;background:#854f0b"></div>
           </div>
-          <div class="small text-muted mb-2">{{ kpi_daten.wochenarbeitszeit_vs_soll.anzahl }} Mitarbeiter mit hinterlegter Wochenarbeitszeit</div>
+          <div class="small text-muted mb-2">
+            {{ kpi_daten.wochenarbeitszeit_vs_soll.anzahl }} Mitarbeiter mit hinterlegter Wochenarbeitszeit<br>
+            {{ kpi_daten.wochenarbeitszeit_vs_soll.elapsed_werktage }} von {{ kpi_daten.wochenarbeitszeit_vs_soll.gesamt_werktage }} Werktagen vergangen &middot; volles Wochensoll {{ kpi_daten.wochenarbeitszeit_vs_soll.soll_std_voll }}h
+          </div>
           {% for r in kpi_daten.wochenarbeitszeit_vs_soll.pro_mitarbeiter %}
           <div class="d-flex justify-content-between small mb-1">
             <span>{{ r.name }}</span>
