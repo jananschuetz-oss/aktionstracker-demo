@@ -1036,6 +1036,14 @@ def init_db():
             "ALTER TABLE wochenbericht_config ADD COLUMN neue_vs_empfaenger TEXT DEFAULT ''",
             "ALTER TABLE tagesplan ADD COLUMN geloescht INTEGER DEFAULT 0",
             "ALTER TABLE tagesplan ADD COLUMN geloescht_am TEXT",
+            # Bugreport 2026-07-27: die zu einem Tagesplan-Stopp gehörige Aktivität wurde
+            # bisher nur über (mitarbeiter_id, verkaufsstelle_id, datum) heuristisch
+            # nachgesucht ("zuletzt erstellte passende Aktivität") – bei zwei Stopps für
+            # dieselbe Verkaufsstelle am selben Tag (typischerweise Homeoffice, das für
+            # jeden Mitarbeiter immer dieselbe feste Adresse ist) zeigten beide Stopps
+            # dieselbe (jeweils neueste) Uhrzeit an, unabhängig davon, welche Aktivität
+            # eigentlich zu welchem Stopp gehörte. Feste Verknüpfung schafft Abhilfe.
+            "ALTER TABLE tagesplan ADD COLUMN aktivitaet_id INTEGER REFERENCES aktivitaet(id) ON DELETE SET NULL",
             "ALTER TABLE aktivitaet    ADD COLUMN von_uhrzeit       TEXT",
             "ALTER TABLE aktivitaet    ADD COLUMN bis_uhrzeit       TEXT",
             "ALTER TABLE verkaufsstelle ADD COLUMN plz              TEXT",
@@ -3772,14 +3780,20 @@ def dashboard():
             SELECT tp.id, tp.datum, tp.reihenfolge, tp.notiz, tp.erledigt,
                    v.name AS station, v.strasse, v.plz, v.ort, v.id AS vs_id,
                    v.lieferant, v.ansprechpartner, v.hinweis,
-                   (SELECT a.von_uhrzeit FROM aktivitaet a
-                    WHERE a.mitarbeiter_id = tp.mitarbeiter_id
-                      AND a.verkaufsstelle_id = tp.verkaufsstelle_id
-                      AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1) AS von_uhrzeit,
-                   (SELECT a.bis_uhrzeit FROM aktivitaet a
-                    WHERE a.mitarbeiter_id = tp.mitarbeiter_id
-                      AND a.verkaufsstelle_id = tp.verkaufsstelle_id
-                      AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1) AS bis_uhrzeit
+                   COALESCE(
+                     (SELECT a.von_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id),
+                     (SELECT a.von_uhrzeit FROM aktivitaet a
+                      WHERE a.mitarbeiter_id = tp.mitarbeiter_id
+                        AND a.verkaufsstelle_id = tp.verkaufsstelle_id
+                        AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1)
+                   ) AS von_uhrzeit,
+                   COALESCE(
+                     (SELECT a.bis_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id),
+                     (SELECT a.bis_uhrzeit FROM aktivitaet a
+                      WHERE a.mitarbeiter_id = tp.mitarbeiter_id
+                        AND a.verkaufsstelle_id = tp.verkaufsstelle_id
+                        AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1)
+                   ) AS bis_uhrzeit
             FROM tagesplan tp
             JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
             WHERE tp.mitarbeiter_id = ?
@@ -4273,14 +4287,20 @@ def tourenplanung():
                v.name AS station, v.plz, v.ort, v.id AS vs_id,
                v.lieferant, v.ansprechpartner, v.hinweis,
                m.name AS mitarbeiter, m.kuerzel, m.id AS ma_id,
-               (SELECT a.von_uhrzeit FROM aktivitaet a
-                WHERE a.mitarbeiter_id = tp.mitarbeiter_id
-                  AND a.verkaufsstelle_id = tp.verkaufsstelle_id
-                  AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1) AS von_uhrzeit,
-               (SELECT a.bis_uhrzeit FROM aktivitaet a
-                WHERE a.mitarbeiter_id = tp.mitarbeiter_id
-                  AND a.verkaufsstelle_id = tp.verkaufsstelle_id
-                  AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1) AS bis_uhrzeit
+               COALESCE(
+                 (SELECT a.von_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id),
+                 (SELECT a.von_uhrzeit FROM aktivitaet a
+                  WHERE a.mitarbeiter_id = tp.mitarbeiter_id
+                    AND a.verkaufsstelle_id = tp.verkaufsstelle_id
+                    AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1)
+               ) AS von_uhrzeit,
+               COALESCE(
+                 (SELECT a.bis_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id),
+                 (SELECT a.bis_uhrzeit FROM aktivitaet a
+                  WHERE a.mitarbeiter_id = tp.mitarbeiter_id
+                    AND a.verkaufsstelle_id = tp.verkaufsstelle_id
+                    AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1)
+               ) AS bis_uhrzeit
         FROM tagesplan tp
         JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
         JOIN mitarbeiter m ON m.id = tp.mitarbeiter_id
@@ -4306,14 +4326,20 @@ def tourenplanung():
                v.name AS station, v.plz, v.ort, v.id AS vs_id,
                v.lieferant, v.ansprechpartner, v.hinweis,
                m.name AS mitarbeiter, m.kuerzel, m.id AS ma_id,
-               (SELECT a.von_uhrzeit FROM aktivitaet a
-                WHERE a.mitarbeiter_id = tp.mitarbeiter_id
-                  AND a.verkaufsstelle_id = tp.verkaufsstelle_id
-                  AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1) AS von_uhrzeit,
-               (SELECT a.bis_uhrzeit FROM aktivitaet a
-                WHERE a.mitarbeiter_id = tp.mitarbeiter_id
-                  AND a.verkaufsstelle_id = tp.verkaufsstelle_id
-                  AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1) AS bis_uhrzeit
+               COALESCE(
+                 (SELECT a.von_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id),
+                 (SELECT a.von_uhrzeit FROM aktivitaet a
+                  WHERE a.mitarbeiter_id = tp.mitarbeiter_id
+                    AND a.verkaufsstelle_id = tp.verkaufsstelle_id
+                    AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1)
+               ) AS von_uhrzeit,
+               COALESCE(
+                 (SELECT a.bis_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id),
+                 (SELECT a.bis_uhrzeit FROM aktivitaet a
+                  WHERE a.mitarbeiter_id = tp.mitarbeiter_id
+                    AND a.verkaufsstelle_id = tp.verkaufsstelle_id
+                    AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1)
+               ) AS bis_uhrzeit
         FROM tagesplan tp
         JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
         JOIN mitarbeiter m ON m.id = tp.mitarbeiter_id
@@ -4466,19 +4492,30 @@ def api_tourenplanung_stopp_neu():
 @login_required
 def api_tagesplan_stopp_details(tp_id):
     row = query(
-        "SELECT mitarbeiter_id, verkaufsstelle_id, datum FROM tagesplan WHERE id=?",
+        "SELECT mitarbeiter_id, verkaufsstelle_id, datum, aktivitaet_id FROM tagesplan WHERE id=?",
         (tp_id,), one=True
     )
     if not row:
         return jsonify({'ok': False, 'error': 'Nicht gefunden'}), 404
     if not _mitarbeiter_im_eigenen_team(row['mitarbeiter_id']):
         return jsonify({'ok': False, 'error': 'Kein Zugriff'}), 403
+    # Bugreport 2026-07-27: siehe Tourenplanung-Views – bei zwei Stopps für dieselbe
+    # Verkaufsstelle/Datum (z.B. zwei Homeoffice-Zeitfenster) zeigte die reine Datum/VS-
+    # Heuristik für beide Stopps dieselbe (jeweils neueste) Aktivität an. Feste
+    # Verknüpfung über tagesplan.aktivitaet_id bevorzugen, Heuristik nur als Fallback
+    # für Altdaten ohne diese Verknüpfung.
     akt = query(
         "SELECT id, COALESCE(aktionstyp,'Aufbau') AS aktionstyp, notizen, anzahl_displays, "
-        "foto_pfad, foto_pfad_2, foto_pfad_3 FROM aktivitaet "
-        "WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? ORDER BY erstellt_am DESC LIMIT 1",
-        (row['mitarbeiter_id'], row['verkaufsstelle_id'], row['datum']), one=True
-    )
+        "foto_pfad, foto_pfad_2, foto_pfad_3 FROM aktivitaet WHERE id=?",
+        (row['aktivitaet_id'],), one=True
+    ) if row['aktivitaet_id'] else None
+    if not akt:
+        akt = query(
+            "SELECT id, COALESCE(aktionstyp,'Aufbau') AS aktionstyp, notizen, anzahl_displays, "
+            "foto_pfad, foto_pfad_2, foto_pfad_3 FROM aktivitaet "
+            "WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? ORDER BY erstellt_am DESC LIMIT 1",
+            (row['mitarbeiter_id'], row['verkaufsstelle_id'], row['datum']), one=True
+        )
     if not akt:
         return jsonify({'ok': True, 'gefunden': False})
     bestellungen = query(
@@ -5488,9 +5525,17 @@ def api_aktivitaet_offline_sync():
     # geplanter Stopp blieb offen und ein ungeplanter Stopp wurde nicht nachgetragen,
     # obwohl die Aktivität selbst korrekt gespeichert wurde. Identische Logik wie im
     # Online-Pfad (neue_aktivitaet(), siehe dort). Analog zum selben Fix in Arcobräu.
+    # Bugreport 2026-07-27: bei zwei offenen Stopps für dieselbe Verkaufsstelle/Datum
+    # (z.B. zwei Homeoffice-Zeitfenster) wurden bisher BEIDE auf erledigt=1 gesetzt und
+    # keiner erhielt eine feste Verknüpfung zur Aktivität – nur noch den ältesten offenen
+    # Stopp aktualisieren und direkt mit der neuen Aktivität verknüpfen (aktivitaet_id).
     execute(
-        "UPDATE tagesplan SET erledigt=1 WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? AND erledigt=0 AND COALESCE(geloescht,0)=0",
-        (session['user_id'], vs_id, datum)
+        "UPDATE tagesplan SET erledigt=1, aktivitaet_id=? WHERE id = ("
+        "  SELECT id FROM tagesplan"
+        "  WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? AND erledigt=0 AND COALESCE(geloescht,0)=0"
+        "  ORDER BY reihenfolge, id LIMIT 1"
+        ")",
+        (akt_id, session['user_id'], vs_id, datum)
     )
     if datum == date.today().isoformat():
         existing = query(
@@ -5851,9 +5896,17 @@ def neue_aktivitaet():
             cleanup_alte_fotos()
 
         # Passenden Tagesplan-Stop automatisch als erledigt markieren
+        # Bugreport 2026-07-27: bei zwei offenen Stopps für dieselbe Verkaufsstelle/Datum
+        # (z.B. zwei Homeoffice-Zeitfenster) wurden bisher BEIDE auf erledigt=1 gesetzt und
+        # keiner erhielt eine feste Verknüpfung zur Aktivität – nur noch den ältesten offenen
+        # Stopp aktualisieren und direkt mit der neuen Aktivität verknüpfen (aktivitaet_id).
         execute(
-            "UPDATE tagesplan SET erledigt=1 WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? AND erledigt=0 AND COALESCE(geloescht,0)=0",
-            (session['user_id'], vs_id, datum)
+            "UPDATE tagesplan SET erledigt=1, aktivitaet_id=? WHERE id = ("
+            "  SELECT id FROM tagesplan"
+            "  WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? AND erledigt=0 AND COALESCE(geloescht,0)=0"
+            "  ORDER BY reihenfolge, id LIMIT 1"
+            ")",
+            (akt_id, session['user_id'], vs_id, datum)
         )
 
         # Ungeplante Verkaufsstelle für heute automatisch in den Tagesplan aufnehmen
