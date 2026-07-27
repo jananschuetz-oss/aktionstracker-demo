@@ -117,13 +117,26 @@ async function oqSync() {
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Synchronisiere…'; }
 
   let ok = 0, fail = 0, sessionAbgelaufen = false;
-  for (const item of items) {
+  for (const [_i, item] of items.entries()) {
+    // Bugreport 2026-07-27 (Video-Beleg): bei mehreren Einträgen mit Fotos über
+    // schlechte Verbindung kann ein Durchlauf bis zu 20s pro Eintrag dauern – ohne
+    // Fortschrittsanzeige sah der unveränderte "Synchronisiere…"-Text dabei genauso
+    // aus wie ein echter Hänger. Zeigt jetzt "X von Y", damit sichtbar ist, dass es
+    // weitergeht.
+    if (btn) btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Synchronisiere ' + (_i + 1) + ' von ' + items.length + '…';
+    // Bugreport 2026-07-27 (Video-Beleg): ohne Timeout blieb der "Synchronisiere…"-Button
+    // bei einem einzelnen haengenden Request (schlechte Verbindung) unbegrenzt im
+    // Ladezustand haengen, statt zum naechsten Eintrag weiterzugehen oder abzubrechen
+    // (siehe identischer Fix in Arco vom 2026-07-25).
+    const _ctrl = new AbortController();
+    const _timeoutId = setTimeout(() => _ctrl.abort(), 20000);
     try {
       const r = await fetch('/api/aktivitaet/offline-sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(item.data),
         credentials: 'same-origin',
+        signal: _ctrl.signal,
       });
       // Bugreport 2026-07-27: bei abgelaufener Sitzung lieferte der Server früher ein
       // redirect() auf die Login-Seite – der Browser folgte dem automatisch, sodass hier
@@ -137,6 +150,7 @@ async function oqSync() {
       if (j.ok) { await _dbDelete(item.id); ok++; }
       else fail++;
     } catch { fail++; }
+    finally { clearTimeout(_timeoutId); }
   }
 
   if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-cloud-upload me-1"></i>Jetzt synchronisieren'; }
