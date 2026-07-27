@@ -844,7 +844,8 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
                     data-typ="{{ vs.typ or '' }}"
                     data-ort="{{ vs.ort or '' }}"
                     data-landkreis="{{ vs.landkreis or '' }}"
-                    data-plz="{{ vs.plz or '' }}">
+                    data-plz="{{ vs.plz or '' }}"
+                    data-letzter-besuch="{{ vs.letzter_besuch or '' }}">
               {{ vs.name }}{% if vs.plz or vs.ort %} – {% if vs.plz %}{{ vs.plz }} {% endif %}{{ vs.ort or '' }}{% endif %}{% if vs.strasse %} ({{ vs.strasse }}){% endif %}
             </option>
             {% endfor %}
@@ -1108,24 +1109,38 @@ document.addEventListener('DOMContentLoaded', function(){
     );
   }
 
+  // Nutzerwunsch 2026-07-27: letzten Besuch als Hinweis in der Stationsauswahl anzeigen,
+  // damit z.B. lange vernachlässigte Verkaufsstellen schon vor dem Öffnen auffallen.
+  function letzterBesuchLabel(iso) {
+    if (!iso) return { text: 'Noch nie besucht', warn: true };
+    const heute = new Date(); heute.setHours(0, 0, 0, 0);
+    const d = new Date(iso + 'T00:00:00');
+    const tage = Math.round((heute - d) / 86400000);
+    if (tage <= 0) return { text: 'Heute besucht', warn: false };
+    if (tage === 1) return { text: 'Gestern besucht', warn: false };
+    return { text: 'Vor ' + tage + ' Tagen besucht', warn: tage > 30 };
+  }
   function renderRows(entries) {
     if (!entries.length) {
       liste.innerHTML = '<div class="py-3 text-center text-muted" style="font-size:.82rem">Keine Stationen gefunden</div>';
       return;
     }
-    liste.innerHTML = entries.map(o => `
+    liste.innerHTML = entries.map(o => {
+      const lb = letzterBesuchLabel(o.letzterBesuch);
+      return `
       <div class="d-flex align-items-center px-3 py-2 border-bottom vs-drop-item"
            style="gap:8px" data-value="${o.value}" data-label="${o.text.replace(/"/g,'&quot;')}">
-        <span class="vs-drop-name"
-              style="flex:1;font-size:.84rem;color:#1a3a5c;cursor:pointer;min-width:0;
-                     overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
-              title="${o.text.replace(/"/g,'&quot;')}">${escapeHtml(o.text)}</span>
+        <div class="vs-drop-name" style="flex:1;cursor:pointer;min-width:0" title="${o.text.replace(/"/g,'&quot;')}">
+          <div style="font-size:.84rem;color:#1a3a5c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(o.text)}</div>
+          <div style="font-size:.72rem;color:${lb.warn ? '#c8860a' : '#888'}">${lb.text}</div>
+        </div>
         <button type="button" class="btn btn-sm btn-outline-primary vs-plus flex-shrink-0"
                 data-vs-id="${o.value}" data-vs-name="${o.text.replace(/"/g,'&quot;')}"
                 style="font-size:.72rem;padding:2px 9px" title="Direkt zum Plan hinzufügen">
           <i class="bi bi-plus-lg"></i>
         </button>
-      </div>`).join('');
+      </div>`;
+    }).join('');
 
     liste.querySelectorAll('.vs-drop-name').forEach(el => {
       el.addEventListener('click', function() {
@@ -1174,7 +1189,7 @@ document.addEventListener('DOMContentLoaded', function(){
   let vsSucheTimer = null;
   function buildListe(q) {
     const opts = getVisibleOpts(q || '');
-    const localEntries = opts.map(o => ({ value: o.value, text: o.text }));
+    const localEntries = opts.map(o => ({ value: o.value, text: o.text, letzterBesuch: o.dataset.letzterBesuch || '' }));
     renderRows(localEntries);
 
     // Die lokal eingebettete Liste ist auf VS_DASHBOARD_SEITENGROESSE gedeckelt
@@ -1192,7 +1207,7 @@ document.addEventListener('DOMContentLoaded', function(){
             .map(function(v) {
               const plzort = (v.plz ? v.plz + ' ' : '') + (v.ort || '');
               const text = v.name + (v.strasse ? ' – ' + v.strasse + (plzort ? ', ' + plzort : '') : (plzort ? ' – ' + plzort : '')) + (v.typ ? ' (' + v.typ + ')' : '');
-              return { value: String(v.id), text: text };
+              return { value: String(v.id), text: text, letzterBesuch: v.letzter_besuch || '' };
             });
           if (serverEntries.length) renderRows(localEntries.concat(serverEntries));
         })

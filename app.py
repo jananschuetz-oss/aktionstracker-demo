@@ -3811,18 +3811,23 @@ def dashboard():
             "SELECT verkaufsstelle_id FROM mitarbeiter_verkaufsstelle WHERE mitarbeiter_id=?",
             (session['user_id'],)
         )
+        # Nutzerwunsch 2026-07-27: letzter Besuch je Verkaufsstelle als Hinweis im
+        # Auswahl-Dropdown, damit man schon vor dem Öffnen sieht, wie lange ein Besuch
+        # her ist (z.B. Zwischenlagerungen mit sehr seltenen Besuchen erkennen).
+        _lb_sql = "(SELECT MAX(a.datum) FROM aktivitaet a WHERE a.verkaufsstelle_id = v.id) AS letzter_besuch"
         if assigned:
             _vs_ids = [r['verkaufsstelle_id'] for r in assigned]
             _ph = ','.join('?' * len(_vs_ids))
             alle_verkaufsstellen_rep = query(
-                f"SELECT id, name, plz, ort, strasse, typ, landkreis FROM verkaufsstelle WHERE aktiv=1 AND id IN ({_ph}) ORDER BY name",
+                f"SELECT v.id, v.name, v.plz, v.ort, v.strasse, v.typ, v.landkreis, {_lb_sql} FROM verkaufsstelle v "
+                f"WHERE v.aktiv=1 AND v.id IN ({_ph}) ORDER BY v.name",
                 _vs_ids
             )
         else:
             alle_verkaufsstellen_rep = query(
-                "SELECT id, name, plz, ort, strasse, typ, landkreis FROM verkaufsstelle "
-                "WHERE aktiv=1 AND (homeoffice_mitarbeiter_id IS NULL OR homeoffice_mitarbeiter_id=?) "
-                "ORDER BY name LIMIT ?",
+                f"SELECT v.id, v.name, v.plz, v.ort, v.strasse, v.typ, v.landkreis, {_lb_sql} FROM verkaufsstelle v "
+                "WHERE v.aktiv=1 AND (v.homeoffice_mitarbeiter_id IS NULL OR v.homeoffice_mitarbeiter_id=?) "
+                "ORDER BY v.name LIMIT ?",
                 (session['user_id'], VS_DASHBOARD_SEITENGROESSE)
             )
 
@@ -9578,8 +9583,12 @@ def api_verkaufsstellen():
     q = request.args.get('q', '')
     from_sql, where_sql, params, distinct = _verkaufsstellen_liste_sql(suche=q)
     sel = "SELECT DISTINCT" if distinct else "SELECT"
+    # Nutzerwunsch 2026-07-27: letzter Besuch je Verkaufsstelle als Hinweis im Auswahl-
+    # Dropdown (siehe dashboard.html), auch für Treffer aus dieser Server-Suche.
     rows = query(
-        f"{sel} v.id, v.name, v.strasse, v.plz, v.ort, v.typ {from_sql} {where_sql} ORDER BY v.name LIMIT 200",
+        f"{sel} v.id, v.name, v.strasse, v.plz, v.ort, v.typ, "
+        f"(SELECT MAX(a.datum) FROM aktivitaet a WHERE a.verkaufsstelle_id = v.id) AS letzter_besuch "
+        f"{from_sql} {where_sql} ORDER BY v.name LIMIT 200",
         params
     )
     return jsonify([dict(r) for r in rows])
