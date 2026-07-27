@@ -691,6 +691,7 @@
                 <span class="fw-semibold small">Offene Anträge</span>
                 <span class="badge bg-warning text-dark">{{ offene | length }}</span>
               </div>
+              <div class="table-responsive">
               <table class="table table-sm mb-0">
                 <tbody>
                   {% set typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'unbezahlt': 'Unbezahlt', 'hotel': 'Hotelübernachtung', 'kein_arbeitstag': 'Kein Arbeitstag'} %}
@@ -719,9 +720,11 @@
                   {% endfor %}
                 </tbody>
               </table>
+              </div>
             </div>
             {% endif %}
             {% if vertretungen %}
+            <div class="table-responsive">
             <table class="table table-sm table-striped mb-0">
               <thead>
                 <tr><th>Abwesend</th><th>Vertretung</th><th>Von</th><th>Bis</th><th></th></tr>
@@ -762,6 +765,7 @@
                 {% endfor %}
               </tbody>
             </table>
+            </div>
             {% else %}
             <p class="text-muted small text-center py-4 mb-0">
               <i class="bi bi-calendar-x me-1"></i>Keine Urlaubs- oder Antragsregelungen vorhanden
