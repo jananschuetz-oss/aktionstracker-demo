@@ -278,6 +278,11 @@ def inject_now():
                         WHERE v.status = 'angefragt'{_tc}''',
                     _tp, one=True)
                 ctx['offene_urlaubsantraege'] = _cnt['n'] if _cnt else 0
+            # Zähler offener Termin-Einladungen (für alle Rollen – jeder kann Empfänger sein)
+            _tt_cnt = query(
+                "SELECT COUNT(*) AS n FROM team_termin_empfaenger WHERE mitarbeiter_id=? AND status='offen'",
+                (session['user_id'],), one=True)
+            ctx['offene_termin_einladungen'] = _tt_cnt['n'] if _tt_cnt else 0
             # Zähler offener Verkaufsstellen-Hinweise (nur Admin – nur der pflegt Stammdaten)
             if session.get('rolle') == 'admin':
                 _hcnt = query("SELECT COUNT(*) AS n FROM vs_hinweis_meldung WHERE status = 'offen'", one=True)
@@ -1277,6 +1282,35 @@ def init_db():
             # nicht nutzbar – ohne diesen Index Full-Table-Scan bei jedem Aufruf von
             # Kundenhistorie/Kunden-Vergleich.
             "CREATE INDEX IF NOT EXISTS idx_hist_jahr_monat ON vs_historische_werte(jahr, monat)",
+            # Team-Termin (2026-07-28, Nutzerwunsch, analog zu Arco): VKL/Admin lädt
+            # mehrere Mitarbeiter gleichzeitig zu einem fest terminierten Termin ein
+            # (z.B. Außendienstbesprechung), jeder Mitarbeiter bestätigt/lehnt einzeln
+            # ab; bei Bestätigung wird automatisch ein Tagesplan-Stopp auf der
+            # persönlichen Homeoffice-VS angelegt. tagesplan braucht dafür eine
+            # EIGENE Uhrzeit (nicht erst über eine spätere Aktivität) – die Anzeige-
+            # Queries in tourenplanung()/dashboard() bevorzugen diese Spalten vor der
+            # bisherigen aktivitaet-Heuristik (siehe COALESCE dort).
+            "ALTER TABLE tagesplan ADD COLUMN von_uhrzeit TEXT",
+            "ALTER TABLE tagesplan ADD COLUMN bis_uhrzeit TEXT",
+            """CREATE TABLE IF NOT EXISTS team_termin (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                ersteller_id INTEGER NOT NULL REFERENCES mitarbeiter(id) ON DELETE CASCADE,
+                titel        TEXT NOT NULL,
+                datum        TEXT NOT NULL,
+                von_uhrzeit  TEXT NOT NULL,
+                bis_uhrzeit  TEXT NOT NULL,
+                notiz        TEXT,
+                erstellt_am  TEXT DEFAULT (datetime('now'))
+            )""",
+            """CREATE TABLE IF NOT EXISTS team_termin_empfaenger (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                termin_id      INTEGER NOT NULL REFERENCES team_termin(id) ON DELETE CASCADE,
+                mitarbeiter_id INTEGER NOT NULL REFERENCES mitarbeiter(id) ON DELETE CASCADE,
+                status         TEXT DEFAULT 'offen',
+                tagesplan_id   INTEGER REFERENCES tagesplan(id) ON DELETE SET NULL,
+                beantwortet_am TEXT
+            )""",
+            "CREATE INDEX IF NOT EXISTS idx_team_termin_empf_ma ON team_termin_empfaenger(mitarbeiter_id, status)",
         ]:
             try:
                 db.execute(migration)
@@ -3702,6 +3736,40 @@ def dashboard():
             _ta_p
         )
 
+    # Offene Termin-Einladungen (Nutzerwunsch 2026-07-28, analog zu Arco: VKL/Admin
+    # lädt mehrere Mitarbeiter gleichzeitig zu einem fest terminierten Termin ein,
+    # z.B. Außendienstbesprechung) – jeder Empfänger sieht seine eigenen offenen
+    # Einladungen direkt im Dashboard, unabhängig von der Rolle.
+    meine_termin_einladungen = query(
+        """SELECT tte.id AS empf_id, tt.titel, tt.datum, tt.von_uhrzeit, tt.bis_uhrzeit, tt.notiz,
+                  e.name AS ersteller
+           FROM team_termin_empfaenger tte
+           JOIN team_termin tt ON tt.id = tte.termin_id
+           JOIN mitarbeiter e ON e.id = tt.ersteller_id
+           WHERE tte.mitarbeiter_id = ? AND tte.status = 'offen'
+           ORDER BY tt.datum, tt.von_uhrzeit""",
+        (session['user_id'],)
+    )
+
+    # Von mir erstellte Termin-Einladungen: Antwortstatus je Empfänger, damit der
+    # Ersteller sieht, wer schon bestätigt/abgelehnt hat, ohne extra Seite.
+    meine_erstellten_termine = []
+    if is_manager and not ma_filter:
+        _termine_raw = query(
+            """SELECT id, titel, datum, von_uhrzeit, bis_uhrzeit, notiz
+               FROM team_termin WHERE ersteller_id = ?
+               ORDER BY datum DESC, id DESC LIMIT 10""",
+            (session['user_id'],)
+        )
+        for _t in _termine_raw:
+            _empf = query(
+                """SELECT tte.status, m.name FROM team_termin_empfaenger tte
+                   JOIN mitarbeiter m ON m.id = tte.mitarbeiter_id
+                   WHERE tte.termin_id = ? ORDER BY m.name""",
+                (_t['id'],)
+            )
+            meine_erstellten_termine.append({**dict(_t), 'empfaenger': _empf})
+
     # Rep-Dashboard: Tages-/Wochen-/Monatszahlen
     heute_stats = diese_woche_stats = vorwoche_stats = dieser_monat_stats = None
     kw_aktuell = date.today().isocalendar()[1]
@@ -3781,6 +3849,7 @@ def dashboard():
                    v.name AS station, v.strasse, v.plz, v.ort, v.id AS vs_id,
                    v.lieferant, v.ansprechpartner, v.hinweis,
                    COALESCE(
+                     tp.von_uhrzeit,
                      (SELECT a.von_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id),
                      (SELECT a.von_uhrzeit FROM aktivitaet a
                       WHERE a.mitarbeiter_id = tp.mitarbeiter_id
@@ -3788,6 +3857,7 @@ def dashboard():
                         AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1)
                    ) AS von_uhrzeit,
                    COALESCE(
+                     tp.bis_uhrzeit,
                      (SELECT a.bis_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id),
                      (SELECT a.bis_uhrzeit FROM aktivitaet a
                       WHERE a.mitarbeiter_id = tp.mitarbeiter_id
@@ -3857,6 +3927,8 @@ def dashboard():
         jahr=jahr, kw_data=kw_data, jahres=jahres,
         rep_stats=rep_stats, letzte=letzte, kpi_daten=kpi_daten,
         auffaelligkeiten=auffaelligkeiten,
+        meine_termin_einladungen=meine_termin_einladungen,
+        meine_erstellten_termine=meine_erstellten_termine,
         verfuegbare_jahre=verfuegbare_jahre,
         chart_kw=json.dumps(chart_kw),
         chart_disp=json.dumps(chart_disp),
@@ -4293,6 +4365,7 @@ def tourenplanung():
                v.lieferant, v.ansprechpartner, v.hinweis,
                m.name AS mitarbeiter, m.kuerzel, m.id AS ma_id,
                COALESCE(
+                 tp.von_uhrzeit,
                  (SELECT a.von_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id),
                  (SELECT a.von_uhrzeit FROM aktivitaet a
                   WHERE a.mitarbeiter_id = tp.mitarbeiter_id
@@ -4300,6 +4373,7 @@ def tourenplanung():
                     AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1)
                ) AS von_uhrzeit,
                COALESCE(
+                 tp.bis_uhrzeit,
                  (SELECT a.bis_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id),
                  (SELECT a.bis_uhrzeit FROM aktivitaet a
                   WHERE a.mitarbeiter_id = tp.mitarbeiter_id
@@ -4332,6 +4406,7 @@ def tourenplanung():
                v.lieferant, v.ansprechpartner, v.hinweis,
                m.name AS mitarbeiter, m.kuerzel, m.id AS ma_id,
                COALESCE(
+                 tp.von_uhrzeit,
                  (SELECT a.von_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id),
                  (SELECT a.von_uhrzeit FROM aktivitaet a
                   WHERE a.mitarbeiter_id = tp.mitarbeiter_id
@@ -4339,6 +4414,7 @@ def tourenplanung():
                     AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1)
                ) AS von_uhrzeit,
                COALESCE(
+                 tp.bis_uhrzeit,
                  (SELECT a.bis_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id),
                  (SELECT a.bis_uhrzeit FROM aktivitaet a
                   WHERE a.mitarbeiter_id = tp.mitarbeiter_id
@@ -9405,6 +9481,130 @@ def team_verwaltung():
         is_admin=is_admin, is_vkl=is_vkl,
         ziele=ziele, teamziel=teamziel, jahr=jahr, alle_jahre=alle_jahre,
         urlaub_konten=urlaub_konten)
+
+
+# ─── Team-Termin (VKL+): mehrere Mitarbeiter gleichzeitig zu einem fest ────────
+# terminierten Termin einladen (z.B. Außendienstbesprechung im Homeoffice).
+# Nutzerwunsch 2026-07-28: jeder Empfänger bestätigt/lehnt einzeln ab; bei
+# Bestätigung wird automatisch ein Tagesplan-Stopp auf der persönlichen
+# Homeoffice-Verkaufsstelle mit der fixen Uhrzeit angelegt, sodass der Termin
+# direkt in der Besuchsplanung erscheint. Analog zu Arco.
+
+@app.route('/team-termin/neu', methods=['POST'])
+@manager_required
+def team_termin_neu():
+    titel       = (request.form.get('titel') or '').strip() or 'Außendienstbesprechung'
+    datum       = request.form.get('datum', '').strip()
+    von_uhrzeit = request.form.get('von_uhrzeit', '').strip()
+    bis_uhrzeit = request.form.get('bis_uhrzeit', '').strip()
+    notiz       = (request.form.get('notiz') or '').strip() or None
+    empfaenger_ids = request.form.getlist('empfaenger_ids', type=int)
+
+    if not datum or not von_uhrzeit or not bis_uhrzeit:
+        flash('Bitte Datum sowie Von-/Bis-Uhrzeit angeben.', 'danger')
+        return redirect(request.referrer or url_for('team_verwaltung'))
+    if not empfaenger_ids:
+        flash('Bitte mindestens einen Mitarbeiter auswählen.', 'danger')
+        return redirect(request.referrer or url_for('team_verwaltung'))
+
+    # Team-Scope: nur Mitarbeiter im eigenen Zugriffsbereich dürfen eingeladen
+    # werden (VKL mit Team: nur eigenes Team; Admin/VKL ohne Team: alle) – analog
+    # zum Rollen-UND-Team-Muster aus den übrigen Manager-Routen.
+    _tc, _tp = _team_m_clause('m')
+    ph = ','.join('?' * len(empfaenger_ids))
+    erlaubte = query(
+        f"SELECT id FROM mitarbeiter m WHERE m.aktiv=1 AND m.id IN ({ph}){_tc}",
+        tuple(empfaenger_ids) + _tp
+    )
+    erlaubte_ids = [r['id'] for r in erlaubte]
+    if not erlaubte_ids:
+        flash('Keiner der ausgewählten Mitarbeiter liegt in Ihrem Zugriffsbereich.', 'danger')
+        return redirect(request.referrer or url_for('team_verwaltung'))
+
+    termin_id = execute(
+        "INSERT INTO team_termin (ersteller_id, titel, datum, von_uhrzeit, bis_uhrzeit, notiz) VALUES (?,?,?,?,?,?)",
+        (session['user_id'], titel, datum, von_uhrzeit, bis_uhrzeit, notiz)
+    )
+    for ma_id in erlaubte_ids:
+        execute(
+            "INSERT INTO team_termin_empfaenger (termin_id, mitarbeiter_id) VALUES (?,?)",
+            (termin_id, ma_id)
+        )
+    flash(f'Termin "{titel}" an {len(erlaubte_ids)} Mitarbeiter gesendet.', 'success')
+    return redirect(request.referrer or url_for('team_verwaltung'))
+
+
+def _team_termin_empf_eigener(empf_id):
+    """Lädt eine Termin-Einladung samt Termin-Daten, sofern sie dem eingeloggten
+    Mitarbeiter gehört (keine reine Rollenprüfung – Empfänger-Zugehörigkeit ist
+    hier die eigentliche Autorisierung, jeder Mitarbeiter darf nur seine eigenen
+    Einladungen beantworten)."""
+    row = query(
+        """SELECT tte.id, tte.termin_id, tte.mitarbeiter_id, tte.status,
+                  tt.titel, tt.datum, tt.von_uhrzeit, tt.bis_uhrzeit
+           FROM team_termin_empfaenger tte
+           JOIN team_termin tt ON tt.id = tte.termin_id
+           WHERE tte.id = ?""",
+        (empf_id,), one=True
+    )
+    if not row or row['mitarbeiter_id'] != session.get('user_id'):
+        return None
+    return row
+
+
+@app.route('/team-termin/<int:empf_id>/bestaetigen', methods=['POST'])
+@login_required
+def team_termin_bestaetigen(empf_id):
+    row = _team_termin_empf_eigener(empf_id)
+    if not row:
+        flash('Kein Zugriff auf diese Einladung.', 'danger')
+        return redirect(url_for('dashboard'))
+    if row['status'] != 'offen':
+        flash('Diese Einladung wurde bereits beantwortet.', 'warning')
+        return redirect(url_for('dashboard'))
+
+    homeoffice_vs = query(
+        "SELECT id FROM verkaufsstelle WHERE homeoffice_mitarbeiter_id=? AND aktiv=1",
+        (session['user_id'],), one=True
+    )
+    if not homeoffice_vs:
+        flash('Für dich ist noch keine Homeoffice-Verkaufsstelle hinterlegt – bitte beim Admin/VKL melden, bevor du bestätigst.', 'danger')
+        return redirect(url_for('dashboard'))
+
+    max_r = query(
+        "SELECT COALESCE(MAX(reihenfolge), 0) AS m FROM tagesplan WHERE mitarbeiter_id=? AND datum=?",
+        (session['user_id'], row['datum']), one=True
+    )['m']
+    tagesplan_id = execute(
+        "INSERT INTO tagesplan (mitarbeiter_id, verkaufsstelle_id, datum, reihenfolge, notiz, von_uhrzeit, bis_uhrzeit, erstellt_von) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        (session['user_id'], homeoffice_vs['id'], row['datum'], max_r + 1, row['titel'],
+         row['von_uhrzeit'], row['bis_uhrzeit'], session['user_id'])
+    )
+    execute(
+        "UPDATE team_termin_empfaenger SET status='bestätigt', tagesplan_id=?, beantwortet_am=datetime('now') WHERE id=?",
+        (tagesplan_id, empf_id)
+    )
+    flash(f'"{row["titel"]}" bestätigt und in deine Besuchsplanung übernommen.', 'success')
+    return redirect(url_for('dashboard'))
+
+
+@app.route('/team-termin/<int:empf_id>/ablehnen', methods=['POST'])
+@login_required
+def team_termin_ablehnen(empf_id):
+    row = _team_termin_empf_eigener(empf_id)
+    if not row:
+        flash('Kein Zugriff auf diese Einladung.', 'danger')
+        return redirect(url_for('dashboard'))
+    if row['status'] != 'offen':
+        flash('Diese Einladung wurde bereits beantwortet.', 'warning')
+        return redirect(url_for('dashboard'))
+    execute(
+        "UPDATE team_termin_empfaenger SET status='abgelehnt', beantwortet_am=datetime('now') WHERE id=?",
+        (empf_id,)
+    )
+    flash(f'"{row["titel"]}" abgelehnt.', 'info')
+    return redirect(url_for('dashboard'))
 
 
 # ─── Team-Vergleich (Admin) ───────────────────────────────────────────────────

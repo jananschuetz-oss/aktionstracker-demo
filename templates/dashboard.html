@@ -347,6 +347,66 @@ document.addEventListener('DOMContentLoaded', function(){
 </div>
 {% endif %}
 
+<!-- Offene Termin-Einladungen: eigene Einladungen direkt bestätigen/ablehnen (jede Rolle) -->
+{% if meine_termin_einladungen %}
+<div class="card mb-4" style="border:1px solid #f0c674">
+  <div class="card-body py-3">
+    <div class="fw-semibold mb-2" style="color:#8a5a00;font-size:.9rem">
+      <i class="bi bi-calendar2-week me-1"></i>Termin-Einladung{{ 'en' if meine_termin_einladungen|length > 1 else '' }}
+      <span class="badge ms-1" style="background:#f0ad4e;color:#5c3c00;font-weight:600">{{ meine_termin_einladungen|length }}</span>
+    </div>
+    {% for t in meine_termin_einladungen %}
+    <div class="d-flex flex-wrap align-items-center gap-2 py-2" style="border-top:1px solid #f0f0f0">
+      <span class="fw-semibold" style="color:#1a3a5c"><i class="bi bi-calendar-event me-1"></i>{{ t.titel }}</span>
+      <span class="text-muted small">{{ t.datum }} · {{ t.von_uhrzeit }}–{{ t.bis_uhrzeit }}</span>
+      <span class="badge bg-light text-dark" style="font-weight:500">von {{ t.ersteller }}</span>
+      {% if t.notiz %}<span class="text-muted small">{{ t.notiz }}</span>{% endif %}
+      <div class="ms-auto d-flex gap-1">
+        <form method="POST" action="{{ url_for('team_termin_bestaetigen', empf_id=t.empf_id) }}" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-sm btn-success"><i class="bi bi-check-lg me-1"></i>Bestätigen</button>
+        </form>
+        <form method="POST" action="{{ url_for('team_termin_ablehnen', empf_id=t.empf_id) }}" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-sm btn-outline-danger" title="Ablehnen"><i class="bi bi-x-lg"></i></button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- Von mir erstellte Termin-Einladungen: Antwortstatus je Empfänger -->
+{% if is_manager and not ma_filter and meine_erstellten_termine %}
+<div class="card mb-4">
+  <div class="card-header">
+    <i class="bi bi-calendar2-week me-2"></i>Meine Termin-Einladungen – Status
+  </div>
+  <div class="card-body py-3">
+    {% for t in meine_erstellten_termine %}
+    <div class="py-2" style="border-top:1px solid #f0f0f0">
+      <div class="d-flex flex-wrap align-items-center gap-2">
+        <span class="fw-semibold" style="color:#1a3a5c">{{ t.titel }}</span>
+        <span class="text-muted small">{{ t.datum }} · {{ t.von_uhrzeit }}–{{ t.bis_uhrzeit }}</span>
+      </div>
+      <div class="d-flex flex-wrap gap-1 mt-1">
+        {% for e in t.empfaenger %}
+          {% if e.status == 'bestätigt' %}
+            <span class="badge bg-success">{{ e.name }}</span>
+          {% elif e.status == 'abgelehnt' %}
+            <span class="badge bg-danger">{{ e.name }}</span>
+          {% else %}
+            <span class="badge bg-secondary">{{ e.name }}</span>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 <!-- Offene Urlaubsanträge: Manager bestätigt/lehnt direkt ab -->
 {% if is_manager and not ma_filter and urlaubsantraege %}
 <div class="card mb-4" style="border:1px solid #b8daff">

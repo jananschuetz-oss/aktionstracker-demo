@@ -145,6 +145,78 @@
   </div>
 </div>
 
+<!-- Team-Termin: mehrere Mitarbeiter gleichzeitig zu einem fest terminierten
+     Termin einladen (z.B. Außendienstbesprechung), landet nach Bestätigung
+     automatisch in der Besuchsplanung des jeweiligen Mitarbeiters. -->
+<div class="card mb-4" id="team-termin">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-calendar2-week me-2"></i>Termin für mehrere Mitarbeiter</span>
+    <button class="btn btn-sm btn-primary" data-bs-toggle="collapse" data-bs-target="#formTermin">
+      <i class="bi bi-plus-lg me-1"></i>Termin erstellen
+    </button>
+  </div>
+  <div class="collapse" id="formTermin">
+    <div class="card-body border-bottom" style="background:#f8fafc">
+      <form method="POST" action="{{ url_for('team_termin_neu') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="row g-3">
+          <div class="col-sm-5">
+            <label class="form-label fw-semibold">Titel</label>
+            <input type="text" name="titel" class="form-control" value="Außendienstbesprechung">
+          </div>
+          <div class="col-sm-3">
+            <label class="form-label fw-semibold">Datum</label>
+            <input type="date" name="datum" class="form-control" required>
+          </div>
+          <div class="col-sm-2">
+            <label class="form-label fw-semibold">Von</label>
+            <input type="time" name="von_uhrzeit" class="form-control" step="300" required>
+          </div>
+          <div class="col-sm-2">
+            <label class="form-label fw-semibold">Bis</label>
+            <input type="time" name="bis_uhrzeit" class="form-control" step="300" required>
+          </div>
+          <div class="col-12">
+            <label class="form-label fw-semibold">Notiz <span class="text-muted small">(optional)</span></label>
+            <input type="text" name="notiz" class="form-control" placeholder="z.B. Ort/Agenda">
+          </div>
+          <div class="col-12">
+            <label class="form-label fw-semibold d-flex align-items-center justify-content-between">
+              <span>Empfänger</span>
+              <span>
+                <button type="button" class="btn btn-sm btn-link p-0 me-2" onclick="terminAlleWaehlen(true)">Alle</button>
+                <button type="button" class="btn btn-sm btn-link p-0" onclick="terminAlleWaehlen(false)">Keine</button>
+              </span>
+            </label>
+            <div class="d-flex flex-wrap gap-2" style="max-height:220px;overflow-y:auto;border:1px solid #dee2e6;border-radius:.375rem;padding:.6rem">
+              {% for ma in reps %}
+              <label class="form-check border rounded-pill px-3 py-1" style="cursor:pointer">
+                <input type="checkbox" class="form-check-input termin-empf-cb" name="empfaenger_ids" value="{{ ma.id }}">
+                <span class="form-check-label ms-1">{{ ma.name }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="col-12">
+            <button type="submit" class="btn btn-success">
+              <i class="bi bi-send me-1"></i>Termin senden
+            </button>
+          </div>
+        </div>
+        <p class="text-muted small mt-2 mb-0">
+          <i class="bi bi-info-circle me-1"></i>Jeder Empfänger sieht die Einladung im Dashboard und bestätigt/lehnt sie selbst ab.
+          Nach Bestätigung wird der Termin automatisch auf der persönlichen Homeoffice-Verkaufsstelle in die Besuchsplanung übernommen.
+        </p>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+function terminAlleWaehlen(wert) {
+  document.querySelectorAll('.termin-empf-cb').forEach(function(cb) { cb.checked = wert; });
+}
+</script>
+
 <!-- Vertretungen -->
 <div class="card mb-4" id="vertretung">
   <div class="card-header d-flex justify-content-between align-items-center">

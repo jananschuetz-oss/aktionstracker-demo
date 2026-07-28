@@ -281,6 +281,11 @@ function wpFilterDropdownListe(inputEl, itemSelector) {
               {% if stop.hinweis %}<i class="bi bi-exclamation-circle me-1" style="color:#c8860a"></i>{{ stop.hinweis }}{% endif %}
             </div>
             {% endif %}
+            {% if stop.von_uhrzeit %}
+            <div style="font-size:.76rem;color:#1a3a5c;font-weight:600">
+              <i class="bi bi-clock me-1"></i>{{ stop.von_uhrzeit }}{% if stop.bis_uhrzeit %}–{{ stop.bis_uhrzeit }}{% endif %}
+            </div>
+            {% endif %}
             {% if stop.notiz %}<div style="font-size:.76rem;color:#2c7a7b"><i class="bi bi-chat-left-text me-1"></i>{{ stop.notiz }}</div>{% endif %}
           </div>
           <button type="button" class="btn btn-sm btn-outline-secondary vs-stamm-edit-btn flex-shrink-0"
@@ -568,6 +573,11 @@ function wpFilterDropdownListe(inputEl, itemSelector) {
                     {% if stop.ansprechpartner %}<i class="bi bi-person me-1"></i>{{ stop.ansprechpartner }}{% endif %}
                     {% if stop.ansprechpartner and stop.hinweis %}&nbsp;·&nbsp;{% endif %}
                     {% if stop.hinweis %}<i class="bi bi-exclamation-circle me-1" style="color:#c8860a"></i>{{ stop.hinweis }}{% endif %}
+                  </div>
+                  {% endif %}
+                  {% if stop.von_uhrzeit %}
+                  <div style="font-size:.74rem;color:#1a3a5c;font-weight:600">
+                    <i class="bi bi-clock me-1"></i>{{ stop.von_uhrzeit }}{% if stop.bis_uhrzeit %}–{{ stop.bis_uhrzeit }}{% endif %}
                   </div>
                   {% endif %}
                   {% if stop.notiz %}<div style="font-size:.76rem;color:#2c7a7b"><i class="bi bi-chat-left-text me-1"></i>{{ stop.notiz }}</div>{% endif %}
