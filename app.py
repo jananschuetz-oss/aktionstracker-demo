@@ -3793,25 +3793,33 @@ def dashboard():
     # Persönliche Tages-/Wochen-/Monatszahlen: eigene Ansicht (Rep, oder VKL ohne ma_filter)
     if zeige_eigene_ansicht:
         _uid = (session['user_id'],)
+        # Nutzerwunsch 2026-07-28 (analog zu Arco): das "Aktivitäten"-Kärtchen zeigte bisher
+        # SUM(anzahl_displays) (= Anzahl platzierter Aufbau-Stück), nicht die Anzahl der
+        # Aktivitäten selbst – bei einem Besuch ohne Aufbau (reine Bestellung/Besuch) blieb
+        # die Zahl 0, obwohl der Besuch erfasst war. AKT_ZIELREL zählt stattdessen die
+        # Aktivitäten (Zeilen), die zielrelevant sind (Aufbau-Typ mit mindestens einer
+        # Tier-1-Position – anzahl_displays wird bereits nur aus zaehlt_zur_zielerreichung=1-
+        # Positionen befüllt, s. neue_aktivitaet()/api_aktivitaet_offline_sync()).
+        AKT_ZIELREL = f"COUNT(CASE WHEN {_AUF} AND a.anzahl_displays > 0 THEN 1 END)"
         heute_stats = query(f'''
-            SELECT {DISP_IST} AS displays, {KIST_IST} AS kisten, COUNT(a.id) AS besuche
+            SELECT {DISP_IST} AS displays, {KIST_IST} AS kisten, COUNT(a.id) AS besuche, {AKT_ZIELREL} AS aktivitaeten
             FROM aktivitaet a LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
             WHERE a.datum = date('now','localtime') AND a.mitarbeiter_id = ?
         ''', _uid, one=True)
         diese_woche_stats = query(f'''
-            SELECT {DISP_IST} AS displays, {KIST_IST} AS kisten, COUNT(a.id) AS besuche
+            SELECT {DISP_IST} AS displays, {KIST_IST} AS kisten, COUNT(a.id) AS besuche, {AKT_ZIELREL} AS aktivitaeten
             FROM aktivitaet a LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
             WHERE strftime('%Y-%W', a.datum) = strftime('%Y-%W', date('now','localtime'))
             AND a.mitarbeiter_id = ?
         ''', _uid, one=True)
         vorwoche_stats = query(f'''
-            SELECT {DISP_IST} AS displays, {KIST_IST} AS kisten, COUNT(a.id) AS besuche
+            SELECT {DISP_IST} AS displays, {KIST_IST} AS kisten, COUNT(a.id) AS besuche, {AKT_ZIELREL} AS aktivitaeten
             FROM aktivitaet a LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
             WHERE strftime('%Y-%W', a.datum) = strftime('%Y-%W', date('now','localtime','-7 days'))
             AND a.mitarbeiter_id = ?
         ''', _uid, one=True)
         dieser_monat_stats = query(f'''
-            SELECT {DISP_IST} AS displays, {KIST_IST} AS kisten, COUNT(a.id) AS besuche
+            SELECT {DISP_IST} AS displays, {KIST_IST} AS kisten, COUNT(a.id) AS besuche, {AKT_ZIELREL} AS aktivitaeten
             FROM aktivitaet a LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
             WHERE strftime('%Y-%m', a.datum) = strftime('%Y-%m', date('now','localtime'))
             AND a.mitarbeiter_id = ?
