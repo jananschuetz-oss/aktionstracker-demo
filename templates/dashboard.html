@@ -2145,12 +2145,49 @@ if (bierData.length > 0) {
         if (data.notizen) {
           html += '<div class="mt-1"><i class="bi bi-chat-left-text me-1" style="color:#6c757d"></i>' + escapeHtml(data.notizen) + '</div>';
         }
+        if (data.fotos && data.fotos.length) {
+          var fotosJson = JSON.stringify(data.fotos).replace(/"/g, '&quot;');
+          html += '<div class="mt-2 d-flex gap-1">' + data.fotos.map(function(fp, i) {
+            return '<a href="#" class="tp-foto-oeffnen" data-fotos="' + fotosJson + '" data-index="' + i + '" title="Foto vergrößern">'
+                 + '<img src="/uploads/' + fp + '" alt="Foto" '
+                 + 'style="width:64px;height:64px;object-fit:cover;border-radius:.5rem;border:2px solid #2e6da4">'
+                 + '</a>';
+          }).join('') + '</div>';
+        }
         if (!html) html = '<span class="text-muted" style="font-size:.8rem">Besuch erfasst – keine Bestellung/Notiz</span>';
         pane.innerHTML = html;
       })
       .catch(function() { pane.innerHTML = '<span class="text-danger">Fehler beim Laden</span>'; });
   }
-  document.addEventListener('click', tpDetailHandler);
+  var tpFotoListe = [];
+  var tpFotoIndex = 0;
+  function tpFotoZeigen() {
+    document.getElementById('dashTpFotoGross').src = '/uploads/' + tpFotoListe[tpFotoIndex];
+    var mehrere = tpFotoListe.length > 1;
+    document.getElementById('dashTpFotoPrev').style.display = mehrere ? '' : 'none';
+    document.getElementById('dashTpFotoNext').style.display = mehrere ? '' : 'none';
+    document.getElementById('dashTpFotoZaehler').textContent = mehrere ? (tpFotoIndex + 1) + ' / ' + tpFotoListe.length : '';
+  }
+  document.addEventListener('click', function(e) {
+    var link = e.target.closest('.tp-foto-oeffnen');
+    if (link) {
+      e.preventDefault();
+      tpFotoListe = JSON.parse(link.dataset.fotos);
+      tpFotoIndex = parseInt(link.dataset.index, 10) || 0;
+      tpFotoZeigen();
+      new bootstrap.Modal(document.getElementById('modalDashTpFoto')).show();
+      return;
+    }
+    if (e.target.closest('#dashTpFotoPrev')) {
+      tpFotoIndex = (tpFotoIndex - 1 + tpFotoListe.length) % tpFotoListe.length;
+      tpFotoZeigen(); return;
+    }
+    if (e.target.closest('#dashTpFotoNext')) {
+      tpFotoIndex = (tpFotoIndex + 1) % tpFotoListe.length;
+      tpFotoZeigen(); return;
+    }
+    tpDetailHandler(e);
+  });
 })();
 
 // ── Arbeitszeit-Erfassung ────────────────────────────────────────────────────
@@ -2226,4 +2263,26 @@ if (bierData.length > 0) {
   };
 })();
 </script>
+
+<!-- Foto-Vorschau Modal (Besuchsplanung-Detail im Dashboard) -->
+<div class="modal fade" id="modalDashTpFoto" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content" style="background:transparent;border:none">
+      <div class="modal-header border-0 pb-0">
+        <span id="dashTpFotoZaehler" class="text-white small"></span>
+        <button type="button" class="btn-close btn-close-white ms-auto" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center p-0 position-relative">
+        <button type="button" id="dashTpFotoPrev" class="btn btn-light position-absolute top-50 start-0 translate-middle-y ms-2" style="display:none;z-index:2">
+          <i class="bi bi-chevron-left"></i>
+        </button>
+        <img id="dashTpFotoGross" src="" alt="Foto" style="max-width:100%;max-height:80vh;border-radius:.5rem">
+        <button type="button" id="dashTpFotoNext" class="btn btn-light position-absolute top-50 end-0 translate-middle-y me-2" style="display:none;z-index:2">
+          <i class="bi bi-chevron-right"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% endblock %}

@@ -1114,6 +1114,11 @@ def init_db():
             "CREATE INDEX IF NOT EXISTS idx_bestellposition_akt_kisten ON bestellposition(aktivitaet_id, kisten_anzahl)",
             "DROP INDEX IF EXISTS idx_bestellposition_aktivitaet",
             "CREATE INDEX IF NOT EXISTS idx_displayposition_aktivitaet ON displayposition(aktivitaet_id)",
+            # Performance-Check 2026-07-28 (analog zu Arco): WHERE dp.status='offen' lief
+            # bei jedem Seitenaufruf für Admin/VKL (Freigaben-Badge im context_processor)
+            # und auf der Freigaben-Seite selbst als Full-Table-Scan über displayposition,
+            # da nur aktivitaet_id indiziert war.
+            "CREATE INDEX IF NOT EXISTS idx_displayposition_status ON displayposition(status)",
             "CREATE INDEX IF NOT EXISTS idx_mitarbeiter_team ON mitarbeiter(team_id)",
             "CREATE INDEX IF NOT EXISTS idx_mitarbeiter_verkaufsstelle_ma ON mitarbeiter_verkaufsstelle(mitarbeiter_id)",
             "CREATE INDEX IF NOT EXISTS idx_mitarbeiter_verkaufsstelle_vs ON mitarbeiter_verkaufsstelle(verkaufsstelle_id)",
@@ -9767,12 +9772,16 @@ def serve_upload(filename):
     rolle = session.get('rolle')
     if rolle != 'admin':
         if rolle == 'verkaufsleiter' and session.get('team_id'):
-            erlaubt = query(
-                "SELECT 1 FROM mitarbeiter WHERE id=? AND team_id=?",
-                (akt['mitarbeiter_id'], session['team_id']), one=True
-            )
-            if not erlaubt:
-                abort(403)
+            # Eigene Aktivitäten des VKL sind immer erlaubt (analog zu Arco, Bugreport
+            # 2026-07-28: VKL mit eigenem Gebiet sah keine eigenen Fotos, da der eigene
+            # Mitarbeiter-Eintrag keine team_id-Mitgliedschaft trägt).
+            if akt['mitarbeiter_id'] != session.get('user_id'):
+                erlaubt = query(
+                    "SELECT 1 FROM mitarbeiter WHERE id=? AND team_id=?",
+                    (akt['mitarbeiter_id'], session['team_id']), one=True
+                )
+                if not erlaubt:
+                    abort(403)
         elif rolle != 'verkaufsleiter':
             if akt['mitarbeiter_id'] != session.get('user_id'):
                 abort(403)
