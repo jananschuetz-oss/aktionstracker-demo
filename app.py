@@ -283,6 +283,15 @@ def inject_now():
                 "SELECT COUNT(*) AS n FROM team_termin_empfaenger WHERE mitarbeiter_id=? AND status='offen'",
                 (session['user_id'],), one=True)
             ctx['offene_termin_einladungen'] = _tt_cnt['n'] if _tt_cnt else 0
+            # VKL mit eigenem Gebiet (persönlich zugeordnete Verkaufsstellen wie ein Rep) –
+            # Nutzerwunsch 2026-07-28, analog zu Arco: der "Besuchsplanung"-Button in der
+            # mobilen Bottom-Nav soll für diese VKL zur eigenen Besuchsplanung (Dashboard-
+            # Tab) führen statt zur Team-Übersicht (/tourenplanung).
+            if session.get('rolle') == 'verkaufsleiter':
+                _eig = query(
+                    "SELECT 1 FROM mitarbeiter_verkaufsstelle WHERE mitarbeiter_id=? LIMIT 1",
+                    (session['user_id'],), one=True)
+                ctx['vkl_hat_eigenes_gebiet'] = bool(_eig)
             # Zähler offener Verkaufsstellen-Hinweise (nur Admin – nur der pflegt Stammdaten)
             if session.get('rolle') == 'admin':
                 _hcnt = query("SELECT COUNT(*) AS n FROM vs_hinweis_meldung WHERE status = 'offen'", one=True)

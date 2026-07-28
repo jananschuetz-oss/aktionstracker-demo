@@ -255,7 +255,7 @@
     <i class="bi bi-list-ul"></i>Aktivitäten
   </a>
   {% if session.rolle in ('admin', 'verkaufsleiter') %}
-  <a href="{{ url_for('tourenplanung') }}" class="btn-neu">
+  <a href="{{ url_for('dashboard') + '#tab-tagesplan-btn' if (session.rolle == 'verkaufsleiter' and vkl_hat_eigenes_gebiet) else url_for('tourenplanung') }}" class="btn-neu">
     <i class="bi bi-signpost-split-fill"></i><span style="text-align:center;line-height:1.2">Besuchs<br>planung</span>
   </a>
   <a href="{{ url_for('neue_aktivitaet') }}"
