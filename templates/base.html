@@ -881,10 +881,33 @@
   var modalEl = document.getElementById('modalVsStammdaten');
   if (!modalEl) return;
   var currentId = null;
+  var currentTrigger = null;
   document.addEventListener('click', function(e) {
     var btn = e.target.closest('.vs-stamm-edit-btn');
     if (!btn) return;
+    currentTrigger = btn;
     currentId = btn.dataset.vsId;
+    var fetchUrl = btn.dataset.fetchUrl;
+    if (fetchUrl) {
+      // Neue Aktivität: Stammdaten sind hier nicht schon in Data-Attributen vorgerendert
+      // (VKL/Admin durchsuchen ggf. tausende Stationen serverseitig) – bei Klick nachladen.
+      document.getElementById('vsStammName').textContent = btn.dataset.vsName || '…';
+      document.getElementById('vsStammLieferant').value = '';
+      document.getElementById('vsStammAnsprechpartner').value = '';
+      document.getElementById('vsStammHinweis').value = '';
+      new bootstrap.Modal(modalEl).show();
+      fetch(fetchUrl)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok) return;
+          document.getElementById('vsStammName').textContent = data.name || btn.dataset.vsName || '';
+          document.getElementById('vsStammLieferant').value = data.lieferant || '';
+          document.getElementById('vsStammAnsprechpartner').value = data.ansprechpartner || '';
+          document.getElementById('vsStammHinweis').value = data.hinweis || '';
+        })
+        .catch(function() {});
+      return;
+    }
     document.getElementById('vsStammName').textContent = btn.dataset.vsName || '';
     document.getElementById('vsStammLieferant').value = btn.dataset.lieferant || '';
     document.getElementById('vsStammAnsprechpartner').value = btn.dataset.ansprechpartner || '';
@@ -897,19 +920,37 @@
     var orig = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Speichern…';
+    // In der Neue-Aktivität-Maske würde ein Reload das halb ausgefüllte Formular
+    // (Fotos, Notizen, Mengen) verwerfen – dort stattdessen nur den Auslöser-Button
+    // aktualisieren und das Modal schließen, statt die Seite neu zu laden.
+    var noReload = currentTrigger && currentTrigger.dataset.noReload === 'true';
+    var neueLieferant = document.getElementById('vsStammLieferant').value;
+    var neueAnsprechpartner = document.getElementById('vsStammAnsprechpartner').value;
+    var neueHinweis = document.getElementById('vsStammHinweis').value;
     fetch('/verkaufsstelle/' + currentId + '/kontakt-aktualisieren', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        lieferant: document.getElementById('vsStammLieferant').value,
-        ansprechpartner: document.getElementById('vsStammAnsprechpartner').value,
-        hinweis: document.getElementById('vsStammHinweis').value
+        lieferant: neueLieferant,
+        ansprechpartner: neueAnsprechpartner,
+        hinweis: neueHinweis
       })
     })
       .then(function(r) { return r.json(); })
       .then(function(data) {
         if (data.ok) {
-          window.location.reload();
+          if (noReload) {
+            if (currentTrigger) {
+              currentTrigger.dataset.lieferant = neueLieferant;
+              currentTrigger.dataset.ansprechpartner = neueAnsprechpartner;
+              currentTrigger.dataset.hinweis = neueHinweis;
+            }
+            btn.disabled = false;
+            btn.innerHTML = orig;
+            bootstrap.Modal.getInstance(modalEl).hide();
+          } else {
+            window.location.reload();
+          }
         } else {
           btn.disabled = false;
           btn.innerHTML = orig;

@@ -11309,6 +11309,22 @@ def _mitarbeiter_im_eigenen_team(ma_id):
     return False
 
 
+@app.route('/api/verkaufsstelle/<int:vs_id>/stammdaten')
+@login_required
+def api_verkaufsstelle_stammdaten(vs_id):
+    """Liefert Name/Lieferant/Ansprechpartner/Hinweis einer Verkaufsstelle für die
+    Schnellbearbeitung direkt aus der Neue-Aktivität-Maske (Nutzerwunsch 2026-07-28:
+    Ansprechpartner erfahren wir oft erst im Gespräch vor Ort, dafür extra zurück zur
+    Besuchsplanung wechseln zu müssen ist umständlich). Analog zu Arco."""
+    if not _verkaufsstelle_im_eigenen_gebiet(vs_id):
+        return jsonify({'ok': False, 'error': 'Kein Zugriff'}), 403
+    row = query("SELECT name, lieferant, ansprechpartner, hinweis FROM verkaufsstelle WHERE id=?", (vs_id,), one=True)
+    if not row:
+        return jsonify({'ok': False, 'error': 'Nicht gefunden'}), 404
+    return jsonify({'ok': True, 'name': row['name'], 'lieferant': row['lieferant'],
+                     'ansprechpartner': row['ansprechpartner'], 'hinweis': row['hinweis']})
+
+
 @app.route('/verkaufsstelle/<int:vs_id>/kontakt-aktualisieren', methods=['POST'])
 @login_required
 def verkaufsstelle_kontakt_aktualisieren(vs_id):

@@ -131,6 +131,10 @@
                      placeholder="Verkaufsstelle suchen..." autocomplete="off">
               <button type="button" class="btn btn-outline-secondary d-none" id="vsClear"
                       onclick="vsClearSelection()"><i class="bi bi-x-lg"></i></button>
+              <button type="button" class="btn btn-outline-secondary vs-stamm-edit-btn d-none"
+                      id="vsStammEditTrigger" data-no-reload="true"
+                      data-vs-id="" data-vs-name="" data-fetch-url=""
+                      title="Ansprechpartner/Hinweis bearbeiten"><i class="bi bi-pencil"></i></button>
             </div>
             <input type="hidden" name="verkaufsstelle_id" id="vsId"
                    value="{{ preselect_vs or '' }}">
@@ -840,7 +844,13 @@ const vsClear    = document.getElementById('vsClear');
   const pre = vsId.value;
   if (pre) {
     const found = VS_DATA.find(v => v.id == pre);
-    if (found) { vsSearch.value = found.label; vsClear.classList.remove('d-none'); }
+    if (found) {
+      vsSearch.value = found.label;
+      vsClear.classList.remove('d-none');
+      vsShowStammEditBtn(pre, found.label);
+    } else {
+      vsShowStammEditBtn(pre, vsSearch.value);
+    }
     document.getElementById('vsZonenContainer').style.display = 'block';
     vsShowOffeneBestellungen(pre);
     vsShowLetzterBesuch(pre);
@@ -982,11 +992,21 @@ function vsRenderDropdown(term) {
   vsDropdown.style.display = 'block';
 }
 
+function vsShowStammEditBtn(id, label) {
+  const btn = document.getElementById('vsStammEditTrigger');
+  if (!btn) return;
+  btn.dataset.vsId = id;
+  btn.dataset.vsName = (label || '').split(' – ')[0].replace(/\s*\([^)]*\)\s*$/, '');
+  btn.dataset.fetchUrl = '/api/verkaufsstelle/' + id + '/stammdaten';
+  btn.classList.remove('d-none');
+}
+
 function vsSelect(id, label) {
   vsId.value = id;
   vsSearch.value = label;
   vsDropdown.style.display = 'none';
   vsClear.classList.remove('d-none');
+  vsShowStammEditBtn(id, label);
   updateHomeofficeUI();
   updateTankenUI();
   updateVerlegerUI();
@@ -1004,6 +1024,7 @@ function vsClearSelection() {
   vsId.value = '';
   vsSearch.value = '';
   vsClear.classList.add('d-none');
+  document.getElementById('vsStammEditTrigger').classList.add('d-none');
   vsDropdown.style.display = 'none';
   document.getElementById('vsZonenContainer').style.display = 'none';
   document.getElementById('erledigtIds').value = '';
