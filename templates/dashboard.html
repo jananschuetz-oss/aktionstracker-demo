@@ -1743,7 +1743,7 @@ document.addEventListener('DOMContentLoaded', function(){
           <div style="flex:1;min-width:0">
             <div class="fw-semibold {% if stop.erledigt %}text-decoration-line-through text-muted{% endif %}"
                  style="font-size:.85rem;color:#1a3a5c">{{ stop.station }}</div>
-            {% if stop.plz or stop.ort %}<div style="font-size:.74rem;color:#6c757d">{% if stop.plz %}{{ stop.plz }} {% endif %}{{ stop.ort or '' }}</div>{% endif %}
+            {% if stop.strasse or stop.plz or stop.ort %}<div style="font-size:.74rem;color:#6c757d">{% if stop.strasse %}{{ stop.strasse }}{% if stop.plz or stop.ort %}, {% endif %}{% endif %}{% if stop.plz %}{{ stop.plz }} {% endif %}{{ stop.ort or '' }}</div>{% endif %}
           </div>
           <button type="button" class="btn btn-sm btn-outline-secondary vs-stamm-edit-btn flex-shrink-0"
                   data-vs-id="{{ stop.vs_id }}" data-vs-name="{{ stop.station }}"
