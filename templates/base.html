@@ -254,22 +254,25 @@
      class="{% if request.endpoint == 'aktivitaeten_liste' %}active{% endif %}">
     <i class="bi bi-list-ul"></i>Aktivitäten
   </a>
-  <a href="{{ url_for('neue_aktivitaet') }}" class="btn-neu">
-    <i class="bi bi-plus-circle-fill"></i>Eintragen
-  </a>
   {% if session.rolle in ('admin', 'verkaufsleiter') %}
+  <a href="{{ url_for('tourenplanung') }}" class="btn-neu">
+    <i class="bi bi-signpost-split-fill"></i><span style="text-align:center;line-height:1.2">Besuchs<br>planung</span>
+  </a>
+  <a href="{{ url_for('neue_aktivitaet') }}"
+     class="{% if request.endpoint == 'neue_aktivitaet' %}active{% endif %}">
+    <i class="bi bi-plus-circle"></i>Eintragen
+  </a>
   <a href="{{ url_for('vergleich') }}"
      class="{% if request.endpoint == 'vergleich' %}active{% endif %}">
     <i class="bi bi-graph-up-arrow"></i>Vergleich
   </a>
-  <a href="{{ url_for('bestellungen_uebersicht') }}"
-     class="{% if request.endpoint == 'bestellungen_uebersicht' %}active{% endif %}">
-    <i class="bi bi-clipboard-check"></i>Bestellungen
-  </a>
   {% elif session.rolle == 'rep' %}
-  <a href="{{ url_for('vergleich') }}"
-     class="{% if request.endpoint == 'vergleich' %}active{% endif %}">
-    <i class="bi bi-bullseye"></i>Zielkurs
+  <a href="{{ url_for('dashboard') }}#tab-tagesplan-btn" class="btn-neu">
+    <i class="bi bi-signpost-split-fill"></i><span style="text-align:center;line-height:1.2">Besuchs<br>planung</span>
+  </a>
+  <a href="{{ url_for('neue_aktivitaet') }}"
+     class="{% if request.endpoint == 'neue_aktivitaet' %}active{% endif %}">
+    <i class="bi bi-plus-circle"></i>Eintragen
   </a>
   {% endif %}
   <button class="mobile-menu-btn" type="button"
@@ -710,6 +713,11 @@
       <i class="bi bi-clock-history"></i>Arbeitszeit
     </a>
     {% endif %}
+    {% if session.rolle == 'rep' %}
+    <a href="{{ url_for('vergleich') }}" class="mobile-menu-item {% if request.endpoint == 'vergleich' %}active{% endif %}">
+      <i class="bi bi-bullseye"></i>Zielkurs
+    </a>
+    {% endif %}
     <a href="{{ url_for('verkaufsstellen_liste') }}" class="mobile-menu-item {% if request.endpoint == 'verkaufsstellen_liste' %}active{% endif %}">
       <i class="bi bi-shop"></i>Verkaufsstellen
     </a>
@@ -718,6 +726,9 @@
       {% if session.rolle in ['admin','verkaufsleiter'] %}Urlaub eintragen{% else %}Urlaub anfragen{% endif %}
     </a>
     {% if session.rolle in ('admin', 'verkaufsleiter') %}
+    <a href="{{ url_for('bestellungen_uebersicht') }}" class="mobile-menu-item {% if request.endpoint == 'bestellungen_uebersicht' %}active{% endif %}">
+      <i class="bi bi-clipboard-check"></i>Bestellungen
+    </a>
     <a href="{{ url_for('aufbauten_freigabe') }}" class="mobile-menu-item {% if request.endpoint == 'aufbauten_freigabe' %}active{% endif %}">
       <i class="bi bi-check2-square"></i>Freigaben
       {% if offene_aufbauten_freigaben and offene_aufbauten_freigaben > 0 %}
