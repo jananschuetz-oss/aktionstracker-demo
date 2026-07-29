@@ -10021,19 +10021,15 @@ def _do_send_wochenbericht(force=False):
                            COUNT(DISTINCT a.id) AS besuche,
                            COUNT(DISTINCT CASE WHEN a.aktionstyp=\'Bestellung\'
                                                THEN a.id END) AS bestellungen,
-                           COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,\'Aufbau\')=\'Aufbau\'
-                                               THEN a.id END) AS aufbauten,
-                           COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,\'Aufbau\')=\'Aufbau\'
-                                               AND EXISTS(SELECT 1 FROM displayposition dp WHERE dp.aktivitaet_id=a.id AND dp.status=\'freigegeben\')
-                                               THEN a.id END) AS genehmigt,
-                           COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,\'Aufbau\')=\'Aufbau\'
-                                               AND EXISTS(SELECT 1 FROM displayposition dp WHERE dp.aktivitaet_id=a.id)
-                                               THEN a.id END) AS freigabepflichtig,
+                           COUNT(dp.id) AS aufbauten,
+                           COUNT(CASE WHEN dp.status=\'freigegeben\' THEN dp.id END) AS genehmigt,
+                           COUNT(dp.id) AS freigabepflichtig,
                            COALESCE(SUM(CASE WHEN a.aktionstyp=\'Bestellung\'
                                              THEN bp.kisten_anzahl END), 0) AS kisten
                     FROM mitarbeiter m
                     LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
                     LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
+                    LEFT JOIN displayposition dp ON dp.aktivitaet_id = a.id
                     WHERE (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id))){tf}
                     GROUP BY m.id, m.name ORDER BY kisten DESC, m.name
                 ''', [montag_diese.isoformat(), sonntag_diese.isoformat()] + t_p)
@@ -10373,18 +10369,15 @@ def _do_send_monatsbericht(force=False):
                 SELECT m.id AS mitarbeiter_id, m.name,
                        COUNT(DISTINCT a.id) AS besuche,
                        COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung' THEN a.id END) AS bestellungen,
-                       COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.id END) AS aufbauten,
-                       COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
-                                           AND EXISTS(SELECT 1 FROM displayposition dp WHERE dp.aktivitaet_id=a.id AND dp.status='freigegeben')
-                                           THEN a.id END) AS genehmigt,
-                       COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
-                                           AND EXISTS(SELECT 1 FROM displayposition dp WHERE dp.aktivitaet_id=a.id)
-                                           THEN a.id END) AS freigabepflichtig,
+                       COUNT(dp.id) AS aufbauten,
+                       COUNT(CASE WHEN dp.status='freigegeben' THEN dp.id END) AS genehmigt,
+                       COUNT(dp.id) AS freigabepflichtig,
                        COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
                                          THEN bp.kisten_anzahl END), 0) AS kisten
                 FROM mitarbeiter m
                 LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
                 LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
+                LEFT JOIN displayposition dp ON dp.aktivitaet_id = a.id
                 WHERE (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id))){tf}
                 GROUP BY m.id, m.name ORDER BY kisten DESC, m.name
             ''', [erster_vormonat.isoformat(), letzter_vormonat.isoformat()] + t_p)
@@ -10987,18 +10980,15 @@ def wochenbericht_vorschau():
         SELECT m.id AS mitarbeiter_id, m.name,
                COUNT(DISTINCT a.id) AS besuche,
                COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung' THEN a.id END) AS bestellungen,
-               COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.id END) AS aufbauten,
-               COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
-                                   AND EXISTS(SELECT 1 FROM displayposition dp WHERE dp.aktivitaet_id=a.id AND dp.status='freigegeben')
-                                   THEN a.id END) AS genehmigt,
-               COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
-                                   AND EXISTS(SELECT 1 FROM displayposition dp WHERE dp.aktivitaet_id=a.id)
-                                   THEN a.id END) AS freigabepflichtig,
+               COUNT(dp.id) AS aufbauten,
+               COUNT(CASE WHEN dp.status='freigegeben' THEN dp.id END) AS genehmigt,
+               COUNT(dp.id) AS freigabepflichtig,
                COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
                                  THEN bp.kisten_anzahl END), 0) AS kisten
         FROM mitarbeiter m
         LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
         LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
+        LEFT JOIN displayposition dp ON dp.aktivitaet_id = a.id
         WHERE (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id)))
         GROUP BY m.id, m.name ORDER BY kisten DESC, m.name
     ''', (montag_diese.isoformat(), sonntag_diese.isoformat()))
@@ -11220,18 +11210,15 @@ def monatsbericht_vorschau():
         SELECT m.id AS mitarbeiter_id, m.name,
                COUNT(DISTINCT a.id) AS besuche,
                COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung' THEN a.id END) AS bestellungen,
-               COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.id END) AS aufbauten,
-               COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
-                                   AND EXISTS(SELECT 1 FROM displayposition dp WHERE dp.aktivitaet_id=a.id AND dp.status='freigegeben')
-                                   THEN a.id END) AS genehmigt,
-               COUNT(DISTINCT CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
-                                   AND EXISTS(SELECT 1 FROM displayposition dp WHERE dp.aktivitaet_id=a.id)
-                                   THEN a.id END) AS freigabepflichtig,
+               COUNT(dp.id) AS aufbauten,
+               COUNT(CASE WHEN dp.status='freigegeben' THEN dp.id END) AS genehmigt,
+               COUNT(dp.id) AS freigabepflichtig,
                COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
                                  THEN bp.kisten_anzahl END), 0) AS kisten
         FROM mitarbeiter m
         LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
         LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
+        LEFT JOIN displayposition dp ON dp.aktivitaet_id = a.id
         WHERE (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id)))
         GROUP BY m.id, m.name ORDER BY kisten DESC, m.name
     ''', (erster_dieses.isoformat(), heute.isoformat()))
