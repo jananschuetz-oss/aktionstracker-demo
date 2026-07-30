@@ -12348,11 +12348,21 @@ def api_karte_daten():
     # Nicht-Manager mindestens den eigenen Account enthalten, sonst findet die Karte
     # keinen Eintrag für die eigene Zuordnung und färbt alle Stationen grau ("nicht
     # zugeordnet"), obwohl sie korrekt zugewiesen sind.
-    reps = query(
-        "SELECT id, name, kuerzel FROM mitarbeiter WHERE rolle IN ('rep','verkaufsleiter') ORDER BY name"
-    ) if is_manager else query(
-        "SELECT id, name, kuerzel FROM mitarbeiter WHERE id=?", (session['user_id'],)
-    )
+    # Bugfix 2026-07-31 (ROLLENSPIEL-Livetest gefunden): diese "reps"-Liste war für Manager
+    # komplett ungefiltert (auch für einen VKL mit eigenem Team) - anders als die VS-Query
+    # direkt darüber, die bereits korrekt auf das eigene Team scopt (Bugreport 2026-07-21).
+    # Ein VKL sah dadurch alle Mitarbeiter beider Teams in der Karten-Legende/im
+    # Mitarbeiter-Filter, obwohl die Verkaufsstellen-Marker selbst schon korrekt gescopt
+    # waren. Gleiches Muster wie beim Dashboard-500er: zwei Queries auf derselben Route,
+    # nur eine hatte die Team-Klausel.
+    if is_manager:
+        _km2_sql, _km2_p = _team_m_clause('m')
+        reps = query(
+            f"SELECT id, name, kuerzel FROM mitarbeiter m WHERE rolle IN ('rep','verkaufsleiter'){_km2_sql} ORDER BY name",
+            _km2_p
+        )
+    else:
+        reps = query("SELECT id, name, kuerzel FROM mitarbeiter WHERE id=?", (session['user_id'],))
 
     return jsonify({
         'stellen': result,
