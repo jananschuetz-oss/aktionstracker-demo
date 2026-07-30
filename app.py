@@ -1939,6 +1939,32 @@ def init_db():
             db.commit()
             app.logger.info("Migration: Demo-Zugang zu 'Demo Leitung' umbenannt.")
 
+        # Migration (2026-07-31, von Arco portiert): tagesplan.reihenfolge-Duplikate
+        # bereinigen. _folgebesuch_anlegen() hat bisher reihenfolge nicht gesetzt (Spalten-
+        # DEFAULT 0) - jeder per Folgebesuch angelegte Termin landete auf 0, was bei
+        # mehreren Folgebesuchen am selben Tag zu Duplikaten führte und die Auf/Ab-Pfeile
+        # im Tagesplan kaputt machte (in Arco von Stefan Reiter gemeldet, identischer
+        # Bug hier 1:1 mitkopiert). Fix in _folgebesuch_anlegen() betrifft nur neue
+        # Einträge - hier einmalig bestehende Duplikate je (mitarbeiter_id, datum) neu
+        # durchnummerieren. Idempotent.
+        _dup_gruppen = db.execute('''
+            SELECT mitarbeiter_id, datum FROM tagesplan
+            WHERE COALESCE(geloescht,0)=0
+            GROUP BY mitarbeiter_id, datum
+            HAVING COUNT(*) > COUNT(DISTINCT reihenfolge)
+        ''').fetchall()
+        for _g in _dup_gruppen:
+            _tp_rows = db.execute(
+                "SELECT id FROM tagesplan WHERE mitarbeiter_id=? AND datum=? AND COALESCE(geloescht,0)=0 "
+                "ORDER BY reihenfolge, id",
+                (_g['mitarbeiter_id'], _g['datum'])
+            ).fetchall()
+            for _idx, _tp_row in enumerate(_tp_rows, start=1):
+                db.execute("UPDATE tagesplan SET reihenfolge=? WHERE id=?", (_idx, _tp_row['id']))
+        if _dup_gruppen:
+            db.commit()
+            app.logger.info(f"Migration: {len(_dup_gruppen)} Tagesplan-Tage mit reihenfolge-Duplikaten bereinigt.")
+
         # Migration (2026-07-30, Nutzerwunsch, von Arco portiert): "Telefontermin" als
         # geteilte Sonderkategorie (wie Firmenwagen-Tanken/Verleger) ohne eigenen
         # Verkaufsstellen-Bezug – eine einzelne, für alle Mitarbeiter nutzbare
@@ -5663,9 +5689,13 @@ def _folgebesuch_anlegen(mitarbeiter_id, vs_id, folge_datum, folge_notiz):
             return
     except ValueError:
         return
+    max_r = query(
+        "SELECT COALESCE(MAX(reihenfolge), 0) AS m FROM tagesplan WHERE mitarbeiter_id=? AND datum=?",
+        (mitarbeiter_id, folge_datum), one=True
+    )['m']
     execute(
-        "INSERT INTO tagesplan (mitarbeiter_id, verkaufsstelle_id, datum, notiz, erledigt, erstellt_von) VALUES (?,?,?,?,0,?)",
-        (mitarbeiter_id, vs_id, folge_datum, (folge_notiz or '').strip() or None, mitarbeiter_id)
+        "INSERT INTO tagesplan (mitarbeiter_id, verkaufsstelle_id, datum, reihenfolge, notiz, erledigt, erstellt_von) VALUES (?,?,?,?,?,0,?)",
+        (mitarbeiter_id, vs_id, folge_datum, max_r + 1, (folge_notiz or '').strip() or None, mitarbeiter_id)
     )
 
 
