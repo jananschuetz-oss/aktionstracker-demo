@@ -1449,6 +1449,28 @@ def init_db():
                 db.execute("UPDATE mitarbeiter SET team_id=? WHERE kuerzel=? AND team_id IS NULL", (_tid, _kuerzel))
             db.commit()
 
+            # Rolle-2-Persona (Nutzerwunsch 2026-08-01, ROLLENSPIEL-Nachfolge): GF mit
+            # 15 MA/2 VKL-Teams bundesweit soll sich in der Demo wiedererkennen. 6 Personen
+            # (2 VKL + 4 Reps) wirken für diese Zielgruppe zu klein – daher 9 weitere Reps,
+            # regional bundesweit verteilt, 5 zu Team Nord / 4 zu Team Süd dazu (macht 15 MA
+            # gesamt: 2 VKL + 13 Reps). Gleiches "team_id IS NULL"-Muster wie oben: einmalig,
+            # respektiert spätere manuelle Umsortierung im Admin-Panel.
+            _rolle2_reps = [
+                ('Sophie Klein',     'SK', _team_nord_id),
+                ('Jonas Wolf',       'JW', _team_nord_id),
+                ('Laura Neumann',    'LN', _team_nord_id),
+                ('Felix Braun',      'FB', _team_nord_id),
+                ('Nina Krüger',      'NK', _team_nord_id),
+                ('David Hoffmann',   'DH', _team_sued_id),
+                ('Mara Zimmermann',  'MZ', _team_sued_id),
+                ('Paul Richter',     'PR', _team_sued_id),
+                ('Tim Schuster',     'TS', _team_sued_id),
+            ]
+            for _name, _kuerzel, _tid in _rolle2_reps:
+                _seed_passwort(_kuerzel, _name, 'rep', DEFAULT_PASSWORD)
+                db.execute("UPDATE mitarbeiter SET team_id=? WHERE kuerzel=? AND team_id IS NULL", (_tid, _kuerzel))
+            db.commit()
+
             # KPI direkt scharf schalten (admin-only), damit der Demo-Interessent das
             # Team-Ranking sofort sieht, ohne vorher selbst /admin/kpi-einstellungen
             # zu öffnen. Nur beim allerersten Seed einfügen, spätere Admin-Änderungen
@@ -1494,6 +1516,36 @@ def init_db():
             for name, ort, typ in stellen:
                 db.execute("INSERT INTO verkaufsstelle (name, ort, typ) VALUES (?, ?, ?)", (name, ort, typ))
 
+        db.commit()
+
+        # Rolle-2-Persona (2026-08-01): weitere Kunden in Städten der 9 neuen Reps, damit
+        # deren Aktivitäten-Historie regional zu ihrem Namen passt statt zufällig quer durchs
+        # ganze bisherige 8-Stellen-Sortiment zu streuen (siehe seed_demo_data_relativ()-Fallback
+        # "< 2 zugewiesene Stellen -> alle Stellen"). Per-Name-Check statt "Tabelle leer?", da
+        # dieser Block auch auf einer bereits befüllten Bestands-DB (Railway) nachträglich
+        # laufen muss.
+        _rolle2_stellen = [
+            ('Getränkemarkt Nordlicht',  'Bremen',     'Getränkehandel'),
+            ('Restaurant Alte Waage',    'Bremen',     'Gastronomie'),
+            ('Supermarkt Am Maschsee',   'Hannover',   'Einzelhandel'),
+            ('Hotel Leineufer',          'Hannover',   'Hotel'),
+            ('Kiosk Rüttenscheid',       'Essen',      'Kiosk'),
+            ('Fachmarkt Ruhrblick',      'Essen',      'Einzelhandel'),
+            ('Café Phoenixsee',         'Dortmund',   'Gastronomie'),
+            ('Getränkehandel Westfalen', 'Dortmund',   'Getränkehandel'),
+            ('Weinstube Rheinaue',       'Bonn',       'Gastronomie'),
+            ('Supermarkt Beueler Bogen', 'Bonn',       'Einzelhandel'),
+            ('Sportverein Cannstatt',    'Stuttgart',  'Verein'),
+            ('Hotel Schlossblick',       'Mannheim',   'Hotel'),
+            ('Restaurant Quadrate',      'Mannheim',   'Gastronomie'),
+            ('Café Schwarzwaldblick',    'Freiburg',   'Gastronomie'),
+            ('Getränkemarkt Breisgau',   'Freiburg',   'Getränkehandel'),
+            ('Fachmarkt Fuggerstadt',    'Augsburg',   'Einzelhandel'),
+            ('Kiosk Hauptbahnhof',       'Augsburg',   'Kiosk'),
+        ]
+        for name, ort, typ in _rolle2_stellen:
+            if not db.execute("SELECT 1 FROM verkaufsstelle WHERE name=? AND ort=?", (name, ort)).fetchone():
+                db.execute("INSERT INTO verkaufsstelle (name, ort, typ) VALUES (?, ?, ?)", (name, ort, typ))
         db.commit()
 
         # Gratisware-Produkte (Verleger/Kofferraum) – eigene Kisten-Posten, gesondert von
@@ -1590,10 +1642,22 @@ def init_db():
                        "(SELECT id FROM mitarbeiter WHERE rolle='rep')")
             DEMO_GEO = {
                 'MM': ('München', 'Nürnberg'),
-                'AS': ('Hamburg', 'Hannover', 'Bremen', 'Berlin'),
+                'AS': ('Hamburg', 'Berlin'),
                 'TW': ('Frankfurt', 'Wiesbaden', 'Leipzig'),
-                'LF': ('Köln', 'Düsseldorf', 'Dortmund', 'Essen', 'Bonn'),
+                'LF': ('Köln', 'Düsseldorf'),
                 'KH': ('Stuttgart', 'Freiburg', 'Mannheim'),
+                # Rolle-2-Persona (2026-08-01): dedizierte Städte für die 9 neuen Reps, damit
+                # jede Region nur einem aktiven Rep zugeordnet ist (vorher überlappten AS/LF
+                # hier mit Bremen/Hannover/Dortmund/Essen/Bonn).
+                'SK': ('Bremen',),
+                'JW': ('Hannover',),
+                'LN': ('Essen',),
+                'FB': ('Dortmund',),
+                'NK': ('Bonn',),
+                'DH': ('Stuttgart',),
+                'MZ': ('Mannheim',),
+                'PR': ('Freiburg',),
+                'TS': ('Augsburg',),
             }
             for _kz, _staedte in DEMO_GEO.items():
                 _r = db.execute("SELECT id FROM mitarbeiter WHERE kuerzel=?", (_kz,)).fetchone()
@@ -2046,7 +2110,11 @@ def seed_demo_data_relativ(db):
     bier_ids = [b['id'] for b in biere]
 
     # Unterschiedliche Performance-Profile für Ranking-Demo
-    PROFIL = {'MM': 12, 'AS': 10, 'TW': 9, 'LF': 7}
+    PROFIL = {
+        'MM': 12, 'AS': 10, 'TW': 9, 'LF': 7,
+        'SK': 11, 'JW': 8, 'LN': 10, 'FB': 9, 'NK': 12,
+        'DH': 13, 'MZ': 7, 'PR': 10, 'TS': 8,
+    }
 
     NOTIZEN = [
         '', '', '', '', 'Sonderaktion vereinbart', 'Kunde sehr zufrieden',
@@ -2108,7 +2176,14 @@ def seed_demo_data_relativ(db):
                         )
 
     # Zielzahlen – realistisches Bild: Stern / Grün / Gelb / Rot / Sehr Rot
-    ZIELE = {'MM': (80, 2900), 'AS': (120, 4600), 'TW': (80, 2600), 'LF': (90, 3900), 'KH': (80, 2500)}
+    ZIELE = {
+        'MM': (80, 2900), 'AS': (120, 4600), 'TW': (80, 2600), 'LF': (90, 3900), 'KH': (80, 2500),
+        # Rolle-2-Persona (2026-08-01): Zielzahlen für die 9 neuen Reps, sonst tauchen sie in
+        # zielzahlen-basierten Auswertungen (Team-Ranking, Rep-Ranking, Dashboard-Ampel) als
+        # "keine Zielzahlen hinterlegt" auf statt mit echten Werten.
+        'SK': (90, 3200), 'JW': (70, 2400), 'LN': (85, 3100), 'FB': (75, 2800), 'NK': (95, 3600),
+        'DH': (100, 3800), 'MZ': (65, 2200), 'PR': (80, 2900), 'TS': (70, 2500),
+    }
     for rep in reps:
         if rep['kuerzel'] in ZIELE:
             d, k = ZIELE[rep['kuerzel']]
