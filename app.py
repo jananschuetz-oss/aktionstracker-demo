@@ -3800,30 +3800,35 @@ def dashboard():
         # Aktivitäten (Zeilen), die zielrelevant sind (Aufbau-Typ mit mindestens einer
         # Tier-1-Position – anzahl_displays wird bereits nur aus zaehlt_zur_zielerreichung=1-
         # Positionen befüllt, s. neue_aktivitaet()/api_aktivitaet_offline_sync()).
-        AKT_ZIELREL = f"COUNT(CASE WHEN {_AUF} AND a.anzahl_displays > 0 THEN 1 END)"
-        heute_stats = query(f'''
-            SELECT {DISP_IST} AS displays, {KIST_IST} AS kisten, COUNT(a.id) AS besuche, {AKT_ZIELREL} AS aktivitaeten
-            FROM aktivitaet a LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
-            WHERE a.datum = date('now','localtime') AND a.mitarbeiter_id = ?
-        ''', _uid, one=True)
-        diese_woche_stats = query(f'''
-            SELECT {DISP_IST} AS displays, {KIST_IST} AS kisten, COUNT(a.id) AS besuche, {AKT_ZIELREL} AS aktivitaeten
-            FROM aktivitaet a LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
-            WHERE strftime('%Y-%W', a.datum) = strftime('%Y-%W', date('now','localtime'))
-            AND a.mitarbeiter_id = ?
-        ''', _uid, one=True)
-        vorwoche_stats = query(f'''
-            SELECT {DISP_IST} AS displays, {KIST_IST} AS kisten, COUNT(a.id) AS besuche, {AKT_ZIELREL} AS aktivitaeten
-            FROM aktivitaet a LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
-            WHERE strftime('%Y-%W', a.datum) = strftime('%Y-%W', date('now','localtime','-7 days'))
-            AND a.mitarbeiter_id = ?
-        ''', _uid, one=True)
-        dieser_monat_stats = query(f'''
-            SELECT {DISP_IST} AS displays, {KIST_IST} AS kisten, COUNT(a.id) AS besuche, {AKT_ZIELREL} AS aktivitaeten
-            FROM aktivitaet a LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
-            WHERE strftime('%Y-%m', a.datum) = strftime('%Y-%m', date('now','localtime'))
-            AND a.mitarbeiter_id = ?
-        ''', _uid, one=True)
+        # Nutzerwunsch/Bugreports 2026-07-29/30 (analog zu Arco, 3 aufeinanderfolgende Fixes
+        # in einer Session): AKT_ZIELREL verlangte aktionstyp='Aufbau' und übersah Besuche,
+        # die als "Bestellung" gebucht sind, aber zusätzlich zielrelevante Aufbau-Positionen
+        # enthalten. COUNT(dp.id) zählte außerdem nur Zeilen, nicht die tatsächliche
+        # Stückzahl (displayposition.anzahl kann >1 sein, z.B. "2× Display" in einer Zeile).
+        # Jetzt einheitlich: kisten/aktivitaeten unabhängig per Subquery ermitteln,
+        # SUM(dp.anzahl) über zielrelevante Positionen statt COUNT(dp.id)/aktionstyp-Filter.
+        def _stats_zeitraum(where_zeitraum):
+            _where = f"{where_zeitraum} AND a.mitarbeiter_id = ?"
+            return query(f'''
+                SELECT
+                    (SELECT COALESCE(SUM(b.kisten_total), 0) FROM aktivitaet a
+                     JOIN {BP} b ON b.aktivitaet_id = a.id
+                     WHERE a.aktionstyp='Bestellung' AND {_where}) AS kisten,
+                    (SELECT COUNT(DISTINCT a.id) FROM aktivitaet a
+                     WHERE {_where}) AS besuche,
+                    (SELECT COALESCE(SUM(dp.anzahl), 0) FROM aktivitaet a
+                     JOIN displayposition dp ON dp.aktivitaet_id = a.id
+                        AND dp.displaysorte_id IN (SELECT id FROM displaysorte WHERE zaehlt_zur_zielerreichung=1)
+                     WHERE {_where}) AS aktivitaeten,
+                    (SELECT COALESCE(SUM(CASE WHEN dp.status='freigegeben' THEN dp.anzahl ELSE 0 END), 0) FROM aktivitaet a
+                     JOIN displayposition dp ON dp.aktivitaet_id = a.id
+                        AND dp.displaysorte_id IN (SELECT id FROM displaysorte WHERE zaehlt_zur_zielerreichung=1)
+                     WHERE {_where}) AS genehmigt
+            ''', _uid * 4, one=True)
+        heute_stats = _stats_zeitraum("a.datum = date('now','localtime')")
+        diese_woche_stats = _stats_zeitraum("strftime('%Y-%W', a.datum) = strftime('%Y-%W', date('now','localtime'))")
+        vorwoche_stats = _stats_zeitraum("strftime('%Y-%W', a.datum) = strftime('%Y-%W', date('now','localtime','-7 days'))")
+        dieser_monat_stats = _stats_zeitraum("strftime('%Y-%m', a.datum) = strftime('%Y-%m', date('now','localtime'))")
 
     # Tagesplan für Rep: Montag–Sonntag der gewählten (oder aktuellen) Woche
     tagesplan_rep = []
@@ -10016,23 +10021,42 @@ def _do_send_wochenbericht(force=False):
                 diese  = stats(montag_diese,  sonntag_diese)
                 letzte = stats(montag_letzte, sonntag_letzte)
 
+                # Analog zu Arco (Bugreports 2026-07-29/30): kisten und aufbauten/genehmigt
+                # über getrennte, vorab je Mitarbeiter aggregierte Subqueries verknüpfen –
+                # ein Besuch kann Zeilen in bestellposition UND displayposition haben, sonst
+                # multipliziert der direkte Doppel-Join die Zählung. Nur zielrelevante
+                # Positionen zählen, und SUM(dp3.anzahl) statt COUNT(dp3.id), da eine Zeile
+                # anzahl>1 haben kann (z.B. "2× Display" in einer Zeile).
                 rs = query(f'''
                     SELECT m.id AS mitarbeiter_id, m.name,
                            COUNT(DISTINCT a.id) AS besuche,
                            COUNT(DISTINCT CASE WHEN a.aktionstyp=\'Bestellung\'
                                                THEN a.id END) AS bestellungen,
-                           COUNT(dp.id) AS aufbauten,
-                           COUNT(CASE WHEN dp.status=\'freigegeben\' THEN dp.id END) AS genehmigt,
-                           COUNT(dp.id) AS freigabepflichtig,
-                           COALESCE(SUM(CASE WHEN a.aktionstyp=\'Bestellung\'
-                                             THEN bp.kisten_anzahl END), 0) AS kisten
+                           COALESCE(dpx.aufbauten, 0) AS aufbauten,
+                           COALESCE(dpx.genehmigt, 0) AS genehmigt,
+                           COALESCE(dpx.aufbauten, 0) AS freigabepflichtig,
+                           COALESCE(bpx.kisten, 0) AS kisten
                     FROM mitarbeiter m
                     LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
-                    LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
-                    LEFT JOIN displayposition dp ON dp.aktivitaet_id = a.id
+                    LEFT JOIN (
+                        SELECT a2.mitarbeiter_id AS mid, SUM(bp2.kisten_anzahl) AS kisten
+                        FROM aktivitaet a2 JOIN bestellposition bp2 ON bp2.aktivitaet_id = a2.id
+                        WHERE a2.aktionstyp=\'Bestellung\' AND a2.datum BETWEEN ? AND ?
+                        GROUP BY a2.mitarbeiter_id
+                    ) bpx ON bpx.mid = m.id
+                    LEFT JOIN (
+                        SELECT a3.mitarbeiter_id AS mid, COALESCE(SUM(dp3.anzahl), 0) AS aufbauten,
+                               COALESCE(SUM(CASE WHEN dp3.status=\'freigegeben\' THEN dp3.anzahl ELSE 0 END), 0) AS genehmigt
+                        FROM aktivitaet a3 JOIN displayposition dp3 ON dp3.aktivitaet_id = a3.id
+                            AND dp3.displaysorte_id IN (SELECT id FROM displaysorte WHERE zaehlt_zur_zielerreichung=1)
+                        WHERE a3.datum BETWEEN ? AND ?
+                        GROUP BY a3.mitarbeiter_id
+                    ) dpx ON dpx.mid = m.id
                     WHERE (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id))){tf}
-                    GROUP BY m.id, m.name ORDER BY kisten DESC, m.name
-                ''', [montag_diese.isoformat(), sonntag_diese.isoformat()] + t_p)
+                    GROUP BY m.id, m.name, dpx.aufbauten, dpx.genehmigt, bpx.kisten ORDER BY kisten DESC, m.name
+                ''', [montag_diese.isoformat(), sonntag_diese.isoformat(),
+                      montag_diese.isoformat(), sonntag_diese.isoformat(),
+                      montag_diese.isoformat(), sonntag_diese.isoformat()] + t_p)
 
                 _rs_vw = query(f'''
                     SELECT m.id AS mitarbeiter_id,
@@ -10365,22 +10389,37 @@ def _do_send_monatsbericht(force=False):
             dieser = stats(erster_vormonat, letzter_vormonat)
             vorher = stats(erster_vorvorm,  letzter_vorvorm)
 
+            # Analog zu Arco (Bugreports 2026-07-29/30): s. Kommentar bei der
+            # Wochenbericht-Variante (Kreuzprodukt-Join, zielrelevante Positionen, anzahl).
             rs = query(f'''
                 SELECT m.id AS mitarbeiter_id, m.name,
                        COUNT(DISTINCT a.id) AS besuche,
                        COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung' THEN a.id END) AS bestellungen,
-                       COUNT(dp.id) AS aufbauten,
-                       COUNT(CASE WHEN dp.status='freigegeben' THEN dp.id END) AS genehmigt,
-                       COUNT(dp.id) AS freigabepflichtig,
-                       COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
-                                         THEN bp.kisten_anzahl END), 0) AS kisten
+                       COALESCE(dpx.aufbauten, 0) AS aufbauten,
+                       COALESCE(dpx.genehmigt, 0) AS genehmigt,
+                       COALESCE(dpx.aufbauten, 0) AS freigabepflichtig,
+                       COALESCE(bpx.kisten, 0) AS kisten
                 FROM mitarbeiter m
                 LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
-                LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
-                LEFT JOIN displayposition dp ON dp.aktivitaet_id = a.id
+                LEFT JOIN (
+                    SELECT a2.mitarbeiter_id AS mid, SUM(bp2.kisten_anzahl) AS kisten
+                    FROM aktivitaet a2 JOIN bestellposition bp2 ON bp2.aktivitaet_id = a2.id
+                    WHERE a2.aktionstyp='Bestellung' AND a2.datum BETWEEN ? AND ?
+                    GROUP BY a2.mitarbeiter_id
+                ) bpx ON bpx.mid = m.id
+                LEFT JOIN (
+                    SELECT a3.mitarbeiter_id AS mid, COALESCE(SUM(dp3.anzahl), 0) AS aufbauten,
+                           COALESCE(SUM(CASE WHEN dp3.status='freigegeben' THEN dp3.anzahl ELSE 0 END), 0) AS genehmigt
+                    FROM aktivitaet a3 JOIN displayposition dp3 ON dp3.aktivitaet_id = a3.id
+                        AND dp3.displaysorte_id IN (SELECT id FROM displaysorte WHERE zaehlt_zur_zielerreichung=1)
+                    WHERE a3.datum BETWEEN ? AND ?
+                    GROUP BY a3.mitarbeiter_id
+                ) dpx ON dpx.mid = m.id
                 WHERE (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id))){tf}
-                GROUP BY m.id, m.name ORDER BY kisten DESC, m.name
-            ''', [erster_vormonat.isoformat(), letzter_vormonat.isoformat()] + t_p)
+                GROUP BY m.id, m.name, dpx.aufbauten, dpx.genehmigt, bpx.kisten ORDER BY kisten DESC, m.name
+            ''', [erster_vormonat.isoformat(), letzter_vormonat.isoformat(),
+                  erster_vormonat.isoformat(), letzter_vormonat.isoformat(),
+                  erster_vormonat.isoformat(), letzter_vormonat.isoformat()] + t_p)
 
             _rs_vm = query(f'''
                 SELECT m.id AS mitarbeiter_id,
@@ -10976,22 +11015,36 @@ def wochenbericht_vorschau():
     diese  = _stats(montag_diese,  sonntag_diese)
     letzte = _stats(montag_letzte, sonntag_letzte)
 
+    # Analog zu Arco (Bugreports 2026-07-29/30): s. Kommentar bei _do_send_wochenbericht.
     rep_stats = query('''
         SELECT m.id AS mitarbeiter_id, m.name,
                COUNT(DISTINCT a.id) AS besuche,
                COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung' THEN a.id END) AS bestellungen,
-               COUNT(dp.id) AS aufbauten,
-               COUNT(CASE WHEN dp.status='freigegeben' THEN dp.id END) AS genehmigt,
-               COUNT(dp.id) AS freigabepflichtig,
-               COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
-                                 THEN bp.kisten_anzahl END), 0) AS kisten
+               COALESCE(dpx.aufbauten, 0) AS aufbauten,
+               COALESCE(dpx.genehmigt, 0) AS genehmigt,
+               COALESCE(dpx.aufbauten, 0) AS freigabepflichtig,
+               COALESCE(bpx.kisten, 0) AS kisten
         FROM mitarbeiter m
         LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
-        LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
-        LEFT JOIN displayposition dp ON dp.aktivitaet_id = a.id
+        LEFT JOIN (
+            SELECT a2.mitarbeiter_id AS mid, SUM(bp2.kisten_anzahl) AS kisten
+            FROM aktivitaet a2 JOIN bestellposition bp2 ON bp2.aktivitaet_id = a2.id
+            WHERE a2.aktionstyp='Bestellung' AND a2.datum BETWEEN ? AND ?
+            GROUP BY a2.mitarbeiter_id
+        ) bpx ON bpx.mid = m.id
+        LEFT JOIN (
+            SELECT a3.mitarbeiter_id AS mid, COALESCE(SUM(dp3.anzahl), 0) AS aufbauten,
+                   COALESCE(SUM(CASE WHEN dp3.status='freigegeben' THEN dp3.anzahl ELSE 0 END), 0) AS genehmigt
+            FROM aktivitaet a3 JOIN displayposition dp3 ON dp3.aktivitaet_id = a3.id
+                AND dp3.displaysorte_id IN (SELECT id FROM displaysorte WHERE zaehlt_zur_zielerreichung=1)
+            WHERE a3.datum BETWEEN ? AND ?
+            GROUP BY a3.mitarbeiter_id
+        ) dpx ON dpx.mid = m.id
         WHERE (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id)))
-        GROUP BY m.id, m.name ORDER BY kisten DESC, m.name
-    ''', (montag_diese.isoformat(), sonntag_diese.isoformat()))
+        GROUP BY m.id, m.name, dpx.aufbauten, dpx.genehmigt, bpx.kisten ORDER BY kisten DESC, m.name
+    ''', (montag_diese.isoformat(), sonntag_diese.isoformat(),
+          montag_diese.isoformat(), sonntag_diese.isoformat(),
+          montag_diese.isoformat(), sonntag_diese.isoformat()))
 
     rep_letzte_w = query('''
         SELECT m.id AS mitarbeiter_id,
@@ -11206,22 +11259,36 @@ def monatsbericht_vorschau():
     dieser = _stats(erster_dieses, heute)
     vorher = _stats(erster_vorvorm, letzter_vorvorm)
 
+    # Analog zu Arco (Bugreports 2026-07-29/30): s. Kommentar bei _do_send_wochenbericht.
     rep_stats = query('''
         SELECT m.id AS mitarbeiter_id, m.name,
                COUNT(DISTINCT a.id) AS besuche,
                COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung' THEN a.id END) AS bestellungen,
-               COUNT(dp.id) AS aufbauten,
-               COUNT(CASE WHEN dp.status='freigegeben' THEN dp.id END) AS genehmigt,
-               COUNT(dp.id) AS freigabepflichtig,
-               COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
-                                 THEN bp.kisten_anzahl END), 0) AS kisten
+               COALESCE(dpx.aufbauten, 0) AS aufbauten,
+               COALESCE(dpx.genehmigt, 0) AS genehmigt,
+               COALESCE(dpx.aufbauten, 0) AS freigabepflichtig,
+               COALESCE(bpx.kisten, 0) AS kisten
         FROM mitarbeiter m
         LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
-        LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
-        LEFT JOIN displayposition dp ON dp.aktivitaet_id = a.id
+        LEFT JOIN (
+            SELECT a2.mitarbeiter_id AS mid, SUM(bp2.kisten_anzahl) AS kisten
+            FROM aktivitaet a2 JOIN bestellposition bp2 ON bp2.aktivitaet_id = a2.id
+            WHERE a2.aktionstyp='Bestellung' AND a2.datum BETWEEN ? AND ?
+            GROUP BY a2.mitarbeiter_id
+        ) bpx ON bpx.mid = m.id
+        LEFT JOIN (
+            SELECT a3.mitarbeiter_id AS mid, COALESCE(SUM(dp3.anzahl), 0) AS aufbauten,
+                   COALESCE(SUM(CASE WHEN dp3.status='freigegeben' THEN dp3.anzahl ELSE 0 END), 0) AS genehmigt
+            FROM aktivitaet a3 JOIN displayposition dp3 ON dp3.aktivitaet_id = a3.id
+                AND dp3.displaysorte_id IN (SELECT id FROM displaysorte WHERE zaehlt_zur_zielerreichung=1)
+            WHERE a3.datum BETWEEN ? AND ?
+            GROUP BY a3.mitarbeiter_id
+        ) dpx ON dpx.mid = m.id
         WHERE (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id)))
-        GROUP BY m.id, m.name ORDER BY kisten DESC, m.name
-    ''', (erster_dieses.isoformat(), heute.isoformat()))
+        GROUP BY m.id, m.name, dpx.aufbauten, dpx.genehmigt, bpx.kisten ORDER BY kisten DESC, m.name
+    ''', (erster_dieses.isoformat(), heute.isoformat(),
+          erster_dieses.isoformat(), heute.isoformat(),
+          erster_dieses.isoformat(), heute.isoformat()))
 
     rep_letzte_m = query('''
         SELECT m.id AS mitarbeiter_id,

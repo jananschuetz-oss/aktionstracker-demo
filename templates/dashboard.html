@@ -37,8 +37,16 @@
   <p class="mb-2" style="font-size:.88rem;color:rgba(255,255,255,.85)">
     <i class="bi bi-sun me-1" style="color:#f5a623"></i>Heute:
     <strong>{{ heute_stats.besuche or 0 }}</strong> Besuche
-    &nbsp;·&nbsp; <strong>{{ heute_stats.displays or 0 }}</strong> Displays
+    &nbsp;·&nbsp; <strong>{{ heute_stats.aktivitaeten or 0 }}</strong> Displays
     &nbsp;·&nbsp; <strong>{{ heute_stats.kisten or 0 }}</strong> {{ unit_label }}
+  </p>
+  {% endif %}
+  {% if zeige_eigene_ansicht and diese_woche_stats %}
+  <p class="mb-2" style="font-size:.88rem;color:rgba(255,255,255,.85)">
+    <i class="bi bi-calendar-week me-1" style="color:#f5a623"></i>Diese Woche:
+    <strong>{{ diese_woche_stats.besuche or 0 }}</strong> Besuche
+    &nbsp;·&nbsp; <strong>{{ diese_woche_stats.genehmigt or 0 }}/{{ diese_woche_stats.aktivitaeten or 0 }}</strong> Displays genehmigt
+    &nbsp;·&nbsp; <strong>{{ diese_woche_stats.kisten or 0 }}</strong> {{ unit_label }}
   </p>
   {% endif %}
   <div class="d-flex flex-wrap gap-2 align-items-center">
@@ -115,7 +123,7 @@
   <div class="d-flex flex-wrap align-items-center gap-3 px-3 py-2 rounded-3"
        style="background:#f0f4f8;border:1px solid #d4dce8;font-size:.88rem;">
     <span style="color:#1a3a5c;font-weight:600"><i class="bi bi-calendar3 me-1"></i>{{ monat_name }}</span>
-    <span class="text-muted"><span class="fw-semibold" style="color:#1a3a5c">{{ (dieser_monat_stats.displays or 0) if dieser_monat_stats else 0 }}</span> Displays</span>
+    <span class="text-muted"><span class="fw-semibold" style="color:#1a3a5c">{{ (dieser_monat_stats.aktivitaeten or 0) if dieser_monat_stats else 0 }}</span> Displays</span>
     <span class="text-muted"><span class="fw-semibold" style="color:#c8860a">{{ (dieser_monat_stats.kisten or 0) if dieser_monat_stats else 0 }}</span> {{ unit_label }}</span>
     <span class="text-muted" style="font-size:.82rem"><span class="fw-semibold" style="color:#555">{{ (dieser_monat_stats.besuche or 0) if dieser_monat_stats else 0 }}</span> Besuche</span>
   </div>
