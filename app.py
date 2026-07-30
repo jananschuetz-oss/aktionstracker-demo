@@ -1844,6 +1844,23 @@ def init_db():
             db.commit()
             app.logger.info("Migration: Demo-Zugang zu 'Demo Leitung' umbenannt.")
 
+        # Migration (2026-07-30, Nutzerwunsch, von Arco portiert): "Telefontermin" als
+        # geteilte Sonderkategorie (wie Firmenwagen-Tanken/Verleger) ohne eigenen
+        # Verkaufsstellen-Bezug – eine einzelne, für alle Mitarbeiter nutzbare
+        # Sammel-Verkaufsstelle, über die längere Telefongespräche dokumentiert werden
+        # können, ohne Ort/Adresse eintragen zu müssen. Bewusst NACH der Demo-Datenseedung
+        # eingefügt (Bugreport 2026-07-30: früher eingefügt hätte die Sonderkategorie die
+        # allererste Verkaufsstellen-ID belegt, wodurch die Demo-Seed-Logik ihr fälschlich
+        # Besuchsplanungs-/Tagesplan-Einträge anderer Mitarbeiter zugeordnet hätte).
+        _telefontermin_vorhanden = db.execute(
+            "SELECT 1 FROM verkaufsstelle WHERE typ='Telefontermin'"
+        ).fetchone()
+        if not _telefontermin_vorhanden:
+            db.execute(
+                "INSERT INTO verkaufsstelle (name, typ, aktiv) VALUES ('Telefontermin','Telefontermin',1)"
+            )
+            db.commit()
+
         # Alte Fotos beim Start bereinigen
         cleanup_alte_fotos()
 
@@ -5713,6 +5730,13 @@ def neue_aktivitaet():
         r['id'] for r in query("SELECT id FROM verkaufsstelle WHERE typ='Verleger' AND aktiv=1")
     ]
 
+    # Telefontermin (2026-07-30, von Arco portiert): geteilte Sonderkategorie wie Tanken/
+    # Verleger, aber reduziertes Formular OHNE Foto-Pflicht (wie Homeoffice) – nur Datum/
+    # Start-/Endzeit (bereits global Pflichtfelder) und optionale Notiz.
+    telefontermin_vs_ids = [
+        r['id'] for r in query("SELECT id FROM verkaufsstelle WHERE typ='Telefontermin' AND aktiv=1")
+    ]
+
     # Mitarbeiter und VKL sehen nur ihre zugeordneten Verkaufsstellen (wenn Zuordnung gesetzt)
     if session.get('rolle') in ('rep', 'verkaufsleiter'):
         assigned = query(
@@ -5789,7 +5813,10 @@ def neue_aktivitaet():
         # Verleger: wie Tanken eine geteilte Sonderkategorie mit reduziertem Formular, aber
         # Foto bleibt Pflicht (abgeholte Kisten werden fotografiert).
         is_verleger = bool(_vs_typ_check and _vs_typ_check['typ'] == 'Verleger')
-        if is_homeoffice or is_tanken or is_verleger:
+        # Telefontermin: wie Homeoffice ein reduziertes Formular OHNE Foto-Pflicht (bewusst
+        # NICHT in die Tanken/Verleger-Foto-Pflicht-Kette unten aufgenommen).
+        is_telefontermin = bool(_vs_typ_check and _vs_typ_check['typ'] == 'Telefontermin')
+        if is_homeoffice or is_tanken or is_verleger or is_telefontermin:
             aktionstyp = 'Besuch'
 
         von_uhrzeit = request.form.get('von_uhrzeit', '').strip()
@@ -5811,7 +5838,7 @@ def neue_aktivitaet():
                 displaysorte=displaysorte, vertretungs_gruppen=vertretungs_gruppen,
                 heute=date.today().isoformat(), min_datum=min_datum,
                 homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
-                verleger_vs_ids=verleger_vs_ids)
+                verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids)
 
         # Firmenwagen-Tanken: Pflichtfelder aus dem Tankbeleg (Tankdatum, Kennzeichen,
         # Kraftstoffsorte, Menge, Kilometerstand) – ermöglichen den Tanken-Report ohne
@@ -5846,7 +5873,7 @@ def neue_aktivitaet():
                 displaysorte=displaysorte, vertretungs_gruppen=vertretungs_gruppen,
                 heute=date.today().isoformat(), min_datum=min_datum,
                 homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
-                verleger_vs_ids=verleger_vs_ids)
+                verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids)
 
         # Verleger: einziges Pflichtfeld im reduzierten Formular ist die abgeholte Menge
         # "Gratisware Verleger" (Kistenware) – wird unten wie eine normale Bestellposition
@@ -5869,7 +5896,7 @@ def neue_aktivitaet():
                 displaysorte=displaysorte, vertretungs_gruppen=vertretungs_gruppen,
                 heute=date.today().isoformat(), min_datum=min_datum,
                 homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
-                verleger_vs_ids=verleger_vs_ids)
+                verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids)
 
         if not datum or not vs_id:
             flash('Datum und Verkaufsstelle sind Pflichtfelder.', 'danger')
@@ -5877,7 +5904,7 @@ def neue_aktivitaet():
                 verkaufsstellen=verkaufsstellen, biersorten=biersorten,
                 displaysorte=displaysorte, heute=date.today().isoformat(),
                 min_datum=min_datum, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
-                verleger_vs_ids=verleger_vs_ids)
+                verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids)
 
         if is_rep and min_datum and datum < min_datum:
             flash('Aktivitäten können nur für die aktuelle Woche eingetragen werden.', 'danger')
@@ -5885,7 +5912,7 @@ def neue_aktivitaet():
                 verkaufsstellen=verkaufsstellen, biersorten=biersorten,
                 displaysorte=displaysorte, heute=date.today().isoformat(),
                 min_datum=min_datum, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
-                verleger_vs_ids=verleger_vs_ids)
+                verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids)
 
         # Displaypositionen sammeln. Freigabe-Workflow: zielrelevante (Tier-1) Typen starten
         # als "offen" und fließen erst nach VKL-Freigabe in anzahl_displays ein (s.
@@ -6019,15 +6046,25 @@ def neue_aktivitaet():
 
         # Ungeplante Verkaufsstelle für heute automatisch in den Tagesplan aufnehmen
         if datum == date.today().isoformat():
-            existing = query(
-                "SELECT id FROM tagesplan WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? AND COALESCE(geloescht,0)=0",
-                (session['user_id'], vs_id, datum), one=True
-            )
-            if not existing:
+            if is_telefontermin:
+                # Telefontermin (2026-07-30, von Arco portiert): kann mehrfach am Tag erfasst
+                # werden – bewusst KEIN "schon vorhanden"-Check wie unten, jeder Anruf bekommt
+                # seine eigene Zeile im Tages-/Wochenplan (mit eigener Uhrzeit/Notiz).
                 execute(
-                    "INSERT INTO tagesplan (mitarbeiter_id, verkaufsstelle_id, datum, erledigt, erstellt_von) VALUES (?,?,?,1,?)",
-                    (session['user_id'], vs_id, datum, session['user_id'])
+                    "INSERT INTO tagesplan (mitarbeiter_id, verkaufsstelle_id, datum, notiz, von_uhrzeit, bis_uhrzeit, "
+                    "erledigt, aktivitaet_id, erstellt_von) VALUES (?,?,?,?,?,?,1,?,?)",
+                    (session['user_id'], vs_id, datum, notizen, von_uhrzeit or None, bis_uhrzeit or None, akt_id, session['user_id'])
                 )
+            else:
+                existing = query(
+                    "SELECT id FROM tagesplan WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? AND COALESCE(geloescht,0)=0",
+                    (session['user_id'], vs_id, datum), one=True
+                )
+                if not existing:
+                    execute(
+                        "INSERT INTO tagesplan (mitarbeiter_id, verkaufsstelle_id, datum, erledigt, erstellt_von) VALUES (?,?,?,1,?)",
+                        (session['user_id'], vs_id, datum, session['user_id'])
+                    )
 
         # Folgebesuch planen (2026-07-24, Nutzerwunsch, von Arco portiert): optionales
         # Datum+Notiz-Feld im Formular legt einen unerledigten Tagesplan-Eintrag für den
@@ -6081,7 +6118,7 @@ def neue_aktivitaet():
         preselect_typ=preselect_typ,
         bestellung_id=bestellung_id, bestellung_info=bestellung_info,
         tagesplan_heute=tagesplan_heute, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
-        verleger_vs_ids=verleger_vs_ids)
+        verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids)
 
 
 AKTIVITAETEN_SEITENGROESSE = 100
@@ -11698,7 +11735,7 @@ def verkaufsstellen_vergleich():
     # Kunden (Sonderkategorien, siehe TANKEN_MODUS/Homeoffice-Stopp/Verleger-Gratisware).
     alle_typen = [r['typ'] for r in query(
         "SELECT DISTINCT typ FROM verkaufsstelle "
-        "WHERE typ IS NOT NULL AND typ NOT IN ('Firmenwagen-Tanken','Homeoffice','Verleger') AND aktiv=1 "
+        "WHERE typ IS NOT NULL AND typ NOT IN ('Firmenwagen-Tanken','Homeoffice','Verleger','Telefontermin') AND aktiv=1 "
         "ORDER BY typ"
     )]
     ausgewaehlt_typ = [t for t in request.args.getlist('typ') if t in alle_typen] or alle_typen
@@ -11825,7 +11862,7 @@ def verkaufsstellen_vergleich():
 
     if ausgewaehlte_vs_ids:
         # ── Kunden-Modus: eine einzelne aggregierte Kachel für die freie Auswahl ──
-        vs_sql = f"v.id IN ({','.join('?'*len(ausgewaehlte_vs_ids))}) AND v.typ NOT IN ('Firmenwagen-Tanken','Homeoffice','Verleger')"
+        vs_sql = f"v.id IN ({','.join('?'*len(ausgewaehlte_vs_ids))}) AND v.typ NOT IN ('Firmenwagen-Tanken','Homeoffice','Verleger','Telefontermin')"
 
         def kunden_kpis(von, bis):
             return query(f"""

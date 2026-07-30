@@ -81,6 +81,10 @@
     <i class="bi bi-box-seam-fill me-1"></i>Verleger — bitte die abgeholten Kisten fotografieren (Pflicht) und die Menge unten eintragen.
   </div>
 
+  <div class="alert d-none mb-4" id="telefonterminHinweis" style="border-color:#000;background:#f4f4f4">
+    <i class="bi bi-telephone-fill me-1"></i>Telefontermin — nur Notiz und Uhrzeit sind nötig, Foto ist optional.
+  </div>
+
   {% if bestellung_info %}
   <div class="card mb-4" style="border-color:#2e6da4;background:#f0f6ff">
     <div class="card-body py-3 px-3">
@@ -596,7 +600,7 @@ function fotoSlotsBelegt() {
 }
 
 function hatFoto() {
-  if (isHomeofficeAktiv()) return true;
+  if (isHomeofficeAktiv() || isTelefonterminAktiv()) return true;
   return fotoSlotsBelegt().length > 0;
 }
 
@@ -618,9 +622,9 @@ function updateHomeofficeUI() {
     if (stern) stern.style.display = 'none';
     if (pHint) pHint.textContent = '(optional)';
   } else {
-    if (!isTankenAktiv() && !isVerlegerAktiv() && typCard) typCard.style.display = '';
+    if (!isTankenAktiv() && !isVerlegerAktiv() && !isTelefonterminAktiv() && typCard) typCard.style.display = '';
     if (hinweis)  hinweis.classList.add('d-none');
-    if (!isTankenAktiv() && !isVerlegerAktiv()) setTyp(document.getElementById('aktionstyp').value || 'Aufbau');
+    if (!isTankenAktiv() && !isVerlegerAktiv() && !isTelefonterminAktiv()) setTyp(document.getElementById('aktionstyp').value || 'Aufbau');
   }
 }
 
@@ -643,7 +647,7 @@ function updateTankenUI() {
   } else {
     if (hinweis)  hinweis.classList.add('d-none');
     if (tankCard) tankCard.classList.add('d-none');
-    if (!isHomeofficeAktiv() && !isVerlegerAktiv() && typCard) typCard.style.display = '';
+    if (!isHomeofficeAktiv() && !isVerlegerAktiv() && !isTelefonterminAktiv() && typCard) typCard.style.display = '';
   }
 }
 
@@ -667,7 +671,32 @@ function updateVerlegerUI() {
   } else {
     if (hinweis)       hinweis.classList.add('d-none');
     if (verlegerCard)  verlegerCard.classList.add('d-none');
-    if (!isHomeofficeAktiv() && !isTankenAktiv() && typCard) typCard.style.display = '';
+    if (!isHomeofficeAktiv() && !isTankenAktiv() && !isTelefonterminAktiv() && typCard) typCard.style.display = '';
+  }
+}
+
+// ── Telefontermin: geteilte Sonderkategorie ohne Verkaufsstellen-Bezug → wie
+// Homeoffice ein reduziertes Formular OHNE Foto-Pflicht (nur Notiz + Uhrzeit). ────
+const TELEFONTERMIN_VS_IDS = {{ telefontermin_vs_ids | tojson }};
+function isTelefonterminAktiv() {
+  return TELEFONTERMIN_VS_IDS.includes(parseInt(document.getElementById('vsId').value, 10));
+}
+function updateTelefonterminUI() {
+  const aktiv   = isTelefonterminAktiv();
+  const typCard = document.getElementById('typCard');
+  const hinweis = document.getElementById('telefonterminHinweis');
+  if (aktiv) {
+    setTyp('Besuch');
+    if (typCard) typCard.style.display = 'none';
+    if (hinweis)  hinweis.classList.remove('d-none');
+    const stern = document.getElementById('fotoPflichtStern');
+    const pHint = document.getElementById('fotoPflichtHint');
+    if (stern) stern.style.display = 'none';
+    if (pHint) pHint.textContent = '(optional)';
+  } else {
+    if (hinweis) hinweis.classList.add('d-none');
+    if (!isHomeofficeAktiv() && !isTankenAktiv() && !isVerlegerAktiv() && typCard) typCard.style.display = '';
+    if (!isHomeofficeAktiv() && !isTankenAktiv() && !isVerlegerAktiv()) setTyp(document.getElementById('aktionstyp').value || 'Aufbau');
   }
 }
 
@@ -1010,7 +1039,8 @@ function vsSelect(id, label) {
   updateHomeofficeUI();
   updateTankenUI();
   updateVerlegerUI();
-  if (isHomeofficeAktiv() || isVerlegerAktiv()) {
+  updateTelefonterminUI();
+  if (isHomeofficeAktiv() || isVerlegerAktiv() || isTelefonterminAktiv()) {
     document.getElementById('vsZonenContainer').style.display = 'none';
   } else {
     document.getElementById('vsZonenContainer').style.display = 'block';
@@ -1031,6 +1061,7 @@ function vsClearSelection() {
   updateHomeofficeUI();
   updateTankenUI();
   updateVerlegerUI();
+  updateTelefonterminUI();
   vsSearch.focus();
 }
 
@@ -1325,6 +1356,7 @@ setTyp('{{ preselect_typ }}');
 updateHomeofficeUI();
 updateTankenUI();
 updateVerlegerUI();
+updateTelefonterminUI();
 
 // Uhrzeiten auf 5-Minuten-Schritte runden (iOS ignoriert step="300")
 (function() {
