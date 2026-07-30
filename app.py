@@ -1429,6 +1429,37 @@ def init_db():
             # KH deaktivieren falls aus Altbestand vorhanden
             db.execute("UPDATE mitarbeiter SET aktiv=0 WHERE kuerzel='KH'")
 
+            # Team-Vergleichsdashboard (Nutzerwunsch 2026-07-31): Demo braucht mindestens 2
+            # Teams mit jeweils eigenem VKL, sonst zeigt das Team-Ranking im KPI-Katalog
+            # nichts – im Ursprungszustand war das Team-Feature komplett ungenutzt (0 Teams,
+            # der einzige VKL ohne team_id). "AND team_id IS NULL" unten macht die Zuordnung
+            # einmalig und nicht-destruktiv: eine spätere manuelle Umsortierung durch einen
+            # Demo-Interessenten im Admin-Panel wird bei jedem weiteren Neustart respektiert.
+            _seed_passwort('VKL2', 'Verkaufsleiterin Süd', 'verkaufsleiter', DEFAULT_PASSWORD)
+            for _team_name in ('Team Nord', 'Team Süd'):
+                if not db.execute("SELECT 1 FROM team WHERE name=?", (_team_name,)).fetchone():
+                    db.execute("INSERT INTO team (name) VALUES (?)", (_team_name,))
+            db.commit()
+            _team_nord_id = db.execute("SELECT id FROM team WHERE name='Team Nord'").fetchone()['id']
+            _team_sued_id = db.execute("SELECT id FROM team WHERE name='Team Süd'").fetchone()['id']
+            for _kuerzel, _tid in {
+                'VKL': _team_nord_id, 'MM': _team_nord_id, 'AS': _team_nord_id,
+                'VKL2': _team_sued_id, 'TW': _team_sued_id, 'LF': _team_sued_id,
+            }.items():
+                db.execute("UPDATE mitarbeiter SET team_id=? WHERE kuerzel=? AND team_id IS NULL", (_tid, _kuerzel))
+            db.commit()
+
+            # KPI direkt scharf schalten (admin-only), damit der Demo-Interessent das
+            # Team-Ranking sofort sieht, ohne vorher selbst /admin/kpi-einstellungen
+            # zu öffnen. Nur beim allerersten Seed einfügen, spätere Admin-Änderungen
+            # (z.B. sichtbar_fuer auf 'alle') bleiben danach unangetastet.
+            if not db.execute("SELECT 1 FROM kpi_einstellungen WHERE kpi_key='team_ranking_zielerreichung'").fetchone():
+                db.execute(
+                    "INSERT INTO kpi_einstellungen (kpi_key, aktiv, sichtbar_fuer, highlight) VALUES (?,1,'admin',0)",
+                    ('team_ranking_zielerreichung',)
+                )
+                db.commit()
+
         # Displaysorten – nur einfügen wenn Tabelle leer
         if not db.execute("SELECT 1 FROM displaysorte LIMIT 1").fetchone():
             for ds_name in ['Regal-Display', 'Eingangs-Display',
@@ -3187,6 +3218,7 @@ _KPI_KATALOG = [
     {'key': 'wochenarbeitszeit_vs_soll', 'name': 'Ø Wochenarbeitszeit vs. Soll', 'kategorie': 'Arbeitszeit/Personal'},
     {'key': 'krankheitsquote', 'name': 'Krankheitsquote', 'kategorie': 'Arbeitszeit/Personal'},
     {'key': 'rep_ranking_zielerreichung', 'name': 'Rep-Ranking nach Zielerreichung', 'kategorie': 'Vergleich/Benchmark'},
+    {'key': 'team_ranking_zielerreichung', 'name': 'Team-Ranking nach Zielerreichung', 'kategorie': 'Vergleich/Benchmark'},
     {'key': 'vorjahresvergleich', 'name': 'Vorjahresvergleich', 'kategorie': 'Vergleich/Benchmark'},
 ]
 
@@ -3438,6 +3470,36 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
                 ranking.append({'name': r['name'], 'quote': round(sum(quoten) / len(quoten) * 100)})
         ranking.sort(key=lambda x: x['quote'], reverse=True)
         werte['rep_ranking_zielerreichung'] = ranking
+
+    if 'team_ranking_zielerreichung' in aktive_keys:
+        BP_T = "(SELECT aktivitaet_id, SUM(kisten_anzahl) AS kisten_total FROM bestellposition GROUP BY aktivitaet_id)"
+        rows = query(f'''
+            SELECT m.id, t.name AS team_name, z.kisten_ziel, z.displays_ziel,
+                   COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung' THEN b.kisten_total ELSE 0 END), 0) AS kisten_ist,
+                   COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.anzahl_displays ELSE 0 END), 0) AS displays_ist
+            FROM mitarbeiter m
+            JOIN team t ON t.id = m.team_id
+            JOIN zielzahlen z ON z.mitarbeiter_id = m.id AND z.jahr = ?
+            LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND strftime('%Y', a.datum) = ?
+            LEFT JOIN {BP_T} b ON b.aktivitaet_id = a.id
+            WHERE m.rolle IN ('rep','verkaufsleiter') AND m.aktiv = 1
+            GROUP BY m.id
+        ''', (jahr, str(jahr)))
+        team_quoten = {}
+        for r in rows:
+            quoten = []
+            if r['kisten_ziel']:
+                quoten.append(r['kisten_ist'] / r['kisten_ziel'])
+            if r['displays_ziel']:
+                quoten.append(r['displays_ist'] / r['displays_ziel'])
+            if quoten:
+                team_quoten.setdefault(r['team_name'], []).append(sum(quoten) / len(quoten))
+        ranking = [
+            {'name': name, 'quote': round(sum(qs) / len(qs) * 100)}
+            for name, qs in team_quoten.items()
+        ]
+        ranking.sort(key=lambda x: x['quote'], reverse=True)
+        werte['team_ranking_zielerreichung'] = ranking
 
     if 'vorjahresvergleich' in aktive_keys:
         t_ma_sql, t_ma_p = _team_ma_clause('a')
