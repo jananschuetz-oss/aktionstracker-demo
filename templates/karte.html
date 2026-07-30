@@ -153,6 +153,23 @@
         {% endfor %}
       </div>
     </div>
+    <!-- Verkaufsstelle-Filter (Optionen werden per JS aus den geladenen Stationen befüllt) -->
+    <div class="dropdown">
+      <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle"
+              data-bs-toggle="dropdown" data-bs-auto-close="outside"
+              id="vsFilterBtn" style="min-width:160px;text-align:left">
+        Alle Verkaufsstellen
+      </button>
+      <div class="dropdown-menu p-2 shadow" id="vsFilterMenu" style="min-width:240px;max-height:320px;overflow-y:auto">
+        <input type="text" class="form-control form-control-sm mb-2" placeholder="Suchen…"
+               oninput="filterDropdownListe(this, '.karte-vs-item')">
+        <div class="form-check py-1 border-bottom mb-1">
+          <input class="form-check-input" type="checkbox" id="karte_vs_alle" checked>
+          <label class="form-check-label fw-semibold" for="karte_vs_alle">Alle auswählen</label>
+        </div>
+        <!-- Verkaufsstelle-Checkboxen werden per JS eingefügt -->
+      </div>
+    </div>
     <button id="btnMehrfachauswahl" class="btn btn-sm btn-outline-primary">
       <i class="bi bi-check2-square me-1"></i>Mehrfachauswahl
     </button>
@@ -327,7 +344,19 @@ let monateFilter     = [];   // [] = alle; sonst Array von Monatsnummern (string
 // von den übrigen Filtern (die bleiben auf "alle").
 const VS_ID_FILTER = {{ vs_ids_filter | tojson }};
 let vsIdFilter       = VS_ID_FILTER.slice();
+let verkaufsstelleFilter = [];   // [] = alle; sonst Array von Verkaufsstelle-IDs (strings)
 let besuchtStationen = {};   // station_id → Besuchsanzahl im Zeitraum
+
+/* ── Filter-Suche (Suchfeld in jedem Dropdown filtert die sichtbaren Checkbox-Zeilen) ── */
+function filterDropdownListe(inputEl, itemSelector) {
+  const q    = inputEl.value.toLowerCase().trim();
+  const menu = inputEl.closest('.dropdown-menu');
+  if (!menu) return;
+  menu.querySelectorAll(itemSelector).forEach(item => {
+    const text = item.textContent.toLowerCase();
+    item.style.display = (!q || text.includes(q)) ? '' : 'none';
+  });
+}
 
 /* ── Karte ──────────────────────────────────────────────────────────────────── */
 const map = L.map('map', { zoomControl: true });
@@ -358,6 +387,7 @@ function stelleFarbe(stelle) {
 
 function stelleIstSichtbar(stelle) {
   if (vsIdFilter.length && !vsIdFilter.includes(stelle.id)) return false;
+  if (verkaufsstelleFilter.length && !verkaufsstelleFilter.includes(String(stelle.id))) return false;
   if (!repFilter.length) return true;
   return stelle.zuordnungen.some(r => repFilter.includes(String(r.id)));
 }
@@ -448,6 +478,7 @@ async function ladeKarteDaten() {
     alleReps    = data.reps    || [];
     buildLegende();
     renderMarkers();
+    if (typeof populateVerkaufsstelleFilter === 'function') populateVerkaufsstelleFilter();
   } catch (e) {
     console.error('Karte laden fehlgeschlagen:', e);
   }
@@ -696,6 +727,78 @@ document.getElementById('btnSaveZuordnung').addEventListener('click', async func
     applyFilter();
   }));
 })();
+{% endif %}
+
+/* ── Verkaufsstelle-Filter (Multi-Checkbox, Optionen dynamisch aus Stationsdaten) ──── */
+{% if is_manager %}
+function populateVerkaufsstelleFilter() {
+  const menu = document.getElementById('vsFilterMenu');
+  if (!menu) return;
+
+  const liste = alleStellen.slice().sort((a, b) => a.name.localeCompare(b.name, 'de'));
+
+  menu.querySelectorAll('.karte-vs-item').forEach(el => el.remove());
+  liste.forEach(s => {
+    const safeId = 'karte_vs_' + s.id;
+    const div = document.createElement('div');
+    div.className = 'form-check py-1 karte-vs-item';
+    div.innerHTML =
+      `<input class="form-check-input karte-vs-cb" type="checkbox" value="${s.id}" id="${safeId}" checked>` +
+      `<label class="form-check-label" for="${safeId}">${escapeHtml(s.name)}</label>`;
+    menu.appendChild(div);
+  });
+
+  wireVerkaufsstelleFilter();
+}
+
+function wireVerkaufsstelleFilter() {
+  const allesCb    = document.getElementById('karte_vs_alle');
+  const einzelnCbs = document.querySelectorAll('.karte-vs-cb');
+  const btn        = document.getElementById('vsFilterBtn');
+  if (!allesCb || !btn) return;
+
+  function syncAlles() {
+    const n = Array.from(einzelnCbs).filter(c => c.checked).length;
+    allesCb.checked       = einzelnCbs.length > 0 && n === einzelnCbs.length;
+    allesCb.indeterminate = n > 0 && n < einzelnCbs.length;
+    if (n === einzelnCbs.length) {
+      btn.textContent = 'Alle Verkaufsstellen';
+    } else if (n === 1) {
+      btn.textContent = Array.from(einzelnCbs).find(c => c.checked)
+                          .nextElementSibling.textContent.trim();
+    } else {
+      btn.textContent = n + ' Verkaufsstellen';
+    }
+  }
+
+  function applyFilter() {
+    const checked = Array.from(einzelnCbs).filter(c => c.checked);
+    verkaufsstelleFilter = checked.length === einzelnCbs.length ? [] : checked.map(c => c.value);
+    if (typeof heatmapAktiv !== 'undefined' && heatmapAktiv) {
+      ladeHeatmap(document.getElementById('heatmapJahr').value || '{{ now.year }}');
+    } else if (monateFilter.length) {
+      ladeBesuche();
+    } else {
+      renderMarkers();
+    }
+    if (typeof mehrfachAuswahlAktiv !== 'undefined' && mehrfachAuswahlAktiv) renderAuswahlListe();
+  }
+
+  allesCb.onchange = function () {
+    einzelnCbs.forEach(cb => cb.checked = this.checked);
+    if (!this.checked) einzelnCbs[0] && (einzelnCbs[0].checked = true);
+    syncAlles();
+    applyFilter();
+  };
+  einzelnCbs.forEach(cb => {
+    cb.onchange = function () {
+      if (!Array.from(einzelnCbs).some(c => c.checked)) this.checked = true;
+      syncAlles();
+      applyFilter();
+    };
+  });
+  syncAlles();
+}
 {% endif %}
 
 /* ── Mehrfachauswahl & Bulk-Umhängen ───────────────────────────────────────────── */
@@ -1031,9 +1134,12 @@ async function ladeHeatmap(jahr) {
     data = await resp.json();
   } catch (e) { console.error('Heatmap laden fehlgeschlagen:', e); return; }
 
-  // Kunden-Vergleich (vsIdFilter) wird hier client-seitig nachgezogen, da die Heatmap-
-  // API selbst den Filter nicht kennt (portiert aus Arco 2026-07-25).
-  const stellen    = (data.stellen || []).filter(s => !vsIdFilter.length || vsIdFilter.includes(s.id));
+  // Kunden-Vergleich (vsIdFilter) sowie der Verkaufsstelle-Filter werden hier client-seitig
+  // nachgezogen, da die Heatmap-API selbst diese Filter nicht kennt (portiert aus Arco 2026-07-25/30).
+  const stellen    = (data.stellen || []).filter(s =>
+    (!vsIdFilter.length || vsIdFilter.includes(s.id)) &&
+    (!verkaufsstelleFilter.length || verkaufsstelleFilter.includes(String(s.id)))
+  );
   const maxAnzahl  = Math.max(...stellen.map(s => s.anzahl), 1);
   const cfg        = EBENE_CFG[heatmapEbene] || EBENE_CFG.betreuung;
   const jahrLabel  = heatmapEbene === 'offene_bestellungen' ? 'aktuell' : String(jahr);
@@ -1082,6 +1188,7 @@ async function ladeHeatmap(jahr) {
       })(),
       { direction: 'top', offset: [0, -6] }
     )
+    .on('click', () => openStationModal(s.id))
     .addTo(heatmapLayer);
   });
 
