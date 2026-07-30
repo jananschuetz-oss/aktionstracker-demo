@@ -3830,7 +3830,7 @@ def dashboard():
 
     _tm_sql, _tm_p = _team_m_clause('m')
     alle_ma = query(
-        f"SELECT id, name FROM mitarbeiter WHERE rolle IN ('rep','verkaufsleiter'){_tm_sql} ORDER BY name",
+        f"SELECT id, name FROM mitarbeiter m WHERE rolle IN ('rep','verkaufsleiter'){_tm_sql} ORDER BY name",
         _tm_p
     ) if is_manager else []
 
