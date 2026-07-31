@@ -1238,6 +1238,11 @@ def init_db():
             # bestehende Produkte bei global aktiviertem Preisbild ihr bisheriges Verhalten
             # behalten.
             "ALTER TABLE listungsprodukt ADD COLUMN preispflicht INTEGER DEFAULT 1",
+            # Performance (2026-07-31, von Arco portiert): listungsbild hatte - anders als die
+            # strukturell identischen Tabellen bestellposition/displayposition - nie einen
+            # Index auf aktivitaet_id, obwohl es bei jeder Aktivitäts-Detailansicht abgefragt
+            # wird. Würde mit wachsender Historie zum Full-Table-Scan.
+            "CREATE INDEX IF NOT EXISTS idx_listungsbild_aktivitaet ON listungsbild(aktivitaet_id)",
             # Hotelübernachtung (2026-07-23): neuer Antragstyp im Urlaubs-/Vertretungsmodul,
             # läuft über denselben Genehmigungs-Workflow (VKL/Admin bestätigen), braucht aber
             # zusätzlich Hotel-Adresse und Kosten pro Nacht für den monatlichen Hotel-Report.
