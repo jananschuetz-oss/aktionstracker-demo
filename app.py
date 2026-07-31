@@ -7933,6 +7933,14 @@ def admin_geo_ausreisser():
     return render_template('geo_ausreisser.html', ausreisser=ausreisser)
 
 
+def _monatsspanne(monat_key: str):
+    """Gibt (erster_tag, letzter_tag) für einen 'YYYY-MM'-Schlüssel zurück."""
+    jahr, monat = (int(x) for x in monat_key.split('-'))
+    erster = date(jahr, monat, 1)
+    letzter = (date(jahr + 1, 1, 1) if monat == 12 else date(jahr, monat + 1, 1)) - timedelta(days=1)
+    return erster, letzter
+
+
 @app.route('/admin')
 @admin_required
 def admin():
@@ -7951,6 +7959,42 @@ def admin():
     biersorten      = query("SELECT * FROM biersorte ORDER BY sortierung, name")
     displaysorte    = query("SELECT * FROM displaysorte ORDER BY name")
     listungsprodukte_admin = query("SELECT * FROM listungsprodukt ORDER BY aktiv DESC, sortierung, name")
+
+    # Fotos-Übersicht: letzte 6 Monate zur Auswahl, Default aktueller Monat
+    _monat_namen_fotos = ['Januar','Februar','März','April','Mai','Juni',
+                           'Juli','August','September','Oktober','November','Dezember']
+    fotos_monate_optionen = []
+    _fm_jahr, _fm_monat = date.today().year, date.today().month
+    for _i in range(6):
+        fotos_monate_optionen.append({
+            'key':   f"{_fm_jahr:04d}-{_fm_monat:02d}",
+            'label': f"{_monat_namen_fotos[_fm_monat - 1]} {_fm_jahr}",
+        })
+        _fm_monat -= 1
+        if _fm_monat == 0:
+            _fm_monat = 12
+            _fm_jahr -= 1
+    fotos_monat_gewaehlt = request.args.get('fotos_monat', '')
+    if fotos_monat_gewaehlt not in [o['key'] for o in fotos_monate_optionen]:
+        fotos_monat_gewaehlt = fotos_monate_optionen[0]['key']
+    _fotos_von, _fotos_bis = _monatsspanne(fotos_monat_gewaehlt)
+    _fotos_zaehl_ausdruck = ("(CASE WHEN a.foto_pfad IS NOT NULL AND a.foto_pfad!='' THEN 1 ELSE 0 END "
+                              " + CASE WHEN a.foto_pfad_2 IS NOT NULL AND a.foto_pfad_2!='' THEN 1 ELSE 0 END "
+                              " + CASE WHEN a.foto_pfad_3 IS NOT NULL AND a.foto_pfad_3!='' THEN 1 ELSE 0 END)")
+    fotos_stats = query(
+        f"SELECT COUNT(DISTINCT CASE WHEN {_fotos_zaehl_ausdruck} > 0 THEN a.id END) AS aktivitaeten, "
+        f"       COALESCE(SUM({_fotos_zaehl_ausdruck}), 0) AS fotos_gesamt "
+        "FROM aktivitaet a WHERE a.datum BETWEEN ? AND ?",
+        (_fotos_von.isoformat(), _fotos_bis.isoformat()), one=True
+    )
+    fotos_pro_mitarbeiter = query(
+        f"SELECT m.name, SUM({_fotos_zaehl_ausdruck}) AS anzahl "
+        "FROM aktivitaet a JOIN mitarbeiter m ON m.id = a.mitarbeiter_id "
+        "WHERE a.datum BETWEEN ? AND ? "
+        "GROUP BY m.id HAVING anzahl > 0 ORDER BY anzahl DESC",
+        (_fotos_von.isoformat(), _fotos_bis.isoformat())
+    )
+
     teams           = query("SELECT t.*, COUNT(m.id) AS mitglieder FROM team t LEFT JOIN mitarbeiter m ON m.team_id = t.id GROUP BY t.id ORDER BY t.name")
     mail_konfiguriert = bool(MAIL_SERVER and MAIL_USERNAME)
 
@@ -8004,6 +8048,11 @@ def admin():
         listungsprodukte_admin=listungsprodukte_admin,
         listungsbild_modus=LISTUNGSBILD_MODUS,
         listungsbild_preispflicht=LISTUNGSBILD_PREISPFLICHT,
+        fotos_monate_optionen=fotos_monate_optionen,
+        fotos_monat_gewaehlt=fotos_monat_gewaehlt,
+        fotos_gesamt=fotos_stats['fotos_gesamt'],
+        fotos_aktivitaeten=fotos_stats['aktivitaeten'],
+        fotos_pro_mitarbeiter=fotos_pro_mitarbeiter,
         zuordnungen=zuordnungen,
         vs_besitzer=vs_besitzer,
         vertretungen=vertretungen,
@@ -8016,6 +8065,20 @@ def admin():
         export_email=EXPORT_EMAIL,
         bundeslaender=_BUNDESLAENDER,
         urlaub_konten={m['id']: _urlaub_konto(m['id'], date.today().year) for m in mitarbeiter})
+
+
+@app.route('/admin/fotos/download')
+@admin_required
+def admin_fotos_download():
+    monat = request.args.get('monat', '')
+    try:
+        von, bis = _monatsspanne(monat)
+    except (ValueError, TypeError):
+        von, bis = _monatsspanne(date.today().strftime('%Y-%m'))
+    zip_bytes, anzahl = erstelle_fotos_zip_bytes(von=von.isoformat(), bis=bis.isoformat())
+    app.logger.info(f"Audit: Fotos-ZIP für {von.strftime('%Y-%m')} heruntergeladen von {session.get('kuerzel')} ({anzahl} Fotos)")
+    fname = f"Fotos_{von.strftime('%Y-%m')}.zip"
+    return send_file(io.BytesIO(zip_bytes), as_attachment=True, download_name=fname, mimetype='application/zip')
 
 
 @app.route('/admin/mitarbeiter/neu', methods=['POST'])

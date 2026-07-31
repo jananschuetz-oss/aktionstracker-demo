@@ -471,11 +471,11 @@
   </div>
 </div>
 
-{% if listungsbild_modus == 'an' %}
 <!-- Listungsprodukte (Produktisierung 2026-07-31, von Arco portiert): Kunde pflegt seinen
      Listungsbild-Produktkatalog selbst, analog zur Biersorten-Verwaltung oben. Nur sichtbar
      wenn LISTUNGSBILD_MODUS='an' (Railway-Env-Var, wie KARTE_MODUS nirgends editierbar). -->
 <div class="row g-4 mt-0">
+  {% if listungsbild_modus == 'an' %}
   <div class="col-lg-6" id="sektionListungsprodukte">
     <div class="card h-100">
       <div class="card-header" style="background:linear-gradient(135deg,#2c7a7b,#38a89d)">
@@ -562,8 +562,60 @@
       </div>
     </div>
   </div>
+  {% endif %}
+  <div class="col-lg-6" id="sektionFotos">
+    <div class="card h-100">
+      <div class="card-header" style="background:linear-gradient(135deg,#1a3a5c,#2e6da4)">
+        <i class="bi bi-images me-2"></i>Fotos
+      </div>
+      <div class="card-body">
+        <form method="GET" action="{{ url_for('admin') }}#sektionFotos" class="mb-3">
+          <select name="fotos_monat" class="form-select form-select-sm" onchange="this.form.submit()" style="max-width:220px">
+            {% for m in fotos_monate_optionen %}
+            <option value="{{ m.key }}" {% if m.key == fotos_monat_gewaehlt %}selected{% endif %}>{{ m.label }}</option>
+            {% endfor %}
+          </select>
+        </form>
+        <div class="row g-2 mb-3">
+          <div class="col-6">
+            <div class="p-2 rounded" style="background:#f1f4f8">
+              <div class="text-muted" style="font-size:.75rem">Fotos gesamt</div>
+              <div class="fw-bold" style="font-size:1.3rem">{{ fotos_gesamt }}</div>
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="p-2 rounded" style="background:#f1f4f8">
+              <div class="text-muted" style="font-size:.75rem">Besuche mit Foto</div>
+              <div class="fw-bold" style="font-size:1.3rem">{{ fotos_aktivitaeten }}</div>
+            </div>
+          </div>
+        </div>
+        {% if fotos_pro_mitarbeiter %}
+        <div class="text-muted mb-1" style="font-size:.75rem">Fotos pro Mitarbeiter</div>
+        <table class="table table-sm mb-0">
+          <tbody>
+            {% for f in fotos_pro_mitarbeiter %}
+            <tr>
+              <td>{{ f.name }}</td>
+              <td class="text-end text-nowrap">{{ f.anzahl }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-muted text-center py-2" style="font-size:.9rem">Keine Fotos in diesem Monat</div>
+        {% endif %}
+      </div>
+      <div class="card-footer bg-white">
+        <a class="btn btn-sm w-100 {% if not fotos_gesamt %}disabled{% endif %}"
+           style="background:#1a3a5c;color:white"
+           href="{{ url_for('admin_fotos_download', monat=fotos_monat_gewaehlt) }}">
+          <i class="bi bi-download me-1"></i>Fotos des Monats als ZIP
+        </a>
+      </div>
+    </div>
+  </div>
 </div>
-{% endif %}
 
 <!-- Geo-Ausreißer-Prüfung -->
 <div class="row g-4 mt-2">
