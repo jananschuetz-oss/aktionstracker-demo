@@ -3531,7 +3531,7 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
         _az_rows = query(
             "SELECT mitarbeiter_id, datum, "
             "(strftime('%s', ende) - strftime('%s', beginn)) / 60.0 - COALESCE(pause_minuten, 0) AS minuten "
-            "FROM arbeitszeit WHERE datum BETWEEN ? AND ?",
+            "FROM arbeitszeit WHERE datum BETWEEN ? AND ? AND beginn IS NOT NULL AND ende IS NOT NULL",
             (woche_start, woche_ende)
         )
         _by_ma_minuten, _by_ma_tage = {}, {}
