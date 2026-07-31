@@ -3506,8 +3506,10 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
 
     if 'wochenarbeitszeit_vs_soll' in aktive_keys:
         heute = date.today()
-        woche_start = (heute - timedelta(days=heute.weekday())).isoformat()
-        woche_ende = (heute + timedelta(days=6 - heute.weekday())).isoformat()
+        woche_start_d = heute - timedelta(days=heute.weekday())
+        woche_ende_d = heute + timedelta(days=6 - heute.weekday())
+        woche_start = woche_start_d.isoformat()
+        woche_ende = woche_ende_d.isoformat()
         # Soll wird anteilig auf die bereits vergangenen Werktage (Mo-Fr) der Woche
         # heruntergerechnet – sonst steht Montagfrüh immer 0% gegen das volle Wochensoll,
         # unabhängig davon ob jemand im Soll liegt (Bugreport 2026-07-27).
@@ -3515,16 +3517,34 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
         elapsed_werktage = min(heute.weekday() + 1, gesamt_werktage) if heute.weekday() < 5 else gesamt_werktage
         anteil = elapsed_werktage / gesamt_werktage
         t_m_sql, t_m_p = _team_m_clause('m')
-        rows = query(f'''
-            SELECT m.id, m.name, m.wochenarbeitszeit_stunden,
-                   COALESCE(SUM((strftime('%s', az.ende) - strftime('%s', az.beginn)) / 60.0
-                                - COALESCE(az.pause_minuten, 0)), 0) AS ist_minuten
+        mitarbeiter_rows = query(f'''
+            SELECT m.id, m.name, m.wochenarbeitszeit_stunden
             FROM mitarbeiter m
-            LEFT JOIN arbeitszeit az ON az.mitarbeiter_id = m.id AND az.datum BETWEEN ? AND ?
             WHERE m.rolle IN ('rep','verkaufsleiter') AND m.aktiv = 1
                   AND m.wochenarbeitszeit_stunden IS NOT NULL{t_m_sql}
-            GROUP BY m.id
-        ''', (woche_start, woche_ende) + t_m_p)
+        ''', t_m_p)
+        # Bugreport 2026-07-31 (von Arco portiert): Mitarbeiter mit Urlaub/Krankheit/
+        # Sonderurlaub/unbezahltem Frei zeigten hier 0,0h, obwohl die Arbeitszeit-Übersicht
+        # (Standard-Tagesstunden für Abwesenheitstage) für dieselben Tage bereits einen
+        # Sollwert anrechnet - dieselbe Logik fehlte bisher in dieser KPI-Query, die nur
+        # echte arbeitszeit-Einträge summierte.
+        _az_rows = query(
+            "SELECT mitarbeiter_id, datum, "
+            "(strftime('%s', ende) - strftime('%s', beginn)) / 60.0 - COALESCE(pause_minuten, 0) AS minuten "
+            "FROM arbeitszeit WHERE datum BETWEEN ? AND ?",
+            (woche_start, woche_ende)
+        )
+        _by_ma_minuten, _by_ma_tage = {}, {}
+        for _r in _az_rows:
+            _by_ma_minuten[_r['mitarbeiter_id']] = _by_ma_minuten.get(_r['mitarbeiter_id'], 0) + _r['minuten']
+            _by_ma_tage.setdefault(_r['mitarbeiter_id'], set()).add(_r['datum'])
+        _urlaub_map = _urlaub_daten_alle([m['id'] for m in mitarbeiter_rows], woche_start, woche_ende) if mitarbeiter_rows else {}
+        rows = []
+        for m in mitarbeiter_rows:
+            _ist_minuten = _by_ma_minuten.get(m['id'], 0)
+            _zaehlung = _arbeitszeit_tage_zaehlen(woche_start_d, woche_ende_d, _by_ma_tage.get(m['id'], set()), m['id'], _urlaub_map)
+            _ist_minuten += _az_anrechnung_minuten(_zaehlung['typen'], m['wochenarbeitszeit_stunden'])
+            rows.append({'id': m['id'], 'name': m['name'], 'wochenarbeitszeit_stunden': m['wochenarbeitszeit_stunden'], 'ist_minuten': _ist_minuten})
         if rows:
             ist_h = sum(r['ist_minuten'] for r in rows) / 60 / len(rows)
             soll_h_voll = sum(r['wochenarbeitszeit_stunden'] for r in rows) / len(rows)
