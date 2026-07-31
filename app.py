@@ -127,6 +127,11 @@ if not ADMIN_PASSWORD:
     )
 EXPORT_EMAIL   = os.environ.get('EXPORT_EMAIL',   '')        # E-Mail für automatischen 4-Wochen-Export
 KARTE_MODUS    = os.environ.get('KARTE_MODUS',   'basis')   # 'aus' | 'basis' | 'heatmap'
+# Listungsbild (2026-07-31, von Arco portiert/produktisiert): Default 'an', damit die Demo das
+# Feature für Interessenten zeigt. LISTUNGSBILD_PREISPFLICHT ist ein unabhängiger Sub-Toggle -
+# manche Kunden wollen nur die Ja/Nein-Listung ohne Preiserfassung.
+LISTUNGSBILD_MODUS       = os.environ.get('LISTUNGSBILD_MODUS', 'an')       # 'aus' | 'an'
+LISTUNGSBILD_PREISPFLICHT = os.environ.get('LISTUNGSBILD_PREISPFLICHT', 'an')  # 'aus' | 'an'
 TOUREN_MODUS   = os.getenv('TOUREN_MODUS', 'aus')             # 'aus' | 'an'
 ARBEITSZEIT_MODUS = os.getenv('ARBEITSZEIT_MODUS', 'aus') == 'an'  # Zusatzmodul, standardmäßig aus (Add-on)
 TANKEN_MODUS   = os.getenv('TANKEN_MODUS', 'aus') == 'an'  # Firmenwagen-Tanken-Sonderkategorie, standardmäßig aus (Add-on)
@@ -942,6 +947,24 @@ def init_db():
                 FOREIGN KEY (mitarbeiter_id) REFERENCES mitarbeiter(id)
             );
 
+            CREATE TABLE IF NOT EXISTS listungsprodukt (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                aktiv INTEGER DEFAULT 1,
+                sortierung INTEGER DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS listungsbild (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                aktivitaet_id INTEGER NOT NULL,
+                listungsprodukt_id INTEGER NOT NULL,
+                vorhanden INTEGER NOT NULL,
+                preis REAL,
+                aktionspreis REAL,
+                FOREIGN KEY (aktivitaet_id) REFERENCES aktivitaet(id) ON DELETE CASCADE,
+                FOREIGN KEY (listungsprodukt_id) REFERENCES listungsprodukt(id)
+            );
+
             CREATE TABLE IF NOT EXISTS displaysorte (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
@@ -1500,6 +1523,14 @@ def init_db():
             ]
             for name, einheit in produkte:
                 db.execute("INSERT INTO biersorte (name, einheit) VALUES (?, ?)", (name, einheit))
+
+        # Listungsbild-Produkte (2026-07-31, generisch statt Arco-Bier-SKUs, damit die Demo
+        # auch für Nicht-Getränke-Branchen überzeugend aussieht) – nur einfügen wenn leer.
+        if not db.execute("SELECT 1 FROM listungsprodukt LIMIT 1").fetchone():
+            for i, lp_name in enumerate([
+                'Hauptprodukt A', 'Hauptprodukt B', 'Zweitplatzierung',
+            ]):
+                db.execute("INSERT INTO listungsprodukt (name, sortierung) VALUES (?, ?)", (lp_name, i))
 
         # Beispiel-Kunden – nur einfügen wenn Tabelle leer
         if not db.execute("SELECT 1 FROM verkaufsstelle LIMIT 1").fetchone():
@@ -6027,6 +6058,10 @@ def neue_aktivitaet():
     if not GRATISWARE_MODUS:
         biersorten = [b for b in biersorten if not b['ist_gratisware']]
     displaysorte    = query("SELECT * FROM displaysorte   WHERE aktiv=1 ORDER BY name")
+    # Von Arco portiert/produktisiert (2026-07-31): kundenweiter Ein/Aus-Schalter - eine leere
+    # Liste hier deaktiviert das Feature durchgehend (Validierung, Speichern, Template-Anzeige
+    # hängen alle an dieser Variable).
+    listungsprodukte = query("SELECT * FROM listungsprodukt WHERE aktiv=1 ORDER BY sortierung, name") if LISTUNGSBILD_MODUS == 'an' else []
 
     if request.method == 'POST':
         datum   = request.form.get('datum')
@@ -6058,6 +6093,39 @@ def neue_aktivitaet():
         if is_homeoffice or is_tanken or is_verleger or is_telefontermin:
             aktionstyp = 'Besuch'
 
+        # Listungsbild (von Arco portiert/produktisiert 2026-07-31): für JEDE Aktivität
+        # Pflicht, unabhängig vom Aktivitätstyp - außer bei den Sonderkategorien ohne echtes
+        # Regal. listungsprodukte ist leer, wenn der Kunde das Feature per LISTUNGSBILD_MODUS
+        # abgeschaltet hat - dann bleiben listung_fehlt/listung_preis_fehlt automatisch leer.
+        listung_auswahl = {lp['id']: request.form.get(f'listung_{lp["id"]}', '') for lp in listungsprodukte}
+        listung_fehlt = [] if (is_homeoffice or is_tanken or is_verleger or is_telefontermin) else [lp for lp in listungsprodukte if listung_auswahl[lp['id']] not in ('ja', 'nein')]
+
+        listung_preis_auswahl = {lp['id']: request.form.get(f'listung_preis_{lp["id"]}', '').strip() for lp in listungsprodukte} if LISTUNGSBILD_PREISPFLICHT == 'an' else {}
+        listung_aktionspreis_auswahl = {lp['id']: request.form.get(f'listung_aktionspreis_{lp["id"]}', '').strip() for lp in listungsprodukte} if LISTUNGSBILD_PREISPFLICHT == 'an' else {}
+        listung_preise = {}
+        listung_preis_fehlt = []
+        for lp in (listungsprodukte if LISTUNGSBILD_PREISPFLICHT == 'an' else []):
+            if listung_auswahl[lp['id']] != 'ja':
+                continue
+            preis_str = re.sub(r'\s+', '', listung_preis_auswahl[lp['id']]).replace(',', '.')
+            try:
+                preis = float(preis_str)
+                if preis <= 0:
+                    raise ValueError
+            except ValueError:
+                listung_preis_fehlt.append(lp)
+                continue
+            aktionspreis_str = re.sub(r'\s+', '', listung_aktionspreis_auswahl[lp['id']]).replace(',', '.')
+            aktionspreis = None
+            if aktionspreis_str:
+                try:
+                    aktionspreis = float(aktionspreis_str)
+                    if aktionspreis <= 0:
+                        aktionspreis = None
+                except ValueError:
+                    aktionspreis = None
+            listung_preise[lp['id']] = (preis, aktionspreis)
+
         von_uhrzeit = request.form.get('von_uhrzeit', '').strip()
         bis_uhrzeit = request.form.get('bis_uhrzeit', '').strip()
         foto_files = [f for f in request.files.getlist('fotos') if f and f.filename][:3]
@@ -6077,7 +6145,8 @@ def neue_aktivitaet():
                 displaysorte=displaysorte, vertretungs_gruppen=vertretungs_gruppen,
                 heute=date.today().isoformat(), min_datum=min_datum,
                 homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
-                verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids)
+                verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids,
+                listungsprodukte=listungsprodukte, listungsbild_preispflicht=(LISTUNGSBILD_PREISPFLICHT == 'an'))
 
         # Firmenwagen-Tanken: Pflichtfelder aus dem Tankbeleg (Tankdatum, Kennzeichen,
         # Kraftstoffsorte, Menge, Kilometerstand) – ermöglichen den Tanken-Report ohne
@@ -6112,7 +6181,8 @@ def neue_aktivitaet():
                 displaysorte=displaysorte, vertretungs_gruppen=vertretungs_gruppen,
                 heute=date.today().isoformat(), min_datum=min_datum,
                 homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
-                verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids)
+                verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids,
+                listungsprodukte=listungsprodukte, listungsbild_preispflicht=(LISTUNGSBILD_PREISPFLICHT == 'an'))
 
         # Verleger: einziges Pflichtfeld im reduzierten Formular ist die abgeholte Menge
         # "Gratisware Verleger" (Kistenware) – wird unten wie eine normale Bestellposition
@@ -6135,7 +6205,8 @@ def neue_aktivitaet():
                 displaysorte=displaysorte, vertretungs_gruppen=vertretungs_gruppen,
                 heute=date.today().isoformat(), min_datum=min_datum,
                 homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
-                verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids)
+                verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids,
+                listungsprodukte=listungsprodukte, listungsbild_preispflicht=(LISTUNGSBILD_PREISPFLICHT == 'an'))
 
         if not datum or not vs_id:
             flash('Datum und Verkaufsstelle sind Pflichtfelder.', 'danger')
@@ -6143,7 +6214,8 @@ def neue_aktivitaet():
                 verkaufsstellen=verkaufsstellen, biersorten=biersorten,
                 displaysorte=displaysorte, heute=date.today().isoformat(),
                 min_datum=min_datum, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
-                verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids)
+                verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids,
+                listungsprodukte=listungsprodukte, listungsbild_preispflicht=(LISTUNGSBILD_PREISPFLICHT == 'an'))
 
         if is_rep and min_datum and datum < min_datum:
             flash('Aktivitäten können nur für die aktuelle Woche eingetragen werden.', 'danger')
@@ -6151,7 +6223,33 @@ def neue_aktivitaet():
                 verkaufsstellen=verkaufsstellen, biersorten=biersorten,
                 displaysorte=displaysorte, heute=date.today().isoformat(),
                 min_datum=min_datum, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
-                verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids)
+                verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids,
+                listungsprodukte=listungsprodukte, listungsbild_preispflicht=(LISTUNGSBILD_PREISPFLICHT == 'an'))
+
+        if listung_fehlt:
+            flash('Bitte für jedes Produkt im Listungsbild „vorhanden" oder „nicht vorhanden" auswählen.', 'danger')
+            return render_template('neue_aktivitaet.html',
+                verkaufsstellen=verkaufsstellen, biersorten=biersorten,
+                displaysorte=displaysorte, heute=date.today().isoformat(),
+                min_datum=min_datum, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
+                verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids,
+                listungsprodukte=listungsprodukte, listung_auswahl=listung_auswahl,
+                listung_preis_auswahl=listung_preis_auswahl, listung_aktionspreis_auswahl=listung_aktionspreis_auswahl,
+                listungsbild_preispflicht=(LISTUNGSBILD_PREISPFLICHT == 'an'),
+                preselect_vs=vs_id)
+
+        if listung_preis_fehlt:
+            flash('Bitte für jedes vorhandene Listungsbild-Produkt einen Preis eintragen.', 'danger')
+            return render_template('neue_aktivitaet.html',
+                verkaufsstellen=verkaufsstellen, biersorten=biersorten,
+                displaysorte=displaysorte, heute=date.today().isoformat(),
+                min_datum=min_datum, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
+                verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids,
+                listungsprodukte=listungsprodukte, listung_auswahl=listung_auswahl,
+                listung_preis_auswahl=listung_preis_auswahl, listung_aktionspreis_auswahl=listung_aktionspreis_auswahl,
+                listungsbild_preispflicht=(LISTUNGSBILD_PREISPFLICHT == 'an'),
+                listung_preis_fehlt_ids=[lp['id'] for lp in listung_preis_fehlt],
+                preselect_vs=vs_id)
 
         # Displaypositionen sammeln. Freigabe-Workflow: zielrelevante (Tier-1) Typen starten
         # als "offen" und fließen erst nach VKL-Freigabe in anzahl_displays ein (s.
@@ -6236,6 +6334,18 @@ def neue_aktivitaet():
                     "INSERT INTO bestellposition (aktivitaet_id, biersorte_id, kisten_anzahl) VALUES (?,?,?)",
                     (akt_id, bier['id'], int(menge))
                 )
+
+        # Listungsbild speichern (von Arco portiert/produktisiert 2026-07-31) - leer, wenn
+        # Sonderkategorie ohne Regal oder Feature per LISTUNGSBILD_MODUS abgeschaltet.
+        for lp in listungsprodukte:
+            if listung_auswahl.get(lp['id']) not in ('ja', 'nein'):
+                continue
+            _vorhanden = 1 if listung_auswahl[lp['id']] == 'ja' else 0
+            _preis, _aktionspreis = listung_preise.get(lp['id'], (None, None))
+            execute(
+                "INSERT INTO listungsbild (aktivitaet_id, listungsprodukt_id, vorhanden, preis, aktionspreis) VALUES (?,?,?,?,?)",
+                (akt_id, lp['id'], _vorhanden, _preis, _aktionspreis)
+            )
 
         # Verleger: abgeholte Menge "Gratisware Verleger" als normale Bestellposition
         # speichern (mitarbeiter_id der Aktivität = wer die Aktivität erstellt hat, s.o.) –
@@ -6364,7 +6474,8 @@ def neue_aktivitaet():
         preselect_typ=preselect_typ,
         bestellung_id=bestellung_id, bestellung_info=bestellung_info,
         tagesplan_heute=tagesplan_heute, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
-        verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids)
+        verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids,
+        listungsprodukte=listungsprodukte, listungsbild_preispflicht=(LISTUNGSBILD_PREISPFLICHT == 'an'))
 
 
 AKTIVITAETEN_SEITENGROESSE = 100
@@ -7824,6 +7935,7 @@ def admin():
     )
     biersorten      = query("SELECT * FROM biersorte ORDER BY sortierung, name")
     displaysorte    = query("SELECT * FROM displaysorte ORDER BY name")
+    listungsprodukte_admin = query("SELECT * FROM listungsprodukt ORDER BY aktiv DESC, sortierung, name")
     teams           = query("SELECT t.*, COUNT(m.id) AS mitglieder FROM team t LEFT JOIN mitarbeiter m ON m.team_id = t.id GROUP BY t.id ORDER BY t.name")
     mail_konfiguriert = bool(MAIL_SERVER and MAIL_USERNAME)
 
@@ -7874,6 +7986,9 @@ def admin():
         vs_admin_seitengroesse=VS_ADMIN_SEITENGROESSE,
         biersorten=biersorten,
         displaysorte=displaysorte,
+        listungsprodukte_admin=listungsprodukte_admin,
+        listungsbild_modus=LISTUNGSBILD_MODUS,
+        listungsbild_preispflicht=LISTUNGSBILD_PREISPFLICHT,
         zuordnungen=zuordnungen,
         vs_besitzer=vs_besitzer,
         vertretungen=vertretungen,
@@ -9093,6 +9208,86 @@ def admin_bier_verschieben(b_id):
     if 0 <= ziel < len(ids):
         db.execute("UPDATE biersorte SET sortierung=? WHERE id=?", (ziel, ids[idx]))
         db.execute("UPDATE biersorte SET sortierung=? WHERE id=?", (idx, ids[ziel]))
+        db.commit()
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/listungsprodukt/neu', methods=['POST'])
+@admin_required
+def admin_listungsprodukt_neu():
+    """Produktisierung 2026-07-31 (von Arco portiert): Kunde pflegt seinen Listungsbild-
+    Produktkatalog selbst statt per Datenbank-Eingriff (analog admin_bier_neu())."""
+    name = request.form.get('name', '').strip()
+    if name:
+        _max_sort = query("SELECT COALESCE(MAX(sortierung), -1) AS m FROM listungsprodukt", one=True)['m']
+        execute("INSERT INTO listungsprodukt (name, sortierung) VALUES (?,?)", (name, _max_sort + 1))
+        flash(f'Produkt „{name}" angelegt.', 'success')
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/listungsprodukt/<int:lp_id>/bearbeiten', methods=['POST'])
+@admin_required
+def admin_listungsprodukt_bearbeiten(lp_id):
+    name = request.form.get('name', '').strip()
+    if name:
+        execute("UPDATE listungsprodukt SET name=? WHERE id=?", (name, lp_id))
+        flash(f'Produkt „{name}" aktualisiert.', 'success')
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/listungsprodukt/<int:lp_id>/loeschen', methods=['POST'])
+@admin_required
+def admin_listungsprodukt_loeschen(lp_id):
+    lp = query("SELECT * FROM listungsprodukt WHERE id=?", (lp_id,), one=True)
+    if not lp:
+        flash('Produkt nicht gefunden.', 'danger')
+        return redirect(url_for('admin'))
+    count = query(
+        "SELECT COUNT(*) AS c FROM listungsbild WHERE listungsprodukt_id=?", (lp_id,), one=True
+    )['c']
+    if count > 0:
+        execute("UPDATE listungsprodukt SET aktiv=0 WHERE id=?", (lp_id,))
+        flash(
+            f'„{lp["name"]}" hat {count} verknüpfte Listungsbild-Einträge und wurde deaktiviert '
+            f'(erscheint nicht mehr in neuen Aktivitäten, historische Daten bleiben erhalten).',
+            'warning'
+        )
+    else:
+        execute("DELETE FROM listungsprodukt WHERE id=?", (lp_id,))
+        flash(f'Produkt „{lp["name"]}" wurde gelöscht.', 'success')
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/listungsprodukt/<int:lp_id>/reaktivieren', methods=['POST'])
+@admin_required
+def admin_listungsprodukt_reaktivieren(lp_id):
+    lp = query("SELECT * FROM listungsprodukt WHERE id=?", (lp_id,), one=True)
+    if lp:
+        execute("UPDATE listungsprodukt SET aktiv=1 WHERE id=?", (lp_id,))
+        flash(f'Produkt „{lp["name"]}" wurde reaktiviert.', 'success')
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/listungsprodukt/<int:lp_id>/verschieben', methods=['POST'])
+@admin_required
+def admin_listungsprodukt_verschieben(lp_id):
+    richtung = request.form.get('richtung')
+    if richtung not in ('hoch', 'runter'):
+        return redirect(url_for('admin'))
+    db = get_db()
+    alle = db.execute("SELECT id, sortierung FROM listungsprodukt ORDER BY sortierung, name").fetchall()
+    for i, row in enumerate(alle):
+        if row['sortierung'] != i:
+            db.execute("UPDATE listungsprodukt SET sortierung=? WHERE id=?", (i, row['id']))
+    alle = db.execute("SELECT id FROM listungsprodukt ORDER BY sortierung, name").fetchall()
+    ids = [r['id'] for r in alle]
+    if lp_id not in ids:
+        return redirect(url_for('admin'))
+    idx = ids.index(lp_id)
+    ziel = idx - 1 if richtung == 'hoch' else idx + 1
+    if 0 <= ziel < len(ids):
+        db.execute("UPDATE listungsprodukt SET sortierung=? WHERE id=?", (ziel, ids[idx]))
+        db.execute("UPDATE listungsprodukt SET sortierung=? WHERE id=?", (idx, ids[ziel]))
         db.commit()
     return redirect(url_for('admin'))
 

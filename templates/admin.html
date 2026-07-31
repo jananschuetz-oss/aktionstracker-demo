@@ -471,6 +471,97 @@
   </div>
 </div>
 
+{% if listungsbild_modus == 'an' %}
+<!-- Listungsprodukte (Produktisierung 2026-07-31, von Arco portiert): Kunde pflegt seinen
+     Listungsbild-Produktkatalog selbst, analog zur Biersorten-Verwaltung oben. Nur sichtbar
+     wenn LISTUNGSBILD_MODUS='an' (Railway-Env-Var, wie KARTE_MODUS nirgends editierbar). -->
+<div class="row g-4 mt-0">
+  <div class="col-lg-6" id="sektionListungsprodukte">
+    <div class="card h-100">
+      <div class="card-header" style="background:linear-gradient(135deg,#2c7a7b,#38a89d)">
+        <i class="bi bi-list-check me-2"></i>Listungsbild-Produkte
+        {% if listungsbild_preispflicht != 'an' %}
+          <span class="badge bg-secondary ms-1" style="font-size:.65rem">Preiserfassung aus</span>
+        {% endif %}
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm table-striped mb-0">
+          <thead>
+            <tr><th>Produkt</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for lp in listungsprodukte_admin %}
+            <tr {% if not lp.aktiv %}style="opacity:.45"{% endif %}>
+              <td>
+                <i class="bi bi-box me-1" style="color:#2c7a7b"></i>{{ lp.name }}
+                {% if not lp.aktiv %}
+                  <span class="badge bg-secondary ms-1" style="font-size:.6rem">Inaktiv</span>
+                {% endif %}
+              </td>
+              <td class="text-center text-nowrap">
+                {% if lp.aktiv %}
+                <form method="POST" action="{{ url_for('admin_listungsprodukt_verschieben', lp_id=lp.id) }}" style="display:inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="richtung" value="hoch">
+                  <button type="submit" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1" title="Nach oben"
+                          {% if loop.first %}disabled{% endif %}>
+                    <i class="bi bi-arrow-up"></i>
+                  </button>
+                </form>
+                <form method="POST" action="{{ url_for('admin_listungsprodukt_verschieben', lp_id=lp.id) }}" style="display:inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="richtung" value="runter">
+                  <button type="submit" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1" title="Nach unten"
+                          {% if loop.last %}disabled{% endif %}>
+                    <i class="bi bi-arrow-down"></i>
+                  </button>
+                </form>
+                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1"
+                        title="Bearbeiten"
+                        data-bs-toggle="modal"
+                        data-bs-target="#modalListungsproduktBearbeiten_{{ lp.id }}">
+                  <i class="bi bi-pencil"></i>
+                </button>
+                <form method="POST"
+                      action="{{ url_for('admin_listungsprodukt_loeschen', lp_id=lp.id) }}"
+                      style="display:inline"
+                      onsubmit="return confirm('Produkt „{{ lp.name }}” löschen?\n\nWurde es schon in Aktivitäten erfasst, wird es nur deaktiviert.')">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"
+                          title="Löschen / Deaktivieren">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+                {% else %}
+                <form method="POST"
+                      action="{{ url_for('admin_listungsprodukt_reaktivieren', lp_id=lp.id) }}"
+                      style="display:inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-outline-success btn-sm py-0 px-1"
+                          title="Reaktivieren">
+                    <i class="bi bi-arrow-counterclockwise"></i>
+                  </button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="2" class="text-center text-muted py-3">Noch keine Produkte angelegt</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="card-footer bg-white">
+        <button class="btn btn-sm w-100" style="background:#2c7a7b;color:white"
+                data-bs-toggle="modal" data-bs-target="#modalListungsprodukt">
+          <i class="bi bi-plus-circle me-1"></i>Produkt hinzufügen
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <!-- Geo-Ausreißer-Prüfung -->
 <div class="row g-4 mt-2">
   <div class="col-12">
@@ -1583,6 +1674,58 @@ function vsAdminSucheAusfuehren(q) {
     </div>
   </div>
 </div>
+
+<!-- Modal: Listungsprodukt (Produktisierung 2026-07-31, von Arco portiert) -->
+<div class="modal fade" id="modalListungsprodukt" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('admin_listungsprodukt_neu') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-header" style="background:#2c7a7b;color:white">
+          <h5 class="modal-title"><i class="bi bi-list-check me-2"></i>Neues Listungsbild-Produkt</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Bezeichnung <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control" placeholder="z.B. Hauptprodukt A" required>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-check me-1"></i>Anlegen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modals: Listungsprodukt bearbeiten -->
+{% for lp in listungsprodukte_admin %}
+<div class="modal fade" id="modalListungsproduktBearbeiten_{{ lp.id }}" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('admin_listungsprodukt_bearbeiten', lp_id=lp.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-header" style="background:#2c7a7b;color:white">
+          <h5 class="modal-title"><i class="bi bi-pencil me-2"></i>Produkt bearbeiten</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Bezeichnung <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control" value="{{ lp.name }}" required>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-check me-1"></i>Speichern</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
 
 <!-- Modals: Display-Typ bearbeiten -->
 {% for d in displaysorte %}

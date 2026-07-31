@@ -228,6 +228,89 @@
                   placeholder="z.B. Sonderaktion vereinbart, Rückgabe alter Displays, Kundengespräch..."></textarea>
       </div>
 
+      <!-- Listungsbild: Pflicht bei jeder Aktivität (von Arco portiert/produktisiert
+           2026-07-31; Kunde kann per LISTUNGSBILD_MODUS ganz abschalten - dann ist
+           listungsprodukte leer und die ganze Card entfällt) -->
+      {% if listungsprodukte %}
+      <div class="mt-3 p-3 rounded-3" style="background:#f8f9fa;border:1px solid #e9ecef" id="listungsbildCard">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <span class="form-label mb-0"><i class="bi bi-list-check me-1"></i>Listungsbild</span>
+          <span class="badge" style="background:#f8d7da;color:#721c24">Pflicht</span>
+        </div>
+        <p class="text-muted small mb-2">
+          <i class="bi bi-info-circle me-1"></i>Für jedes Produkt auswählen, ob es im Regal vorhanden ist.
+        </p>
+        {% for lp in listungsprodukte %}
+        {% set _sel = listung_auswahl.get(lp.id, '') if listung_auswahl else '' %}
+        <div class="py-2 {% if not loop.last %}border-bottom{% endif %}" id="listungRow_{{ lp.id }}">
+          <div class="d-flex align-items-center justify-content-between">
+            <span style="font-size:.92rem">{{ lp.name }}</span>
+            <div class="d-flex gap-2">
+              <input type="hidden" name="listung_{{ lp.id }}" id="listungInput_{{ lp.id }}"
+                     value="{{ _sel }}">
+              <button type="button" class="btn btn-sm listung-btn listung-btn-ja" data-lp-id="{{ lp.id }}" data-wert="ja"
+                      style="width:38px;height:38px;border:1px solid #ced4da;background:#fff" aria-label="Vorhanden">
+                <i class="bi bi-check-lg"></i>
+              </button>
+              <button type="button" class="btn btn-sm listung-btn listung-btn-nein" data-lp-id="{{ lp.id }}" data-wert="nein"
+                      style="width:38px;height:38px;border:1px solid #ced4da;background:#fff" aria-label="Nicht vorhanden">
+                <i class="bi bi-x-lg"></i>
+              </button>
+            </div>
+          </div>
+          {% if listungsbild_preispflicht %}
+          <div class="listung-preis-panel mt-2 {% if _sel != 'ja' %}d-none{% endif %}" id="listungPreisPanel_{{ lp.id }}">
+            <div class="row g-2">
+              <div class="col-6">
+                <label class="form-label small mb-1 text-muted text-uppercase" style="font-size:.68rem;letter-spacing:.03em">
+                  Preis <span class="text-danger">*</span>
+                </label>
+                {% set _preis_ungueltig = listung_preis_fehlt_ids is defined and lp.id in listung_preis_fehlt_ids %}
+                <div class="input-group input-group-sm">
+                  <span class="input-group-text">€</span>
+                  <input type="text" inputmode="decimal" class="form-control listung-preis-input {% if _preis_ungueltig %}is-invalid{% endif %}"
+                         name="listung_preis_{{ lp.id }}" id="listungPreis_{{ lp.id }}"
+                         placeholder="0,00"
+                         value="{{ listung_preis_auswahl.get(lp.id, '') if listung_preis_auswahl else '' }}">
+                </div>
+                {% if _preis_ungueltig %}
+                <div class="small text-danger mt-1">
+                  <i class="bi bi-exclamation-triangle me-1"></i>Preis fehlt oder ungültig – bitte prüfen (z.B. kein „€" mittippen, Komma statt Punkt).
+                </div>
+                {% endif %}
+                <div class="small text-muted mt-1 d-none" id="listungPreisVorbefuellt_{{ lp.id }}"
+                     style="color:#2cc4b0!important">
+                  <i class="bi bi-arrow-repeat me-1"></i>letzter Besuch
+                </div>
+              </div>
+              <div class="col-6">
+                <label class="form-label small mb-1 text-muted text-uppercase" style="font-size:.68rem;letter-spacing:.03em">
+                  Aktionspreis
+                </label>
+                <div class="input-group input-group-sm">
+                  <span class="input-group-text">€</span>
+                  <input type="text" inputmode="decimal" class="form-control listung-aktionspreis-input"
+                         name="listung_aktionspreis_{{ lp.id }}" id="listungAktionspreis_{{ lp.id }}"
+                         placeholder="optional"
+                         value="{{ listung_aktionspreis_auswahl.get(lp.id, '') if listung_aktionspreis_auswahl else '' }}">
+                </div>
+              </div>
+            </div>
+          </div>
+          {% endif %}
+        </div>
+        {% endfor %}
+        <div class="alert alert-warning py-2 mt-3 mb-0 d-none" id="listungPflichtFehler">
+          <i class="bi bi-exclamation-triangle me-1"></i>Listungsbild fehlt noch – bitte für jedes Produkt auswählen, bevor gespeichert werden kann.
+        </div>
+        {% if listungsbild_preispflicht %}
+        <div class="alert alert-warning py-2 mt-3 mb-0 d-none" id="listungPreisFehler">
+          <i class="bi bi-exclamation-triangle me-1"></i>Bitte für jedes vorhandene Produkt einen Preis eintragen.
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+
       <!-- Foto-Upload (bis zu 3 Fotos) -->
       <div class="mt-3" id="fotoBlock">
         <label class="form-label"><i class="bi bi-camera me-1"></i>Foto <span class="text-danger" id="fotoPflichtStern">*</span> <small class="text-muted fw-normal" id="fotoPflichtHint">(Pflichtfeld)</small></label>
@@ -713,6 +796,71 @@ function tankDatenVollstaendig() {
     && !isNaN(liter) && liter > 0
     && kmStand !== '' && parseInt(kmStand, 10) >= 0;
 }
+
+// ── Listungsbild (von Arco portiert/produktisiert 2026-07-31) ─────────────────
+document.querySelectorAll('.listung-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var lpId = this.dataset.lpId;
+    var wert = this.dataset.wert;
+    document.getElementById('listungInput_' + lpId).value = wert;
+    document.querySelectorAll('.listung-btn[data-lp-id="' + lpId + '"]').forEach(function(b) {
+      var aktiv = b.dataset.wert === wert;
+      var istJa = b.dataset.wert === 'ja';
+      b.style.background = aktiv ? (istJa ? '#d4edda' : '#f8d7da') : '';
+      b.style.borderColor = aktiv ? (istJa ? '#27ae60' : '#c0392b') : '#ced4da';
+      b.querySelector('i').style.color = aktiv ? (istJa ? '#145a32' : '#721c24') : '';
+    });
+    document.getElementById('listungPflichtFehler').classList.add('d-none');
+    var panel = document.getElementById('listungPreisPanel_' + lpId);
+    if (panel) panel.classList.toggle('d-none', wert !== 'ja');
+    var preisFehler = document.getElementById('listungPreisFehler');
+    if (wert !== 'ja' && preisFehler) preisFehler.classList.add('d-none');
+  });
+});
+document.querySelectorAll('.listung-preis-input').forEach(function(el) {
+  el.addEventListener('input', function() { el.classList.remove('is-invalid'); });
+});
+document.querySelectorAll('.listung-preis-input, .listung-aktionspreis-input').forEach(function(el) {
+  el.addEventListener('blur', function() { el.value = _preisNormalisieren(el.value); });
+});
+function listungsbildVollstaendig() {
+  if (isHomeofficeAktiv() || isTankenAktiv() || isVerlegerAktiv() || isTelefonterminAktiv()) return true; // kein Regal bei diesen Sonderkategorien
+  return Array.from(document.querySelectorAll('#listungsbildCard input[type="hidden"]'))
+    .every(function(el) { return el.value === 'ja' || el.value === 'nein'; });
+}
+function _preisNormalisieren(wert) {
+  return (wert || '').replace(/\s+/g, '');
+}
+function _listungPreisGueltig(wert) {
+  var s = _preisNormalisieren(wert);
+  if (!/^\d+([.,]\d+)?$/.test(s)) return false;
+  var n = parseFloat(s.replace(',', '.'));
+  return !isNaN(n) && n > 0;
+}
+function listungPreiseVollstaendig() {
+  if (isHomeofficeAktiv() || isTankenAktiv() || isVerlegerAktiv() || isTelefonterminAktiv()) return true;
+  return Array.from(document.querySelectorAll('.listung-preis-input')).every(function(el) {
+    var panel = el.closest('.listung-preis-panel');
+    if (panel.classList.contains('d-none')) return true; // Produkt nicht "vorhanden" → kein Preis nötig
+    return _listungPreisGueltig(el.value);
+  });
+}
+function _listungPreisFelderMarkieren() {
+  var erstesUngueltiges = null;
+  document.querySelectorAll('.listung-preis-input').forEach(function(el) {
+    var panel = el.closest('.listung-preis-panel');
+    var ungueltig = !panel.classList.contains('d-none') && !_listungPreisGueltig(el.value);
+    el.classList.toggle('is-invalid', ungueltig);
+    if (ungueltig && !erstesUngueltiges) erstesUngueltiges = el;
+  });
+  if (erstesUngueltiges) erstesUngueltiges.scrollIntoView({behavior:'smooth', block:'center'});
+}
+{% for lp in listungsprodukte %}
+{% set _sel = listung_auswahl.get(lp.id, '') if listung_auswahl else '' %}
+{% if _sel %}
+document.querySelector('.listung-btn[data-lp-id="{{ lp.id }}"][data-wert="{{ _sel }}"]').click();
+{% endif %}
+{% endfor %}
 
 // ── Verleger-Kisten: Pflichtfeld, wenn Verleger aktiv ──────────────────────────
 function verlegerVollstaendig() {
@@ -1200,6 +1348,21 @@ document.getElementById('aktivForm').addEventListener('submit', function(e) {
       tankCard.appendChild(hint);
     }
     tankCard.scrollIntoView({behavior:'smooth', block:'center'});
+    return;
+  }
+  if (!listungsbildVollstaendig()) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    document.getElementById('listungPflichtFehler').classList.remove('d-none');
+    document.getElementById('listungsbildCard').scrollIntoView({behavior:'smooth', block:'center'});
+    return;
+  }
+  if (!listungPreiseVollstaendig()) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    document.getElementById('listungPreisFehler').classList.remove('d-none');
+    _listungPreisFelderMarkieren();
+    return;
   }
 });
 vsSearch.addEventListener('input', function() { vsSearch.classList.remove('is-invalid'); });
