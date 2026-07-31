@@ -258,7 +258,7 @@
               </button>
             </div>
           </div>
-          {% if listungsbild_preispflicht %}
+          {% if listungsbild_preispflicht and lp.preispflicht %}
           <div class="listung-preis-panel mt-2 {% if _sel != 'ja' %}d-none{% endif %}" id="listungPreisPanel_{{ lp.id }}">
             <div class="row g-2">
               <div class="col-6">

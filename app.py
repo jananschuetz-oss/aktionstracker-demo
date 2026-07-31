@@ -1232,6 +1232,12 @@ def init_db():
             # eines Antrags hinterlegen kann – wird dem Mitarbeiter in der Ablehnungs-Mail
             # angezeigt.
             "ALTER TABLE vertretung ADD COLUMN ablehnung_grund TEXT",
+            # Preisbild pro Produkt (2026-07-31, von Arco portiert, Nutzerwunsch): bisher war
+            # die Preiserfassung nur global ein-/ausschaltbar (LISTUNGSBILD_PREISPFLICHT).
+            # Jetzt zusätzlich pro Produkt konfigurierbar. Default 1 (Preis-Pflicht), damit
+            # bestehende Produkte bei global aktiviertem Preisbild ihr bisheriges Verhalten
+            # behalten.
+            "ALTER TABLE listungsprodukt ADD COLUMN preispflicht INTEGER DEFAULT 1",
             # Hotelübernachtung (2026-07-23): neuer Antragstyp im Urlaubs-/Vertretungsmodul,
             # läuft über denselben Genehmigungs-Workflow (VKL/Admin bestätigen), braucht aber
             # zusätzlich Hotel-Adresse und Kosten pro Nacht für den monatlichen Hotel-Report.
@@ -6100,11 +6106,15 @@ def neue_aktivitaet():
         listung_auswahl = {lp['id']: request.form.get(f'listung_{lp["id"]}', '') for lp in listungsprodukte}
         listung_fehlt = [] if (is_homeoffice or is_tanken or is_verleger or is_telefontermin) else [lp for lp in listungsprodukte if listung_auswahl[lp['id']] not in ('ja', 'nein')]
 
-        listung_preis_auswahl = {lp['id']: request.form.get(f'listung_preis_{lp["id"]}', '').strip() for lp in listungsprodukte} if LISTUNGSBILD_PREISPFLICHT == 'an' else {}
-        listung_aktionspreis_auswahl = {lp['id']: request.form.get(f'listung_aktionspreis_{lp["id"]}', '').strip() for lp in listungsprodukte} if LISTUNGSBILD_PREISPFLICHT == 'an' else {}
+        # Preisbild pro Produkt (2026-07-31, von Arco portiert): zusätzlich zum globalen
+        # Toggle konfigurierbar (lp['preispflicht']) - z.B. Preisdurchsetzung nur bei
+        # Kernprodukten, nicht bei Zweitplatzierungen.
+        _preis_relevante_produkte = [lp for lp in listungsprodukte if LISTUNGSBILD_PREISPFLICHT == 'an' and lp['preispflicht']]
+        listung_preis_auswahl = {lp['id']: request.form.get(f'listung_preis_{lp["id"]}', '').strip() for lp in _preis_relevante_produkte}
+        listung_aktionspreis_auswahl = {lp['id']: request.form.get(f'listung_aktionspreis_{lp["id"]}', '').strip() for lp in _preis_relevante_produkte}
         listung_preise = {}
         listung_preis_fehlt = []
-        for lp in (listungsprodukte if LISTUNGSBILD_PREISPFLICHT == 'an' else []):
+        for lp in _preis_relevante_produkte:
             if listung_auswahl[lp['id']] != 'ja':
                 continue
             preis_str = re.sub(r'\s+', '', listung_preis_auswahl[lp['id']]).replace(',', '.')
@@ -9218,9 +9228,10 @@ def admin_listungsprodukt_neu():
     """Produktisierung 2026-07-31 (von Arco portiert): Kunde pflegt seinen Listungsbild-
     Produktkatalog selbst statt per Datenbank-Eingriff (analog admin_bier_neu())."""
     name = request.form.get('name', '').strip()
+    preispflicht = 1 if request.form.get('preispflicht') else 0
     if name:
         _max_sort = query("SELECT COALESCE(MAX(sortierung), -1) AS m FROM listungsprodukt", one=True)['m']
-        execute("INSERT INTO listungsprodukt (name, sortierung) VALUES (?,?)", (name, _max_sort + 1))
+        execute("INSERT INTO listungsprodukt (name, sortierung, preispflicht) VALUES (?,?,?)", (name, _max_sort + 1, preispflicht))
         flash(f'Produkt „{name}" angelegt.', 'success')
     return redirect(url_for('admin'))
 
@@ -9229,8 +9240,9 @@ def admin_listungsprodukt_neu():
 @admin_required
 def admin_listungsprodukt_bearbeiten(lp_id):
     name = request.form.get('name', '').strip()
+    preispflicht = 1 if request.form.get('preispflicht') else 0
     if name:
-        execute("UPDATE listungsprodukt SET name=? WHERE id=?", (name, lp_id))
+        execute("UPDATE listungsprodukt SET name=?, preispflicht=? WHERE id=?", (name, preispflicht, lp_id))
         flash(f'Produkt „{name}" aktualisiert.', 'success')
     return redirect(url_for('admin'))
 
