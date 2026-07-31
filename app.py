@@ -4711,7 +4711,18 @@ def tourenplanung_neu():
         _ma_team = query("SELECT team_id FROM mitarbeiter WHERE id=?", (ma_id,), one=True)
         if not _ma_team or _ma_team['team_id'] != session.get('team_id'):
             abort(403)
+    # Bugreport 2026-07-31 (von Arco portiert): Doppel-/Mehrfachklick auf "Hinzufügen"
+    # legte pro Klick eine weitere identische Zeile an - keine "existiert schon?"-Prüfung.
+    # Offene (nicht erledigte, nicht gelöschte) Duplikate für dieselbe VS am selben Tag
+    # werden jetzt übersprungen; bereits erledigte Stopps blockieren nicht.
     for vs_id in vs_ids:
+        _existing = query(
+            "SELECT 1 FROM tagesplan WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? "
+            "AND erledigt=0 AND COALESCE(geloescht,0)=0",
+            (ma_id, int(vs_id), datum), one=True
+        )
+        if _existing:
+            continue
         max_r = query(
             "SELECT COALESCE(MAX(reihenfolge), 0) AS m FROM tagesplan WHERE mitarbeiter_id=? AND datum=?",
             (ma_id, datum), one=True
@@ -4736,6 +4747,14 @@ def api_tagesplan_stopp_neu():
     if not vs_id:
         return jsonify({'ok': False, 'error': 'Keine Verkaufsstelle'})
     ma_id = session['user_id']
+    # Bugreport 2026-07-31 (von Arco portiert): gleiche fehlende Duplikat-Sperre.
+    _existing = query(
+        "SELECT 1 FROM tagesplan WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? "
+        "AND erledigt=0 AND COALESCE(geloescht,0)=0",
+        (ma_id, int(vs_id), datum), one=True
+    )
+    if _existing:
+        return jsonify({'ok': True, 'bereits_vorhanden': True})
     max_r = query(
         "SELECT COALESCE(MAX(reihenfolge), 0) AS m FROM tagesplan WHERE mitarbeiter_id=? AND datum=?",
         (ma_id, datum), one=True
@@ -4765,6 +4784,14 @@ def api_tourenplanung_stopp_neu():
         return jsonify({'ok': False, 'error': 'Mitarbeiter nicht gefunden'}), 404
     if session.get('rolle') == 'verkaufsleiter' and ma['team_id'] != session.get('team_id'):
         return jsonify({'ok': False, 'error': 'Kein Zugriff'}), 403
+    # Bugreport 2026-07-31 (von Arco portiert): gleiche fehlende Duplikat-Sperre.
+    _existing = query(
+        "SELECT 1 FROM tagesplan WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? "
+        "AND erledigt=0 AND COALESCE(geloescht,0)=0",
+        (ma_id, vs_id, datum), one=True
+    )
+    if _existing:
+        return jsonify({'ok': True, 'bereits_vorhanden': True})
     max_r = query(
         "SELECT COALESCE(MAX(reihenfolge), 0) AS m FROM tagesplan WHERE mitarbeiter_id=? AND datum=?",
         (ma_id, datum), one=True
@@ -6202,14 +6229,21 @@ def neue_aktivitaet():
         # (z.B. zwei Homeoffice-Zeitfenster) wurden bisher BEIDE auf erledigt=1 gesetzt und
         # keiner erhielt eine feste Verknüpfung zur Aktivität – nur noch den ältesten offenen
         # Stopp aktualisieren und direkt mit der neuen Aktivität verknüpfen (aktivitaet_id).
-        execute(
-            "UPDATE tagesplan SET erledigt=1, aktivitaet_id=? WHERE id = ("
-            "  SELECT id FROM tagesplan"
-            "  WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? AND erledigt=0 AND COALESCE(geloescht,0)=0"
-            "  ORDER BY reihenfolge, id LIMIT 1"
-            ")",
-            (akt_id, session['user_id'], vs_id, datum)
-        )
+        # Bugreport 2026-07-31 (von Arco portiert, dort bei Stefan Reiter gefunden): für
+        # Telefontermin NICHT ausführen – alle Telefontermine des Tages teilen sich dieselbe
+        # VS, daher hätte dieser generische Schritt einen BELIEBIGEN anderen offenen
+        # Telefontermin-Platzhalter fälschlich als erledigt markiert und mit DIESER Aktivität
+        # verknüpft, zusätzlich zur korrekt dedizierten Zeile weiter unten - Ergebnis: zwei
+        # Tagesplan-Zeilen für einen echten Anruf.
+        if not is_telefontermin:
+            execute(
+                "UPDATE tagesplan SET erledigt=1, aktivitaet_id=? WHERE id = ("
+                "  SELECT id FROM tagesplan"
+                "  WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? AND erledigt=0 AND COALESCE(geloescht,0)=0"
+                "  ORDER BY reihenfolge, id LIMIT 1"
+                ")",
+                (akt_id, session['user_id'], vs_id, datum)
+            )
 
         # Ungeplante Verkaufsstelle für heute automatisch in den Tagesplan aufnehmen
         if datum == date.today().isoformat():
