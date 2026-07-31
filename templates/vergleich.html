@@ -1010,7 +1010,7 @@ if (kumReps.length) {
   });
 }
 
-const REPS         = {{ reps_namen|safe }};
+const REPS         = {{ reps_namen|tojson }};
 const K_IST        = {{ kisten_ist|safe }};
 const K_SOLL       = {{ kisten_soll|safe }};
 const K_SAISON     = {{ kisten_saison_soll|safe }};

@@ -5305,16 +5305,11 @@ def api_letzter_stopp_vortag():
 @app.route('/api/verkaufsstelle/<int:vs_id>/aktivitaeten')
 @login_required
 def api_vs_aktivitaeten(vs_id):
-    rolle  = session.get('rolle')
-    ma_id  = session.get('user_id')
-    if rolle == 'rep':
-        ok = query(
-            "SELECT 1 FROM mitarbeiter_verkaufsstelle WHERE mitarbeiter_id=? AND verkaufsstelle_id=?",
-            (ma_id, vs_id), one=True
-        )
-        if not ok:
-            return jsonify({'ok': False, 'error': 'Kein Zugriff'})
-    elif rolle not in ('admin', 'verkaufsleiter'):
+    # Bugreport 2026-07-31 (Security-Audit): jeder VKL (unabhängig vom eigenen Team) konnte
+    # Besuchshistorie/Bestellungen für JEDE Verkaufsstelle firmenweit abrufen - die Prüfung
+    # deckte nur die Rolle ab, nicht die Team-/Gebietszugehörigkeit. Siehe _verkaufsstelle_
+    # im_eigenen_gebiet(), das genau dafür bereits an anderen Stellen im Code existiert.
+    if not _verkaufsstelle_im_eigenen_gebiet(vs_id):
         return jsonify({'ok': False, 'error': 'Kein Zugriff'})
 
     vs = query("SELECT name, ort FROM verkaufsstelle WHERE id=? AND aktiv=1", (vs_id,), one=True)
@@ -5351,20 +5346,12 @@ def api_vs_aktivitaeten(vs_id):
 @login_required
 def verkaufsstelle_historie(vs_id):
     """Kundenhistorie-Seite: KPI-Kacheln (Jahr vs. Vorjahr), Verlaufsdiagramm und
-    vollständige Aktivitätenliste für eine einzelne Verkaufsstelle. Rechte identisch
-    zu api_vs_aktivitaeten (Rep nur zugeordnete VS, VKL/Admin alle)."""
-    rolle = session.get('rolle')
-    ma_id = session.get('user_id')
-    if rolle == 'rep':
-        ok = query(
-            "SELECT 1 FROM mitarbeiter_verkaufsstelle WHERE mitarbeiter_id=? AND verkaufsstelle_id=?",
-            (ma_id, vs_id), one=True
-        )
-        if not ok:
-            flash('Kein Zugriff auf diese Verkaufsstelle.', 'danger')
-            return redirect(url_for('dashboard'))
-    elif rolle not in ('admin', 'verkaufsleiter'):
-        flash('Kein Zugriff.', 'danger')
+    vollständige Aktivitätenliste für eine einzelne Verkaufsstelle. Rechte: Rep nur
+    zugeordnete VS, VKL nur eigenes Team-Gebiet, Admin alle."""
+    # Bugreport 2026-07-31 (Security-Audit): siehe api_vs_aktivitaeten oben - dieselbe
+    # fehlende Team-Scoping-Prüfung.
+    if not _verkaufsstelle_im_eigenen_gebiet(vs_id):
+        flash('Kein Zugriff auf diese Verkaufsstelle.', 'danger')
         return redirect(url_for('dashboard'))
 
     vs = query("SELECT * FROM verkaufsstelle WHERE id=? AND aktiv=1", (vs_id,), one=True)
@@ -5505,6 +5492,10 @@ def api_letzter_besuch(vs_id):
     Manager sehen alle Reps, normale Reps nur ihre eigenen."""
     ma_id = session['user_id']
     is_manager = session.get('rolle') in ('admin', 'verkaufsleiter')
+    # Bugreport 2026-07-31 (Security-Audit): siehe api_vs_aktivitaeten oben - der Manager-
+    # Zweig zeigte bisher jede Verkaufsstelle firmenweit, unabhängig vom eigenen Team.
+    if is_manager and not _verkaufsstelle_im_eigenen_gebiet(vs_id):
+        return jsonify({'besuche': []})
     if is_manager:
         rows = query('''
             SELECT a.id, a.datum, a.anzahl_displays, a.notizen,
@@ -9653,7 +9644,7 @@ def vergleich():
     return render_template('vergleich.html',
         jahr=jahr, alle_jahre=alle_jahre,
         ist=ist, ziele=ziele, teamziel=teamziel,
-        reps_namen=json.dumps(reps_namen),
+        reps_namen=reps_namen,
         kisten_ist=json.dumps(kisten_ist),
         kisten_soll=json.dumps(kisten_soll),
         disp_ist=json.dumps(disp_ist),
@@ -11252,7 +11243,7 @@ def einstellungen_wochenbericht():
             except BaseException as _bex:
                 import traceback as _tb
                 app.logger.error(f"WOCHENBERICHT UNCAUGHT:\n{_tb.format_exc()}")
-                ok, msg = False, f'Fehler ({type(_bex).__name__}): {_bex}'
+                ok, msg = False, 'Versand fehlgeschlagen – siehe Logs.'
             flash(msg, 'success' if ok else 'danger')
         elif request.form.get('jetzt_monatsbericht_senden'):
             try:
@@ -11261,7 +11252,7 @@ def einstellungen_wochenbericht():
             except BaseException as _bex:
                 import traceback as _tb
                 app.logger.error(f"MONATSBERICHT UNCAUGHT:\n{_tb.format_exc()}")
-                ok, msg = False, f'Fehler ({type(_bex).__name__}): {_bex}'
+                ok, msg = False, 'Versand fehlgeschlagen – siehe Logs.'
             flash(msg, 'success' if ok else 'danger')
         else:
             flash('Einstellungen gespeichert.', 'success')

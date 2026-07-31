@@ -2063,7 +2063,7 @@ if (bierData.length > 0) {
   new Chart(bierCtx, {
     type: 'bar',
     data: {
-      labels: {{ bier_namen|safe }},
+      labels: {{ bier_namen|from_json|tojson }},
       datasets: [{
         label: '{{ unit_label }}',
         data: bierData,
