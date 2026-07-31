@@ -1965,6 +1965,40 @@ def init_db():
             db.commit()
             app.logger.info(f"Migration: {len(_dup_gruppen)} Tagesplan-Tage mit reihenfolge-Duplikaten bereinigt.")
 
+        # Migration (2026-07-31, Nutzerwunsch "ja gerne bereinigen", von Arco portiert):
+        # bestehende offene Tagesplan-Duplikate bereinigen. tourenplanung_neu()/
+        # api_tourenplanung_stopp_neu()/api_tagesplan_stopp_neu() hatten bisher keine
+        # Duplikat-Sperre (Fix siehe oben) - jeder Klick auf "Stopp hinzufügen" bzw. jedes
+        # erneute Absenden legte einen weiteren Eintrag für dieselbe (mitarbeiter_id,
+        # verkaufsstelle_id, datum)-Kombination an (identischer Bug wie in Arco, Meldung
+        # Nadine Fischer/EDEKA Leeb dort). Hier nur erledigt=0-Duplikate anfassen -
+        # erledigt=1-Duplikate bewusst unberührt lassen, da nicht zweifelsfrei von echten
+        # mehrfachen Besuchen derselben VS am selben Tag unterscheidbar. Ältesten Eintrag
+        # je Gruppe behalten, Rest soft-löschen (geloescht/geloescht_am), kein Hard-Delete.
+        # Idempotent.
+        _dup_offene = db.execute('''
+            SELECT mitarbeiter_id, verkaufsstelle_id, datum FROM tagesplan
+            WHERE erledigt=0 AND COALESCE(geloescht,0)=0
+            GROUP BY mitarbeiter_id, verkaufsstelle_id, datum
+            HAVING COUNT(*) > 1
+        ''').fetchall()
+        _dup_offene_geloescht = 0
+        for _g in _dup_offene:
+            _tp_rows = db.execute(
+                "SELECT id FROM tagesplan WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? "
+                "AND erledigt=0 AND COALESCE(geloescht,0)=0 ORDER BY erstellt_am, id",
+                (_g['mitarbeiter_id'], _g['verkaufsstelle_id'], _g['datum'])
+            ).fetchall()
+            for _tp_row in _tp_rows[1:]:
+                db.execute(
+                    "UPDATE tagesplan SET geloescht=1, geloescht_am=datetime('now','localtime') WHERE id=?",
+                    (_tp_row['id'],)
+                )
+                _dup_offene_geloescht += 1
+        if _dup_offene:
+            db.commit()
+            app.logger.info(f"Migration: {len(_dup_offene)} Tagesplan-Duplikat-Gruppen bereinigt ({_dup_offene_geloescht} Einträge soft-gelöscht).")
+
         # Migration (2026-07-30, Nutzerwunsch, von Arco portiert): "Telefontermin" als
         # geteilte Sonderkategorie (wie Firmenwagen-Tanken/Verleger) ohne eigenen
         # Verkaufsstellen-Bezug – eine einzelne, für alle Mitarbeiter nutzbare
