@@ -179,9 +179,26 @@
     <span id="geocodeStatus" class="small text-muted"></span>
     {% endif %}
 
-    <span class="ms-auto small text-muted">
-      <i class="bi bi-circle-fill me-1" style="color:#888"></i>Nicht zugeordnet &nbsp;
-      <span id="legendeInline"></span>
+    <div class="btn-group btn-group-sm" role="group" aria-label="Punktfarbe">
+      <button type="button" id="btnFarbeMitarbeiter" class="btn btn-outline-secondary active">
+        <i class="bi bi-people me-1"></i>Mitarbeiter
+      </button>
+      <button type="button" id="btnFarbeKategorie" class="btn btn-outline-secondary">
+        <i class="bi bi-star me-1"></i>Kategorie
+      </button>
+    </div>
+
+    <span class="ms-auto small text-muted" id="legendeWrap">
+      <span id="legendeMitarbeiter">
+        <i class="bi bi-circle-fill me-1" style="color:#888"></i>Nicht zugeordnet &nbsp;
+        <span id="legendeInline"></span>
+      </span>
+      <span id="legendeKategorie" class="d-none">
+        <i class="bi bi-circle-fill me-1" style="color:#1e7e34"></i>A – Top &nbsp;
+        <i class="bi bi-circle-fill me-1" style="color:#c8860a"></i>B – Mittel &nbsp;
+        <i class="bi bi-circle-fill me-1" style="color:#6c757d"></i>C – Klein &nbsp;
+        <i class="bi bi-circle-fill me-1" style="color:#dee2e6"></i>Keine Daten
+      </span>
     </span>
   </div>
 </div>
@@ -379,7 +396,13 @@ function repFarbe(repId) {
   return idx >= 0 ? FARBEN[idx % FARBEN.length] : '#888';
 }
 
+let farbModus = 'mitarbeiter';   // 'mitarbeiter' | 'kategorie'
+const KATEGORIE_FARBEN = {A: '#1e7e34', B: '#c8860a', C: '#6c757d'};
+
 function stelleFarbe(stelle) {
+  if (farbModus === 'kategorie') {
+    return KATEGORIE_FARBEN[stelle.kategorie] || '#dee2e6';
+  }
   if (!stelle.zuordnungen || stelle.zuordnungen.length === 0) return '#888';
   if (stelle.zuordnungen.length === 1) return repFarbe(stelle.zuordnungen[0].id);
   // mehrfach zugeordnet → erste Farbe (leicht transparent → stärkerer Rand)
@@ -1271,6 +1294,25 @@ document.querySelectorAll('.ebene-btn').forEach(btn => {
 });
 
 {% endif %}
+
+/* ── Punktfarbe: Mitarbeiter vs. Kategorie ─────────────────────────────────────── */
+(function () {
+  const btnMa  = document.getElementById('btnFarbeMitarbeiter');
+  const btnKat = document.getElementById('btnFarbeKategorie');
+  const legMa  = document.getElementById('legendeMitarbeiter');
+  const legKat = document.getElementById('legendeKategorie');
+  if (!btnMa || !btnKat) return;
+  function setModus(modus) {
+    farbModus = modus;
+    btnMa.classList.toggle('active', modus === 'mitarbeiter');
+    btnKat.classList.toggle('active', modus === 'kategorie');
+    legMa.classList.toggle('d-none', modus !== 'mitarbeiter');
+    legKat.classList.toggle('d-none', modus !== 'kategorie');
+    renderMarkers();
+  }
+  btnMa.addEventListener('click', () => setModus('mitarbeiter'));
+  btnKat.addEventListener('click', () => setModus('kategorie'));
+})();
 
 /* ── Start ──────────────────────────────────────────────────────────────────── */
 ladeKarteDaten();
