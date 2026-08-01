@@ -203,6 +203,14 @@
               <tr class="vs-haupt-row" {% if not vs.aktiv %}style="opacity:.45"{% endif %}>
                 <td>
                   {{ vs.name }}
+                  {% set vs_kat = vs.kategorie_override or vs.kategorie_auto %}
+                  {% if vs_kat == 'A' %}
+                    <span class="badge ms-1" style="background:#1e7e34;font-size:.65rem" title="Kunden-Kategorie A – Top-Kunde">A</span>
+                  {% elif vs_kat == 'B' %}
+                    <span class="badge ms-1" style="background:#c8860a;font-size:.65rem" title="Kunden-Kategorie B – Mittel">B</span>
+                  {% elif vs_kat == 'C' %}
+                    <span class="badge ms-1" style="background:#6c757d;font-size:.65rem" title="Kunden-Kategorie C – Klein">C</span>
+                  {% endif %}
                   {% if not vs.aktiv %}
                     <span class="badge bg-secondary ms-1" style="font-size:.65rem">Inaktiv</span>
                   {% endif %}
@@ -247,7 +255,8 @@
                           data-ansprechpartner="{{ vs.ansprechpartner or '' }}"
                           data-lieferant="{{ vs.lieferant or '' }}"
                           data-kundennummer="{{ vs.kundennummer or '' }}"
-                          data-hinweis="{{ vs.hinweis or '' }}">
+                          data-hinweis="{{ vs.hinweis or '' }}"
+                          data-kategorie-override="{{ vs.kategorie_override or '' }}">
                     <i class="bi bi-pencil"></i>
                   </button>
                   <form method="POST"
@@ -1553,9 +1562,18 @@ document.getElementById('modalRolle').addEventListener('show.bs.modal', function
             <label class="form-label">Hinweis <span class="text-muted fw-normal">(optional)</span></label>
             <input type="text" name="hinweis" id="editVsHinweis" class="form-control" placeholder="z.B. Eingang hinten, vorher anrufen">
           </div>
-          <div class="mb-3 mb-0">
+          <div class="mb-3">
             <label class="form-label small text-muted">Kundennummer <span class="text-muted fw-normal">(optional)</span></label>
             <input type="text" name="kundennummer" id="editVsKundennummer" class="form-control form-control-sm" style="max-width:200px">
+          </div>
+          <div class="mb-3 mb-0">
+            <label class="form-label small text-muted">Kunden-Kategorie <span class="text-muted fw-normal">(manuell übersteuern, optional)</span></label>
+            <select name="kategorie_override" id="editVsKategorieOverride" class="form-select form-select-sm" style="max-width:220px">
+              <option value="">Automatisch</option>
+              <option value="A">A – Top-Kunde</option>
+              <option value="B">B – Mittel</option>
+              <option value="C">C – Klein</option>
+            </select>
           </div>
         </div>
         <div class="modal-footer">
@@ -1580,6 +1598,7 @@ document.getElementById('modalVSEdit').addEventListener('show.bs.modal', functio
   document.getElementById('editVsLieferant').value = btn.dataset.lieferant;
   document.getElementById('editVsHinweis').value = btn.dataset.hinweis;
   document.getElementById('editVsKundennummer').value = btn.dataset.kundennummer;
+  document.getElementById('editVsKategorieOverride').value = btn.dataset.kategorieOverride || '';
 });
 
 // Suche in der Haupt-Verkaufsstellen-Tabelle (Name, Ort, Landkreis, Typ, Lieferant) –

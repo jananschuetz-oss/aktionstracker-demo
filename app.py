@@ -1359,6 +1359,13 @@ def init_db():
                 beantwortet_am TEXT
             )""",
             "CREATE INDEX IF NOT EXISTS idx_team_termin_empf_ma ON team_termin_empfaenger(mitarbeiter_id, status)",
+            # Kunden-Scoring (2026-08-01, von Arco portiert): A/B/C-Einstufung nach Umsatzpotential.
+            # kategorie_auto wird wöchentlich per Scheduler aus den letzten 12 Monaten Bestelldaten
+            # berechnet (Terzile), kategorie_override erlaubt manuelle Korrektur durch Admin/VKL und
+            # hat Vorrang – siehe _vs_kategorie_effektiv().
+            "ALTER TABLE verkaufsstelle ADD COLUMN kategorie_auto        TEXT",
+            "ALTER TABLE verkaufsstelle ADD COLUMN kategorie_override    TEXT",
+            "ALTER TABLE verkaufsstelle ADD COLUMN kategorie_berechnet_am TEXT",
         ]:
             try:
                 db.execute(migration)
@@ -7883,6 +7890,59 @@ def abweichungs_alert_job():
             app.logger.error(f"ABWEICHUNGS_ALERT: Job fehlgeschlagen: {e}")
 
 
+def _vs_kategorie_effektiv(vs):
+    """Manuelle Übersteuerung (kategorie_override) hat Vorrang vor der automatisch
+    berechneten Kategorie (kategorie_auto). Gibt None zurück, wenn beides fehlt
+    (z.B. VS ohne Bestellhistorie) – Aufrufer müssen NULL defensiv behandeln."""
+    override = vs['kategorie_override'] if 'kategorie_override' in vs.keys() else None
+    if override:
+        return override
+    return vs['kategorie_auto'] if 'kategorie_auto' in vs.keys() else None
+
+
+def _kunden_kategorie_berechnen():
+    """Terzil-Einstufung (A=oberstes, B=mittleres, C=unterstes Drittel) nach
+    Gesamt-Bestellmenge (Kisten) der letzten 12 Monate, je aktive Verkaufsstelle
+    mit mindestens einer Bestellung. VS ohne Bestellhistorie bleiben unberührt
+    (kategorie_auto NULL) statt willkürlich in eine Kategorie gepresst zu werden."""
+    rows = query("""
+        SELECT v.id, COALESCE(SUM(bp.kisten_anzahl), 0) AS summe
+        FROM verkaufsstelle v
+        JOIN aktivitaet a ON a.verkaufsstelle_id = v.id
+        JOIN bestellposition bp ON bp.aktivitaet_id = a.id
+        WHERE v.aktiv = 1 AND a.datum >= date('now', '-12 months')
+        GROUP BY v.id
+        HAVING summe > 0
+        ORDER BY summe ASC
+    """)
+    n = len(rows)
+    if n == 0:
+        return 0
+    aktualisiert = 0
+    jetzt = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    for idx, row in enumerate(rows):
+        anteil = (idx + 1) / n
+        kategorie = 'C' if anteil <= 1/3 else ('B' if anteil <= 2/3 else 'A')
+        execute(
+            "UPDATE verkaufsstelle SET kategorie_auto=?, kategorie_berechnet_am=? WHERE id=?",
+            (kategorie, jetzt, row['id'])
+        )
+        aktualisiert += 1
+    return aktualisiert
+
+
+def kategorie_berechnung_job():
+    """Wöchentlich (siehe start_scheduler): aktualisiert kategorie_auto je Verkaufsstelle.
+    Läuft isoliert vom Request-Handling – ein Fehler hier betrifft nur diesen Job,
+    nicht die App (siehe abweichungs_alert_job als Vorbild für dieses Muster)."""
+    with app.app_context():
+        try:
+            n = _kunden_kategorie_berechnen()
+            app.logger.info(f"KATEGORIE_BERECHNUNG: Job durchgelaufen, {n} Verkaufsstelle(n) aktualisiert.")
+        except Exception as e:
+            app.logger.error(f"KATEGORIE_BERECHNUNG: Job fehlgeschlagen: {e}")
+
+
 def _geo_ausreisser_finden(min_gruppe=3, schwelle_km=50):
     """Findet Verkaufsstellen, deren Koordinaten weit von den übrigen VS desselben
     Landkreis-Werts entfernt liegen – fängt sowohl echte Geocoding-Fehler als auch
@@ -9080,15 +9140,18 @@ def admin_vs_bearbeiten(vs_id):
     lieferant       = request.form.get('lieferant',       '').strip()
     kundennummer    = request.form.get('kundennummer',    '').strip()
     hinweis         = request.form.get('hinweis',         '').strip()
+    kategorie_override = request.form.get('kategorie_override', '').strip()
+    if kategorie_override not in ('', 'A', 'B', 'C'):
+        kategorie_override = ''
     if not name:
         flash('Name ist ein Pflichtfeld.', 'danger')
         return redirect(url_for('admin'))
     adresse_geaendert = strasse != (vs['strasse'] or '') or ort != (vs['ort'] or '')
     execute(
         "UPDATE verkaufsstelle SET name=?, strasse=?, plz=?, ort=?, landkreis=?, typ=?, ansprechpartner=?, "
-        "lieferant=?, kundennummer=?, hinweis=? WHERE id=?",
+        "lieferant=?, kundennummer=?, hinweis=?, kategorie_override=? WHERE id=?",
         (name, strasse, plz or None, ort, landkreis or None, typ, ansprechpartner,
-         lieferant or None, kundennummer or None, hinweis or None, vs_id)
+         lieferant or None, kundennummer or None, hinweis or None, kategorie_override or None, vs_id)
     )
     if adresse_geaendert and KARTE_MODUS != 'aus' and (strasse or ort):
         lat, lng, quelle, kreis_aus_geo = _geocode_adresse(strasse, ort, plz=plz or None)
@@ -12652,7 +12715,7 @@ def api_karte_daten():
             _team_karte_params = [session['team_id']]
         stellen = query(f"""
             SELECT v.id, v.name, v.ort, v.plz, v.typ, v.strasse, v.ansprechpartner, v.landkreis, v.lat, v.lng,
-                   v.homeoffice_mitarbeiter_id,
+                   v.homeoffice_mitarbeiter_id, v.kategorie_auto, v.kategorie_override,
                    GROUP_CONCAT(m.id || ':' || m.name || ':' || m.kuerzel, '|') AS zuordnungen
             FROM verkaufsstelle v
             LEFT JOIN mitarbeiter_verkaufsstelle mv ON mv.verkaufsstelle_id = v.id
@@ -12664,7 +12727,7 @@ def api_karte_daten():
     else:
         stellen = query("""
             SELECT v.id, v.name, v.ort, v.plz, v.typ, v.strasse, v.ansprechpartner, v.landkreis, v.lat, v.lng,
-                   v.homeoffice_mitarbeiter_id,
+                   v.homeoffice_mitarbeiter_id, v.kategorie_auto, v.kategorie_override,
                    m.id || ':' || m.name || ':' || m.kuerzel AS zuordnungen
             FROM verkaufsstelle v
             JOIN mitarbeiter_verkaufsstelle mv ON mv.verkaufsstelle_id = v.id
@@ -12696,6 +12759,7 @@ def api_karte_daten():
             'lng': s['lng'],
             'zuordnungen': zuordnung_list,
             'homeoffice_mitarbeiter_id': s['homeoffice_mitarbeiter_id'],
+            'kategorie': s['kategorie_override'] or s['kategorie_auto'] or None,
         })
 
     # Für die Farb-/Legenden-Zuordnung im Frontend (repFarbe()) muss "reps" auch für
@@ -13195,8 +13259,12 @@ try:
     # als Erstes ins Dashboard schaut.
     _scheduler.add_job(abweichungs_alert_job, 'cron', hour=6, minute=0,
                        id='abweichungs_alert', replace_existing=True, timezone='Europe/Berlin')
+    # Kunden-Scoring (2026-08-01, von Arco portiert): wöchentlich, unkritisch bzgl.
+    # Uhrzeit, daher außerhalb der morgendlichen Report-Kette.
+    _scheduler.add_job(kategorie_berechnung_job, 'cron', day_of_week='mon', hour=5, minute=0,
+                       id='kategorie_berechnung', replace_existing=True, timezone='Europe/Berlin')
     _scheduler.start()
-    app.logger.info("Scheduler gestartet (Backup täglich, Auffälligkeiten täglich 06:00, Wochenbericht Mo 07:00, Monatsbericht 1. 07:00, Export 1. 08:00, Hotel-Report 1. 08:35, Foto-Cleanup 1. 09:00, Demo-Reset täglich 03:00, Tagesplan-Fortschritt 10/13/16 Uhr)")
+    app.logger.info("Scheduler gestartet (Backup täglich, Auffälligkeiten täglich 06:00, Kunden-Scoring Mo 05:00, Wochenbericht Mo 07:00, Monatsbericht 1. 07:00, Export 1. 08:00, Hotel-Report 1. 08:35, Foto-Cleanup 1. 09:00, Demo-Reset täglich 03:00, Tagesplan-Fortschritt 10/13/16 Uhr)")
 except ImportError:
     app.logger.warning("APScheduler nicht installiert – automatische Jobs deaktiviert.")
 

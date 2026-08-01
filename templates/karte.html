@@ -246,6 +246,7 @@
         <div class="mb-3">
           <p id="ms-adresse" class="small text-muted mb-1"></p>
           <span id="ms-typ" class="badge bg-secondary"></span>
+          <span id="ms-kategorie" class="badge ms-1"></span>
           <span id="ms-ansprechpartner" class="small text-muted ms-2"></span>
         </div>
 
@@ -495,6 +496,16 @@ function openStationModal(stelleId) {
   const adresse = [s.strasse, [s.plz, s.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ');
   document.getElementById('ms-adresse').textContent = adresse || '–';
   document.getElementById('ms-typ').textContent      = s.typ  || '';
+  const katEl = document.getElementById('ms-kategorie');
+  const katFarben = {A: '#1e7e34', B: '#c8860a', C: '#6c757d'};
+  if (s.kategorie && katFarben[s.kategorie]) {
+    katEl.textContent = s.kategorie;
+    katEl.style.background = katFarben[s.kategorie];
+    katEl.classList.remove('d-none');
+  } else {
+    katEl.textContent = '';
+    katEl.classList.add('d-none');
+  }
   const ansp = document.getElementById('ms-ansprechpartner');
   ansp.textContent = s.ansprechpartner ? `Ansprechpartner: ${s.ansprechpartner}` : '';
 
@@ -740,11 +751,15 @@ function populateVerkaufsstelleFilter() {
   menu.querySelectorAll('.karte-vs-item').forEach(el => el.remove());
   liste.forEach(s => {
     const safeId = 'karte_vs_' + s.id;
+    const adresse = [s.strasse, [s.plz, s.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ');
     const div = document.createElement('div');
     div.className = 'form-check py-1 karte-vs-item';
     div.innerHTML =
       `<input class="form-check-input karte-vs-cb" type="checkbox" value="${s.id}" id="${safeId}" checked>` +
-      `<label class="form-check-label" for="${safeId}">${escapeHtml(s.name)}</label>`;
+      `<label class="form-check-label" for="${safeId}">` +
+        `<span class="karte-vs-name">${escapeHtml(s.name)}</span>` +
+        (adresse ? `<br><small class="text-muted">${escapeHtml(adresse)}</small>` : '') +
+      `</label>`;
     menu.appendChild(div);
   });
 
@@ -764,8 +779,9 @@ function wireVerkaufsstelleFilter() {
     if (n === einzelnCbs.length) {
       btn.textContent = 'Alle Verkaufsstellen';
     } else if (n === 1) {
-      btn.textContent = Array.from(einzelnCbs).find(c => c.checked)
-                          .nextElementSibling.textContent.trim();
+      const _label = Array.from(einzelnCbs).find(c => c.checked).nextElementSibling;
+      const _nameEl = _label.querySelector('.karte-vs-name');
+      btn.textContent = (_nameEl ? _nameEl.textContent : _label.textContent).trim();
     } else {
       btn.textContent = n + ' Verkaufsstellen';
     }
