@@ -161,8 +161,12 @@
         Alle Verkaufsstellen
       </button>
       <div class="dropdown-menu p-2 shadow" id="vsFilterMenu" style="min-width:240px;max-height:320px;overflow-y:auto">
-        <input type="text" class="form-control form-control-sm mb-2" placeholder="Suchen…"
-               oninput="filterDropdownListe(this, '.karte-vs-item')">
+        <input type="text" class="form-control form-control-sm mb-2" placeholder="Suchen…" id="vsFilterSuche"
+               oninput="filterDropdownListe(this, '.karte-vs-item'); vsFilterTrefferButtonsAnzeigen(this);">
+        <div id="vsFilterTrefferButtons" class="d-none mb-2 d-flex gap-2">
+          <button type="button" class="btn btn-outline-primary btn-sm flex-fill py-0" id="vsFilterNurTreffer">Nur Treffer</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm flex-fill py-0" id="vsFilterTrefferAbwaehlen">Treffer abwählen</button>
+        </div>
         <div class="form-check py-1 border-bottom mb-1">
           <input class="form-check-input" type="checkbox" id="karte_vs_alle" checked>
           <label class="form-check-label fw-semibold" for="karte_vs_alle">Alle auswählen</label>
@@ -422,6 +426,12 @@ function filterDropdownListe(inputEl, itemSelector) {
     const text = item.textContent.toLowerCase();
     item.style.display = (!q || text.includes(q)) ? '' : 'none';
   });
+}
+
+/* ── "Nur Treffer"/"Treffer abwählen"-Buttons ein-/ausblenden, sobald gesucht wird ── */
+function vsFilterTrefferButtonsAnzeigen(inputEl) {
+  const wrap = document.getElementById('vsFilterTrefferButtons');
+  if (wrap) wrap.classList.toggle('d-none', !inputEl.value.trim());
 }
 
 /* ── Karte ──────────────────────────────────────────────────────────────────── */
@@ -890,6 +900,33 @@ function wireVerkaufsstelleFilter() {
     };
   });
   syncAlles();
+
+  // "Nur Treffer"/"Treffer abwählen": wirken NUR auf die gerade per Suchfeld sichtbaren
+  // Zeilen (item.style.display !== 'none'), nicht auf die komplette Liste – Suchfeld allein
+  // filtert nur die Anzeige im Dropdown, ändert aber keine Checkbox-Zustände.
+  const sichtbareCbs = () => Array.from(einzelnCbs).filter(cb => {
+    const item = cb.closest('.karte-vs-item');
+    return !item || item.style.display !== 'none';
+  });
+  const btnNurTreffer = document.getElementById('vsFilterNurTreffer');
+  const btnTrefferAb  = document.getElementById('vsFilterTrefferAbwaehlen');
+  if (btnNurTreffer) {
+    btnNurTreffer.onclick = function () {
+      einzelnCbs.forEach(cb => cb.checked = false);
+      sichtbareCbs().forEach(cb => cb.checked = true);
+      if (!Array.from(einzelnCbs).some(c => c.checked)) einzelnCbs[0] && (einzelnCbs[0].checked = true);
+      syncAlles();
+      applyFilter();
+    };
+  }
+  if (btnTrefferAb) {
+    btnTrefferAb.onclick = function () {
+      sichtbareCbs().forEach(cb => cb.checked = false);
+      if (!Array.from(einzelnCbs).some(c => c.checked)) einzelnCbs[0] && (einzelnCbs[0].checked = true);
+      syncAlles();
+      applyFilter();
+    };
+  }
 }
 {% endif %}
 
