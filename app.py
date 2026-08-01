@@ -3272,6 +3272,22 @@ def admin_auffaelligkeiten_jetzt_berechnen():
     return redirect(url_for('dashboard'))
 
 
+@app.route('/admin/kategorie-berechnung/jetzt-ausfuehren', methods=['POST'])
+@login_required
+def admin_kategorie_berechnung_jetzt_ausfuehren():
+    if session.get('rolle') != 'admin':
+        flash('Keine Berechtigung.', 'danger')
+        return redirect(url_for('admin'))
+    try:
+        app.logger.info(f"Audit: Kunden-Kategorie-Berechnung manuell ausgelöst von {session.get('kuerzel')} (Mitarbeiter-ID {session.get('user_id')})")
+        n = _kunden_kategorie_berechnen()
+        flash(f'Kunden-Kategorien neu berechnet ({n} Verkaufsstelle(n) aktualisiert).', 'success')
+    except Exception as e:
+        app.logger.error(f"Manuelle Kategorie-Berechnung Fehler: {e}", exc_info=True)
+        flash('Berechnung fehlgeschlagen – siehe Logs.', 'danger')
+    return redirect(url_for('admin'))
+
+
 @app.route('/auffaelligkeit/<int:alert_id>/gesehen', methods=['POST'])
 @manager_required
 def auffaelligkeit_gesehen(alert_id):

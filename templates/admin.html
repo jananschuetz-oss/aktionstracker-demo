@@ -182,7 +182,18 @@
   <!-- Verkaufsstellen -->
   <div class="col-lg-7" id="verkaufsstellen">
     <div class="card h-100">
-      <div class="card-header secondary"><i class="bi bi-shop me-2"></i>Verkaufsstellen</div>
+      <div class="card-header secondary d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-shop me-2"></i>Verkaufsstellen</span>
+        {% if session.rolle == 'admin' %}
+        <form method="POST" action="{{ url_for('admin_kategorie_berechnung_jetzt_ausfuehren') }}"
+              onsubmit="return confirm('Kunden-Kategorien (A/B/C) jetzt für alle Verkaufsstellen neu berechnen?');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-outline-light btn-sm py-0" title="Kunden-Kategorien jetzt neu berechnen (normalerweise wöchentlich automatisch)">
+            <i class="bi bi-arrow-repeat me-1"></i>Kategorien berechnen
+          </button>
+        </form>
+        {% endif %}
+      </div>
       <div class="card-body p-0">
         <div class="p-2 border-bottom">
           <input type="text" id="vsSucheInput" class="form-control form-control-sm"
