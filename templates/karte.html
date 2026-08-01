@@ -328,6 +328,13 @@
         </div>
         {% endif %}
 
+        <!-- Link zur vollständigen Kundenhistorie -->
+        <div class="mb-3">
+          <a href="#" id="linkMsVollstaendigeHistorie" class="btn btn-outline-primary btn-sm w-100">
+            <i class="bi bi-graph-up me-1"></i>Vollständige Kundenhistorie
+          </a>
+        </div>
+
         <!-- Aktuelle Zuordnung (Leseanzeige) -->
         <div class="mb-3">
           <div class="fw-bold small mb-1">Aktuell zugeordnet:</div>
@@ -394,7 +401,17 @@ const VS_ID_FILTER = {{ vs_ids_filter | tojson }};
 let vsIdFilter       = VS_ID_FILTER.slice();
 let verkaufsstelleFilter = [];   // [] = alle; sonst Array von Verkaufsstelle-IDs (strings)
 let kategorieFilter  = [];   // [] = alle; sonst Array aus 'A'/'B'/'C'/'__OHNE__'
-let besuchtStationen = {};   // station_id → Besuchsanzahl im Zeitraum
+let besuchtStationen = {};   // station_id → Besuchsanzahl im Zeitraum (nur bei aktivem Monatsfilter befüllt)
+const JAHR_AKTUELL = new Date().getFullYear();
+let besucheJahrAktuell = {};   // station_id → Besuchsanzahl im laufenden Jahr, unabhängig von Filtern – für den Hover-Tooltip
+async function ladeBesucheJahrAktuell() {
+  try {
+    const resp = await fetch(`/api/karte/besuche-zeitraum?jahr=${JAHR_AKTUELL}`);
+    const data = await resp.json();
+    besucheJahrAktuell = data.besuche || {};
+  } catch (e) { besucheJahrAktuell = {}; }
+  renderMarkers();
+}
 
 /* ── Filter-Suche (Suchfeld in jedem Dropdown filtert die sichtbaren Checkbox-Zeilen) ── */
 function filterDropdownListe(inputEl, itemSelector) {
@@ -484,8 +501,10 @@ function renderMarkers() {
       ? '<br><small style="color:#adb5bd">Kein Besuch im Zeitraum</small>' : '';
     const tipAdresse = [s.strasse, [s.plz, s.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ') || s.ort;
     const homeofficeTag = istHomeoffice ? '<br><small><i class="bi bi-house-fill me-1"></i>Homeoffice</small>' : '';
+    const besucheJahr = besucheJahrAktuell[String(s.id)] || 0;
+    const besucheTag = `<br><small style="color:#6c757d"><i class="bi bi-calendar-check me-1"></i>${besucheJahr} Besuch${besucheJahr === 1 ? '' : 'e'} ${JAHR_AKTUELL}</small>`;
     m.bindTooltip(
-      `<strong>${s.name}</strong><br><small>${tipAdresse} · ${s.typ}</small><br><small>${namenListe}</small>${keinBesuch}${homeofficeTag}`,
+      `<strong>${s.name}</strong><br><small>${tipAdresse} · ${s.typ}</small><br><small>${namenListe}</small>${besucheTag}${keinBesuch}${homeofficeTag}`,
       { direction: 'top', offset: [0, -8] });
 
     m.on('click', () => openStationModal(s.id));
@@ -547,6 +566,8 @@ function openStationModal(stelleId) {
   aktiverStelleId = stelleId;
 
   document.getElementById('ms-name').textContent = s.name;
+  const linkHistorie = document.getElementById('linkMsVollstaendigeHistorie');
+  if (linkHistorie) linkHistorie.href = `/verkaufsstelle/${s.id}/historie`;
 
   const adresse = [s.strasse, [s.plz, s.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ');
   document.getElementById('ms-adresse').textContent = adresse || '–';
@@ -1384,5 +1405,6 @@ document.querySelectorAll('.ebene-btn').forEach(btn => {
 
 /* ── Start ──────────────────────────────────────────────────────────────────── */
 ladeKarteDaten();
+ladeBesucheJahrAktuell();
 </script>
 {% endblock %}
