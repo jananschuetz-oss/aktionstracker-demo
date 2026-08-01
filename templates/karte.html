@@ -170,6 +170,36 @@
         <!-- Verkaufsstelle-Checkboxen werden per JS eingefügt -->
       </div>
     </div>
+    <!-- Kategorie-Filter (A/B/C/Keine Daten) -->
+    <div class="dropdown">
+      <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle"
+              data-bs-toggle="dropdown" data-bs-auto-close="outside"
+              id="katFilterBtn" style="min-width:150px;text-align:left">
+        Alle Kategorien
+      </button>
+      <div class="dropdown-menu p-2 shadow" style="min-width:180px">
+        <div class="form-check py-1 border-bottom mb-1">
+          <input class="form-check-input" type="checkbox" id="karte_kat_alle" checked>
+          <label class="form-check-label fw-semibold" for="karte_kat_alle">Alle auswählen</label>
+        </div>
+        <div class="form-check py-1">
+          <input class="form-check-input karte-kat-cb" type="checkbox" value="A" id="karte_kat_A" checked>
+          <label class="form-check-label" for="karte_kat_A">A – Top</label>
+        </div>
+        <div class="form-check py-1">
+          <input class="form-check-input karte-kat-cb" type="checkbox" value="B" id="karte_kat_B" checked>
+          <label class="form-check-label" for="karte_kat_B">B – Mittel</label>
+        </div>
+        <div class="form-check py-1">
+          <input class="form-check-input karte-kat-cb" type="checkbox" value="C" id="karte_kat_C" checked>
+          <label class="form-check-label" for="karte_kat_C">C – Klein</label>
+        </div>
+        <div class="form-check py-1">
+          <input class="form-check-input karte-kat-cb" type="checkbox" value="__OHNE__" id="karte_kat_ohne" checked>
+          <label class="form-check-label" for="karte_kat_ohne">Keine Daten</label>
+        </div>
+      </div>
+    </div>
     <button id="btnMehrfachauswahl" class="btn btn-sm btn-outline-primary">
       <i class="bi bi-check2-square me-1"></i>Mehrfachauswahl
     </button>
@@ -363,6 +393,7 @@ let monateFilter     = [];   // [] = alle; sonst Array von Monatsnummern (string
 const VS_ID_FILTER = {{ vs_ids_filter | tojson }};
 let vsIdFilter       = VS_ID_FILTER.slice();
 let verkaufsstelleFilter = [];   // [] = alle; sonst Array von Verkaufsstelle-IDs (strings)
+let kategorieFilter  = [];   // [] = alle; sonst Array aus 'A'/'B'/'C'/'__OHNE__'
 let besuchtStationen = {};   // station_id → Besuchsanzahl im Zeitraum
 
 /* ── Filter-Suche (Suchfeld in jedem Dropdown filtert die sichtbaren Checkbox-Zeilen) ── */
@@ -412,6 +443,7 @@ function stelleFarbe(stelle) {
 function stelleIstSichtbar(stelle) {
   if (vsIdFilter.length && !vsIdFilter.includes(stelle.id)) return false;
   if (verkaufsstelleFilter.length && !verkaufsstelleFilter.includes(String(stelle.id))) return false;
+  if (kategorieFilter.length && !kategorieFilter.includes(stelle.kategorie || '__OHNE__')) return false;
   if (!repFilter.length) return true;
   return stelle.zuordnungen.some(r => repFilter.includes(String(r.id)));
 }
@@ -1068,6 +1100,42 @@ const M_NAMEN_KURZ = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Ok
   einzelnCbs.forEach(cb => cb.addEventListener('change', function () {
     if (!Array.from(einzelnCbs).some(c => c.checked)) this.checked = true;
     syncAlles(); applyMonatsFilter();
+  }));
+})();
+
+const KAT_LABEL = {A: 'A – Top', B: 'B – Mittel', C: 'C – Klein', __OHNE__: 'Keine Daten'};
+(function () {
+  const allesCb    = document.getElementById('karte_kat_alle');
+  const einzelnCbs = document.querySelectorAll('.karte-kat-cb');
+  const btn        = document.getElementById('katFilterBtn');
+  if (!allesCb || !btn) return;
+
+  function syncAlles() {
+    const n = Array.from(einzelnCbs).filter(c => c.checked).length;
+    allesCb.checked       = n === einzelnCbs.length;
+    allesCb.indeterminate = n > 0 && n < einzelnCbs.length;
+    if (n === einzelnCbs.length)
+      btn.textContent = 'Alle Kategorien';
+    else if (n === 1)
+      btn.textContent = KAT_LABEL[Array.from(einzelnCbs).find(c => c.checked).value];
+    else
+      btn.textContent = n + ' Kategorien';
+  }
+
+  function applyKategorieFilter() {
+    const checked = Array.from(einzelnCbs).filter(c => c.checked);
+    kategorieFilter = checked.length === einzelnCbs.length ? [] : checked.map(c => c.value);
+    renderMarkers();
+  }
+
+  allesCb.addEventListener('change', function () {
+    einzelnCbs.forEach(cb => cb.checked = this.checked);
+    if (!this.checked) einzelnCbs[0] && (einzelnCbs[0].checked = true);
+    syncAlles(); applyKategorieFilter();
+  });
+  einzelnCbs.forEach(cb => cb.addEventListener('change', function () {
+    if (!Array.from(einzelnCbs).some(c => c.checked)) this.checked = true;
+    syncAlles(); applyKategorieFilter();
   }));
 })();
 {% endif %}
