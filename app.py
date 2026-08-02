@@ -1550,6 +1550,45 @@ def init_db():
                 )
                 db.commit()
 
+            # Restliche KPI-Katalog-Einträge ebenfalls scharf schalten (Nutzerwunsch
+            # 2026-08-02): Demo bewirbt "12 konfigurierbare Kennzahlen", zeigte aber nur
+            # 2-3 manuell aktivierte Kacheln. Nur Zeilen einfügen, die noch fehlen – eine
+            # spätere manuelle Änderung im Admin-Panel (z.B. deaktivieren) bleibt danach
+            # unangetastet, genau wie beim Team-Ranking-Seed oben.
+            for _kpi_eintrag in _KPI_KATALOG:
+                if not db.execute(
+                    "SELECT 1 FROM kpi_einstellungen WHERE kpi_key=?", (_kpi_eintrag['key'],)
+                ).fetchone():
+                    db.execute(
+                        "INSERT INTO kpi_einstellungen (kpi_key, aktiv, sichtbar_fuer, highlight) VALUES (?,1,'alle',0)",
+                        (_kpi_eintrag['key'],)
+                    )
+            db.commit()
+
+            # Formular-Baukasten: Test-Zusatzfragen ("was macht der wettbewerb", vom
+            # Nutzer selbst beim Ausprobieren aller 5 Feldtypen angelegt) durch echte
+            # Beispielfragen ersetzen (Nutzerwunsch 2026-08-02). Löschen ist idempotent
+            # (WHERE-Treffer irgendwann leer), Einfügen prüft je Frage einzeln auf Existenz,
+            # damit spätere manuelle Änderungen im Admin-Panel nicht bei jedem Neustart
+            # überschrieben werden.
+            db.execute("DELETE FROM formular_feld WHERE name LIKE 'was macht der wettbewerb%'")
+            _formular_beispiele = [
+                ('Wie ist die Regalplatzierung?', 'auswahl',
+                 json.dumps(['Vorne / Sichthöhe', 'Mitte', 'Hinten / schlecht']), None, None, 0),
+                ('Wettbewerbsprodukt im Regal vorhanden?', 'ja_nein', None, None, None, 1),
+                ('Wie zufrieden ist der Kunde?', 'skala', None, 1, 5, 2),
+                ('Anzahl Facings Hauptprodukt', 'zahl', None, None, None, 3),
+                ('Sonstige Beobachtungen', 'text', None, None, None, 4),
+            ]
+            for _name, _typ, _optionen, _smin, _smax, _sort in _formular_beispiele:
+                if not db.execute("SELECT 1 FROM formular_feld WHERE name=?", (_name,)).fetchone():
+                    db.execute(
+                        "INSERT INTO formular_feld (name, feld_typ, optionen, skala_min, skala_max, "
+                        "pflichtfeld, aktiv, sortierung) VALUES (?,?,?,?,?,0,1,?)",
+                        (_name, _typ, _optionen, _smin, _smax, _sort)
+                    )
+            db.commit()
+
         # Displaysorten – nur einfügen wenn Tabelle leer
         if not db.execute("SELECT 1 FROM displaysorte LIMIT 1").fetchone():
             for ds_name in ['Regal-Display', 'Eingangs-Display',
