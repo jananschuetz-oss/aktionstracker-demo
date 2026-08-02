@@ -1550,19 +1550,19 @@ def init_db():
                 )
                 db.commit()
 
-            # Restliche KPI-Katalog-Einträge ebenfalls scharf schalten (Nutzerwunsch
-            # 2026-08-02): Demo bewirbt "12 konfigurierbare Kennzahlen", zeigte aber nur
-            # 2-3 manuell aktivierte Kacheln. Nur Zeilen einfügen, die noch fehlen – eine
-            # spätere manuelle Änderung im Admin-Panel (z.B. deaktivieren) bleibt danach
-            # unangetastet, genau wie beim Team-Ranking-Seed oben.
+            # Kompletter KPI-Katalog dauerhaft scharf (Nutzerwunsch 2026-08-02): Demo
+            # bewirbt "12 konfigurierbare Kennzahlen", zeigte aber nur 2 aktivierte
+            # Kacheln – der Rest war beim eigenen Ausprobieren im Admin-Panel bereits als
+            # Zeile angelegt, aber wieder deaktiviert worden ("nur Zeilen einfügen, die
+            # fehlen" traf dadurch nicht mehr zu). Bewusst ein UPSERT bei jedem Start,
+            # nicht nur beim ersten Seed: die Demo soll immer den vollen Katalog zeigen,
+            # damit Interessenten die komplette Kennzahlen-Bandbreite sehen.
             for _kpi_eintrag in _KPI_KATALOG:
-                if not db.execute(
-                    "SELECT 1 FROM kpi_einstellungen WHERE kpi_key=?", (_kpi_eintrag['key'],)
-                ).fetchone():
-                    db.execute(
-                        "INSERT INTO kpi_einstellungen (kpi_key, aktiv, sichtbar_fuer, highlight) VALUES (?,1,'alle',0)",
-                        (_kpi_eintrag['key'],)
-                    )
+                db.execute(
+                    "INSERT INTO kpi_einstellungen (kpi_key, aktiv, sichtbar_fuer, highlight) VALUES (?,1,'alle',0) "
+                    "ON CONFLICT(kpi_key) DO UPDATE SET aktiv=1, sichtbar_fuer='alle'",
+                    (_kpi_eintrag['key'],)
+                )
             db.commit()
 
             # Formular-Baukasten: Test-Zusatzfragen ("was macht der wettbewerb", vom
