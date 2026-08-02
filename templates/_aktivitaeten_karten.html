@@ -167,6 +167,25 @@
               </p>
             </div>
             {% endif %}
+
+            <!-- Zusatzangaben (Formular-Baukasten, 2026-08-02): nur gerendert, wenn für diese
+                 Aktivität Antworten gespeichert wurden - formular_detail bleibt leer, wenn
+                 FORMULAR_MODUS abgeschaltet ist. -->
+            {% set fd = formular_detail.get(a.id) if formular_detail is defined else None %}
+            {% if fd %}
+            <div class="col-12">
+              <strong class="text-muted small d-block mb-2">ZUSATZANGABEN</strong>
+              <div class="d-flex flex-wrap gap-2">
+                {% for f in fd %}
+                <span class="badge rounded-pill py-2 px-3"
+                      style="background:#f3effd;color:#4c2d8f;border:1px solid #8b5cf6;font-size:.85rem">
+                  <i class="bi bi-ui-checks me-1" style="color:#6b46c1"></i>
+                  {{ f.name }}: <strong>{{ f.wert }}</strong>
+                </span>
+                {% endfor %}
+              </div>
+            </div>
+            {% endif %}
           </div>
         </div>
       </div>

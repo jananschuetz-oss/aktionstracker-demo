@@ -583,6 +583,112 @@
     </div>
   </div>
   {% endif %}
+  <!-- Formular-Baukasten (2026-08-02): Admin pflegt frei konfigurierbare Zusatzfragen für
+       das Neue-Aktivität-Formular, strukturell analog zu den Listungsbild-Produkten oben.
+       Nur sichtbar wenn FORMULAR_MODUS='an' (Railway-Env-Var, wie LISTUNGSBILD_MODUS
+       nirgends editierbar). -->
+  {% if formular_modus == 'an' %}
+  <div class="col-lg-6" id="sektionFormularfelder">
+    <div class="card h-100">
+      <div class="card-header" style="background:linear-gradient(135deg,#6b46c1,#8b5cf6)">
+        <i class="bi bi-ui-checks me-2"></i>Formular-Baukasten
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm table-striped mb-0">
+          <thead>
+            <tr><th>Frage</th><th>Typ</th><th>Pflicht</th><th>VS-Typen</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for ff in formularfelder_admin %}
+            <tr {% if not ff.aktiv %}style="opacity:.45"{% endif %}>
+              <td>
+                <i class="bi bi-question-circle me-1" style="color:#6b46c1"></i>{{ ff.name }}
+                {% if not ff.aktiv %}
+                  <span class="badge bg-secondary ms-1" style="font-size:.6rem">Inaktiv</span>
+                {% endif %}
+              </td>
+              <td>
+                <span class="badge bg-light text-dark border" style="font-size:.68rem">
+                  {% if ff.feld_typ == 'text' %}Text
+                  {% elif ff.feld_typ == 'zahl' %}Zahl
+                  {% elif ff.feld_typ == 'ja_nein' %}Ja/Nein
+                  {% elif ff.feld_typ == 'auswahl' %}Auswahl
+                  {% elif ff.feld_typ == 'skala' %}Skala {{ ff.skala_min }}–{{ ff.skala_max }}
+                  {% endif %}
+                </span>
+              </td>
+              <td>
+                {% if ff.pflichtfeld %}<span class="badge" style="background:#f8d7da;color:#721c24;font-size:.65rem">Pflicht</span>{% endif %}
+              </td>
+              <td>
+                {% if ff.vs_typen_liste %}
+                  <span class="small">{{ ff.vs_typen_liste | join(', ') }}</span>
+                {% else %}
+                  <span class="small text-muted">Alle</span>
+                {% endif %}
+              </td>
+              <td class="text-center text-nowrap">
+                {% if ff.aktiv %}
+                <form method="POST" action="{{ url_for('admin_formularfeld_verschieben', ff_id=ff.id) }}" style="display:inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="richtung" value="hoch">
+                  <button type="submit" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1" title="Nach oben"
+                          {% if loop.first %}disabled{% endif %}>
+                    <i class="bi bi-arrow-up"></i>
+                  </button>
+                </form>
+                <form method="POST" action="{{ url_for('admin_formularfeld_verschieben', ff_id=ff.id) }}" style="display:inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="richtung" value="runter">
+                  <button type="submit" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1" title="Nach unten"
+                          {% if loop.last %}disabled{% endif %}>
+                    <i class="bi bi-arrow-down"></i>
+                  </button>
+                </form>
+                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1"
+                        title="Bearbeiten"
+                        data-bs-toggle="modal"
+                        data-bs-target="#modalFormularfeldBearbeiten_{{ ff.id }}">
+                  <i class="bi bi-pencil"></i>
+                </button>
+                <form method="POST"
+                      action="{{ url_for('admin_formularfeld_loeschen', ff_id=ff.id) }}"
+                      style="display:inline"
+                      onsubmit="return confirm('Zusatzfrage „{{ ff.name }}” löschen?\n\nWurde sie schon in Aktivitäten beantwortet, wird sie nur deaktiviert.')">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"
+                          title="Löschen / Deaktivieren">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+                {% else %}
+                <form method="POST"
+                      action="{{ url_for('admin_formularfeld_reaktivieren', ff_id=ff.id) }}"
+                      style="display:inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-outline-success btn-sm py-0 px-1"
+                          title="Reaktivieren">
+                    <i class="bi bi-arrow-counterclockwise"></i>
+                  </button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="text-center text-muted py-3">Noch keine Zusatzfragen angelegt</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="card-footer bg-white">
+        <button class="btn btn-sm w-100" style="background:#6b46c1;color:white"
+                data-bs-toggle="modal" data-bs-target="#modalFormularfeld">
+          <i class="bi bi-plus-circle me-1"></i>Zusatzfrage hinzufügen
+        </button>
+      </div>
+    </div>
+  </div>
+  {% endif %}
   <div class="col-lg-6" id="sektionFotos">
     <div class="card h-100">
       <div class="card-header" style="background:linear-gradient(135deg,#1a3a5c,#2e6da4)">
@@ -1820,6 +1926,152 @@ function vsAdminSucheAusfuehren(q) {
   </div>
 </div>
 {% endfor %}
+
+<!-- Modal: Neues Formularfeld (Formular-Baukasten, 2026-08-02) -->
+<div class="modal fade" id="modalFormularfeld" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('admin_formularfeld_neu') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-header" style="background:#6b46c1;color:white">
+          <h5 class="modal-title"><i class="bi bi-ui-checks me-2"></i>Neue Zusatzfrage</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Frage / Feldname <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control" placeholder="z.B. Zweitplatzierung sichtbar?" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Typ <span class="text-danger">*</span></label>
+            <select name="feld_typ" class="form-select" id="ffTypNeu" onchange="ffTypUpdate('Neu')" required>
+              <option value="text">Text</option>
+              <option value="zahl">Zahl</option>
+              <option value="ja_nein">Ja/Nein</option>
+              <option value="auswahl">Auswahl (Dropdown)</option>
+              <option value="skala">Skala</option>
+            </select>
+          </div>
+          <div class="mb-3 d-none" id="ffOptionenWrapNeu">
+            <label class="form-label">Optionen <span class="text-muted fw-normal">(eine pro Zeile)</span></label>
+            <textarea name="optionen_text" class="form-control" rows="4" placeholder="Option A&#10;Option B&#10;Option C"></textarea>
+          </div>
+          <div class="row g-2 mb-3 d-none" id="ffSkalaWrapNeu">
+            <div class="col-6">
+              <label class="form-label">Skala Min</label>
+              <input type="number" name="skala_min" class="form-control" value="1">
+            </div>
+            <div class="col-6">
+              <label class="form-label">Skala Max</label>
+              <input type="number" name="skala_max" class="form-control" value="5">
+            </div>
+          </div>
+          <div class="form-check mb-3">
+            <input type="checkbox" class="form-check-input" name="pflichtfeld" value="1" id="ffPflichtNeu">
+            <label class="form-check-label" for="ffPflichtNeu">Pflichtfeld</label>
+          </div>
+          <div class="mb-1">
+            <label class="form-label">Nur für bestimmte VS-Typen <span class="text-muted fw-normal">(leer = alle Typen)</span></label>
+            <div class="d-flex flex-wrap gap-1">
+              {% for t in vs_typen_optionen %}
+              <input type="checkbox" class="btn-check" name="vs_typen" value="{{ t }}" id="ffVstNeu_{{ loop.index }}" autocomplete="off">
+              <label class="btn btn-outline-secondary btn-sm py-1 px-2" style="font-size:.8rem" for="ffVstNeu_{{ loop.index }}">{{ t }}</label>
+              {% else %}
+              <span class="small text-muted">Keine VS-Typen vorhanden</span>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-check me-1"></i>Anlegen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modals: Formularfeld bearbeiten -->
+{% for ff in formularfelder_admin %}
+<div class="modal fade" id="modalFormularfeldBearbeiten_{{ ff.id }}" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('admin_formularfeld_bearbeiten', ff_id=ff.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-header" style="background:#6b46c1;color:white">
+          <h5 class="modal-title"><i class="bi bi-pencil me-2"></i>Zusatzfrage bearbeiten</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Frage / Feldname <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control" value="{{ ff.name }}" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Typ <span class="text-danger">*</span></label>
+            <select name="feld_typ" class="form-select" id="ffTypBearbeiten_{{ ff.id }}" onchange="ffTypUpdate('Bearbeiten_{{ ff.id }}')" required>
+              <option value="text" {% if ff.feld_typ == 'text' %}selected{% endif %}>Text</option>
+              <option value="zahl" {% if ff.feld_typ == 'zahl' %}selected{% endif %}>Zahl</option>
+              <option value="ja_nein" {% if ff.feld_typ == 'ja_nein' %}selected{% endif %}>Ja/Nein</option>
+              <option value="auswahl" {% if ff.feld_typ == 'auswahl' %}selected{% endif %}>Auswahl (Dropdown)</option>
+              <option value="skala" {% if ff.feld_typ == 'skala' %}selected{% endif %}>Skala</option>
+            </select>
+          </div>
+          <div class="mb-3 {% if ff.feld_typ != 'auswahl' %}d-none{% endif %}" id="ffOptionenWrapBearbeiten_{{ ff.id }}">
+            <label class="form-label">Optionen <span class="text-muted fw-normal">(eine pro Zeile)</span></label>
+            <textarea name="optionen_text" class="form-control" rows="4">{{ ff.optionen_liste | join('\n') }}</textarea>
+          </div>
+          <div class="row g-2 mb-3 {% if ff.feld_typ != 'skala' %}d-none{% endif %}" id="ffSkalaWrapBearbeiten_{{ ff.id }}">
+            <div class="col-6">
+              <label class="form-label">Skala Min</label>
+              <input type="number" name="skala_min" class="form-control" value="{{ ff.skala_min if ff.skala_min is not none else 1 }}">
+            </div>
+            <div class="col-6">
+              <label class="form-label">Skala Max</label>
+              <input type="number" name="skala_max" class="form-control" value="{{ ff.skala_max if ff.skala_max is not none else 5 }}">
+            </div>
+          </div>
+          <div class="form-check mb-3">
+            <input type="checkbox" class="form-check-input" name="pflichtfeld" value="1"
+                   id="ffPflichtBearbeiten_{{ ff.id }}" {% if ff.pflichtfeld %}checked{% endif %}>
+            <label class="form-check-label" for="ffPflichtBearbeiten_{{ ff.id }}">Pflichtfeld</label>
+          </div>
+          <div class="mb-1">
+            <label class="form-label">Nur für bestimmte VS-Typen <span class="text-muted fw-normal">(leer = alle Typen)</span></label>
+            <div class="d-flex flex-wrap gap-1">
+              {% for t in vs_typen_optionen %}
+              <input type="checkbox" class="btn-check" name="vs_typen" value="{{ t }}"
+                     id="ffVstBearbeiten_{{ ff.id }}_{{ loop.index }}" autocomplete="off"
+                     {% if t in ff.vs_typen_liste %}checked{% endif %}>
+              <label class="btn btn-outline-secondary btn-sm py-1 px-2" style="font-size:.8rem" for="ffVstBearbeiten_{{ ff.id }}_{{ loop.index }}">{{ t }}</label>
+              {% else %}
+              <span class="small text-muted">Keine VS-Typen vorhanden</span>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-check me-1"></i>Speichern</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+<script>
+// Formular-Baukasten (2026-08-02): blendet je nach gewähltem Feld-Typ die Optionen-Textarea
+// (Typ "Auswahl") bzw. die Skala-Min/Max-Felder (Typ "Skala") ein/aus. suffix identifiziert
+// das Neu- bzw. das jeweilige Bearbeiten-Modal (z.B. "Neu" oder "Bearbeiten_12").
+function ffTypUpdate(suffix) {
+  const typ = document.getElementById('ffTyp' + suffix).value;
+  const optWrap = document.getElementById('ffOptionenWrap' + suffix);
+  const skalaWrap = document.getElementById('ffSkalaWrap' + suffix);
+  if (optWrap) optWrap.classList.toggle('d-none', typ !== 'auswahl');
+  if (skalaWrap) skalaWrap.classList.toggle('d-none', typ !== 'skala');
+}
+</script>
 
 <!-- Modals: Display-Typ bearbeiten -->
 {% for d in displaysorte %}

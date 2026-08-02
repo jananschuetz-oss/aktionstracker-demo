@@ -132,6 +132,10 @@ KARTE_MODUS    = os.environ.get('KARTE_MODUS',   'basis')   # 'aus' | 'basis' | 
 # manche Kunden wollen nur die Ja/Nein-Listung ohne Preiserfassung.
 LISTUNGSBILD_MODUS       = os.environ.get('LISTUNGSBILD_MODUS', 'an')       # 'aus' | 'an'
 LISTUNGSBILD_PREISPFLICHT = os.environ.get('LISTUNGSBILD_PREISPFLICHT', 'an')  # 'aus' | 'an'
+# Formular-Baukasten (2026-08-02): frei konfigurierbare Zusatzfragen im Neue-Aktivität-
+# Formular, analog zum Listungsbild strukturell aufgebaut. Default 'aus', da es sich um ein
+# optionales Zusatzmodul ist (anders als Listungsbild, das für die Demo bewusst 'an' zeigt).
+FORMULAR_MODUS = os.environ.get('FORMULAR_MODUS', 'aus')  # 'aus' | 'an'
 TOUREN_MODUS   = os.getenv('TOUREN_MODUS', 'aus')             # 'aus' | 'an'
 ARBEITSZEIT_MODUS = os.getenv('ARBEITSZEIT_MODUS', 'aus') == 'an'  # Zusatzmodul, standardmäßig aus (Add-on)
 TANKEN_MODUS   = os.getenv('TANKEN_MODUS', 'aus') == 'an'  # Firmenwagen-Tanken-Sonderkategorie, standardmäßig aus (Add-on)
@@ -964,6 +968,29 @@ def init_db():
                 FOREIGN KEY (aktivitaet_id) REFERENCES aktivitaet(id) ON DELETE CASCADE,
                 FOREIGN KEY (listungsprodukt_id) REFERENCES listungsprodukt(id)
             );
+
+            CREATE TABLE IF NOT EXISTS formular_feld (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                feld_typ TEXT NOT NULL,          -- 'text' | 'zahl' | 'ja_nein' | 'auswahl' | 'skala'
+                optionen TEXT,                   -- JSON-Liste von Strings, nur bei feld_typ='auswahl'
+                skala_min INTEGER,
+                skala_max INTEGER,
+                pflichtfeld INTEGER DEFAULT 0,
+                vs_typen TEXT,                   -- JSON-Liste von verkaufsstelle.typ-Werten; NULL/leer = für alle Typen sichtbar
+                aktiv INTEGER DEFAULT 1,
+                sortierung INTEGER DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS formular_antwort (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                aktivitaet_id INTEGER NOT NULL,
+                formular_feld_id INTEGER NOT NULL,
+                wert TEXT,
+                FOREIGN KEY (aktivitaet_id) REFERENCES aktivitaet(id) ON DELETE CASCADE,
+                FOREIGN KEY (formular_feld_id) REFERENCES formular_feld(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_formular_antwort_aktivitaet ON formular_antwort(aktivitaet_id);
 
             CREATE TABLE IF NOT EXISTS displaysorte (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -5986,6 +6013,36 @@ def api_aktivitaet_offline_sync():
     return jsonify({'ok': True, 'akt_id': akt_id})
 
 
+def _formular_felder_laden():
+    """Lädt die aktiven Formularfelder (Formular-Baukasten, 2026-08-02) inkl. geparster
+    optionen/vs_typen als Python-Listen - leer, wenn Feature per FORMULAR_MODUS abgeschaltet
+    ist (dann bleiben Validierung/Speichern/Template-Anzeige automatisch leer, analog
+    listungsprodukte/LISTUNGSBILD_MODUS)."""
+    if FORMULAR_MODUS != 'an':
+        return []
+    rows = query("SELECT * FROM formular_feld WHERE aktiv=1 ORDER BY sortierung, name")
+    felder = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d['optionen_liste'] = json.loads(d['optionen']) if d['optionen'] else []
+        except (ValueError, TypeError):
+            d['optionen_liste'] = []
+        try:
+            d['vs_typen_liste'] = json.loads(d['vs_typen']) if d['vs_typen'] else []
+        except (ValueError, TypeError):
+            d['vs_typen_liste'] = []
+        felder.append(d)
+    return felder
+
+
+def _formularfeld_gilt_fuer_typ(feld, vs_typ):
+    """Ein Formularfeld gilt für eine Verkaufsstelle, wenn vs_typen leer ist (= alle Typen)
+    oder der VS-Typ explizit in der Liste steht."""
+    vs_typen = feld.get('vs_typen_liste') or []
+    return (not vs_typen) or (vs_typ in vs_typen)
+
+
 # ─── Routes: Aktivitäten ──────────────────────────────────────────────────────
 
 @app.route('/aktivitaet/neu', methods=['GET', 'POST'])
@@ -6096,6 +6153,9 @@ def neue_aktivitaet():
     # Liste hier deaktiviert das Feature durchgehend (Validierung, Speichern, Template-Anzeige
     # hängen alle an dieser Variable).
     listungsprodukte = query("SELECT * FROM listungsprodukt WHERE aktiv=1 ORDER BY sortierung, name") if LISTUNGSBILD_MODUS == 'an' else []
+    # Formular-Baukasten (2026-08-02): leer, wenn Feature per FORMULAR_MODUS abgeschaltet -
+    # dann bleiben formular_fehlt/das Speichern weiter unten automatisch leer, analog Listungsbild.
+    formular_felder = _formular_felder_laden()
 
     if request.method == 'POST':
         datum   = request.form.get('datum')
@@ -6184,7 +6244,8 @@ def neue_aktivitaet():
                 heute=date.today().isoformat(), min_datum=min_datum,
                 homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
                 verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids,
-                listungsprodukte=listungsprodukte, listungsbild_preispflicht=(LISTUNGSBILD_PREISPFLICHT == 'an'))
+                listungsprodukte=listungsprodukte, listungsbild_preispflicht=(LISTUNGSBILD_PREISPFLICHT == 'an'),
+                formular_felder=formular_felder)
 
         # Firmenwagen-Tanken: Pflichtfelder aus dem Tankbeleg (Tankdatum, Kennzeichen,
         # Kraftstoffsorte, Menge, Kilometerstand) – ermöglichen den Tanken-Report ohne
@@ -6220,7 +6281,8 @@ def neue_aktivitaet():
                 heute=date.today().isoformat(), min_datum=min_datum,
                 homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
                 verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids,
-                listungsprodukte=listungsprodukte, listungsbild_preispflicht=(LISTUNGSBILD_PREISPFLICHT == 'an'))
+                listungsprodukte=listungsprodukte, listungsbild_preispflicht=(LISTUNGSBILD_PREISPFLICHT == 'an'),
+                formular_felder=formular_felder)
 
         # Verleger: einziges Pflichtfeld im reduzierten Formular ist die abgeholte Menge
         # "Gratisware Verleger" (Kistenware) – wird unten wie eine normale Bestellposition
@@ -6244,7 +6306,8 @@ def neue_aktivitaet():
                 heute=date.today().isoformat(), min_datum=min_datum,
                 homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
                 verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids,
-                listungsprodukte=listungsprodukte, listungsbild_preispflicht=(LISTUNGSBILD_PREISPFLICHT == 'an'))
+                listungsprodukte=listungsprodukte, listungsbild_preispflicht=(LISTUNGSBILD_PREISPFLICHT == 'an'),
+                formular_felder=formular_felder)
 
         if not datum or not vs_id:
             flash('Datum und Verkaufsstelle sind Pflichtfelder.', 'danger')
@@ -6253,7 +6316,8 @@ def neue_aktivitaet():
                 displaysorte=displaysorte, heute=date.today().isoformat(),
                 min_datum=min_datum, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
                 verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids,
-                listungsprodukte=listungsprodukte, listungsbild_preispflicht=(LISTUNGSBILD_PREISPFLICHT == 'an'))
+                listungsprodukte=listungsprodukte, listungsbild_preispflicht=(LISTUNGSBILD_PREISPFLICHT == 'an'),
+                formular_felder=formular_felder)
 
         if is_rep and min_datum and datum < min_datum:
             flash('Aktivitäten können nur für die aktuelle Woche eingetragen werden.', 'danger')
@@ -6262,7 +6326,8 @@ def neue_aktivitaet():
                 displaysorte=displaysorte, heute=date.today().isoformat(),
                 min_datum=min_datum, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
                 verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids,
-                listungsprodukte=listungsprodukte, listungsbild_preispflicht=(LISTUNGSBILD_PREISPFLICHT == 'an'))
+                listungsprodukte=listungsprodukte, listungsbild_preispflicht=(LISTUNGSBILD_PREISPFLICHT == 'an'),
+                formular_felder=formular_felder)
 
         if listung_fehlt:
             flash('Bitte für jedes Produkt im Listungsbild „vorhanden" oder „nicht vorhanden" auswählen.', 'danger')
@@ -6274,7 +6339,7 @@ def neue_aktivitaet():
                 listungsprodukte=listungsprodukte, listung_auswahl=listung_auswahl,
                 listung_preis_auswahl=listung_preis_auswahl, listung_aktionspreis_auswahl=listung_aktionspreis_auswahl,
                 listungsbild_preispflicht=(LISTUNGSBILD_PREISPFLICHT == 'an'),
-                preselect_vs=vs_id)
+                formular_felder=formular_felder, preselect_vs=vs_id)
 
         if listung_preis_fehlt:
             flash('Bitte für jedes vorhandene Listungsbild-Produkt einen Preis eintragen.', 'danger')
@@ -6287,6 +6352,31 @@ def neue_aktivitaet():
                 listung_preis_auswahl=listung_preis_auswahl, listung_aktionspreis_auswahl=listung_aktionspreis_auswahl,
                 listungsbild_preispflicht=(LISTUNGSBILD_PREISPFLICHT == 'an'),
                 listung_preis_fehlt_ids=[lp['id'] for lp in listung_preis_fehlt],
+                formular_felder=formular_felder, preselect_vs=vs_id)
+
+        # Formular-Baukasten (2026-08-02): Zusatzfragen analog zum Listungsbild - für JEDE
+        # Aktivität geprüft, außer bei den Sonderkategorien ohne echtes Kundengespräch
+        # (dasselbe Aussetzungsverhalten wie beim Listungsbild). vs_typen-Filterung: nur
+        # Felder, deren vs_typen leer ist oder den Typ der gewählten VS enthält, gelten
+        # überhaupt (Pflicht + Speichern).
+        _vs_typ = _vs_typ_check['typ'] if _vs_typ_check else None
+        formular_felder_sichtbar = [] if (is_homeoffice or is_tanken or is_verleger or is_telefontermin) else [
+            ff for ff in formular_felder if _formularfeld_gilt_fuer_typ(ff, _vs_typ)
+        ]
+        formular_auswahl = {ff['id']: request.form.get(f'formularfeld_{ff["id"]}', '').strip() for ff in formular_felder_sichtbar}
+        formular_fehlt = [ff for ff in formular_felder_sichtbar if ff['pflichtfeld'] and not formular_auswahl[ff['id']]]
+        if formular_fehlt:
+            flash('Bitte alle Pflicht-Zusatzfragen ausfüllen.', 'danger')
+            return render_template('neue_aktivitaet.html',
+                verkaufsstellen=verkaufsstellen, biersorten=biersorten,
+                displaysorte=displaysorte, heute=date.today().isoformat(),
+                min_datum=min_datum, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
+                verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids,
+                listungsprodukte=listungsprodukte, listung_auswahl=listung_auswahl,
+                listung_preis_auswahl=listung_preis_auswahl, listung_aktionspreis_auswahl=listung_aktionspreis_auswahl,
+                listungsbild_preispflicht=(LISTUNGSBILD_PREISPFLICHT == 'an'),
+                formular_felder=formular_felder, formular_auswahl=formular_auswahl,
+                formular_fehlt_ids=[ff['id'] for ff in formular_fehlt],
                 preselect_vs=vs_id)
 
         # Displaypositionen sammeln. Freigabe-Workflow: zielrelevante (Tier-1) Typen starten
@@ -6383,6 +6473,18 @@ def neue_aktivitaet():
             execute(
                 "INSERT INTO listungsbild (aktivitaet_id, listungsprodukt_id, vorhanden, preis, aktionspreis) VALUES (?,?,?,?,?)",
                 (akt_id, lp['id'], _vorhanden, _preis, _aktionspreis)
+            )
+
+        # Formular-Baukasten speichern (2026-08-02) - leer, wenn Sonderkategorie ohne echtes
+        # Kundengespräch, VS-Typ passt nicht zu vs_typen, oder Feature per FORMULAR_MODUS
+        # abgeschaltet ist (dann ist formular_felder_sichtbar bereits leer).
+        for ff in formular_felder_sichtbar:
+            _wert = formular_auswahl.get(ff['id'], '')
+            if not _wert:
+                continue
+            execute(
+                "INSERT INTO formular_antwort (aktivitaet_id, formular_feld_id, wert) VALUES (?,?,?)",
+                (akt_id, ff['id'], _wert)
             )
 
         # Verleger: abgeholte Menge "Gratisware Verleger" als normale Bestellposition
@@ -6513,7 +6615,8 @@ def neue_aktivitaet():
         bestellung_id=bestellung_id, bestellung_info=bestellung_info,
         tagesplan_heute=tagesplan_heute, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
         verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids,
-        listungsprodukte=listungsprodukte, listungsbild_preispflicht=(LISTUNGSBILD_PREISPFLICHT == 'an'))
+        listungsprodukte=listungsprodukte, listungsbild_preispflicht=(LISTUNGSBILD_PREISPFLICHT == 'an'),
+                formular_felder=formular_felder)
 
 
 AKTIVITAETEN_SEITENGROESSE = 100
@@ -6666,7 +6769,21 @@ def _aktivitaeten_seite(filt, seite):
         for r in rows:
             disp_detail.setdefault(r['aktivitaet_id'], []).append(r)
 
-    return aktivitaeten, detail, disp_detail, gesamt_anzahl, seite, seiten_gesamt
+    # Formular-Baukasten-Antworten für alle Aktivitäten in einer Abfrage (2026-08-02) - leer,
+    # wenn Feature per FORMULAR_MODUS abgeschaltet ist oder keine Antworten existieren.
+    formular_detail = {}
+    if akt_ids and FORMULAR_MODUS == 'an':
+        _ph = ','.join('?' * len(akt_ids))
+        rows = query(f'''
+            SELECT fa.aktivitaet_id, ff.name, fa.wert
+            FROM formular_antwort fa JOIN formular_feld ff ON ff.id = fa.formular_feld_id
+            WHERE fa.aktivitaet_id IN ({_ph})
+            ORDER BY ff.sortierung, ff.name
+        ''', akt_ids)
+        for r in rows:
+            formular_detail.setdefault(r['aktivitaet_id'], []).append(r)
+
+    return aktivitaeten, detail, disp_detail, formular_detail, gesamt_anzahl, seite, seiten_gesamt
 
 
 @app.route('/aktivitaeten')
@@ -6677,7 +6794,7 @@ def aktivitaeten_liste():
 
     filt = _aktivitaeten_filter(is_manager)
     seite_wunsch = request.args.get('seite', 1, type=int) or 1
-    aktivitaeten, detail, disp_detail, gesamt_anzahl, seite, seiten_gesamt = _aktivitaeten_seite(filt, seite_wunsch)
+    aktivitaeten, detail, disp_detail, formular_detail, gesamt_anzahl, seite, seiten_gesamt = _aktivitaeten_seite(filt, seite_wunsch)
     jahr, kw_filter = filt['jahr'], filt['kw_filter']
     mo_filter, mo_ids = filt['mo_filter'], filt['mo_ids']
     ma_filter, ma_ids = filt['ma_filter'], filt['ma_ids']
@@ -6708,7 +6825,7 @@ def aktivitaeten_liste():
         jahre = [date.today().year]
 
     return render_template('aktivitaeten.html',
-        aktivitaeten=aktivitaeten, detail=detail, disp_detail=disp_detail,
+        aktivitaeten=aktivitaeten, detail=detail, disp_detail=disp_detail, formular_detail=formular_detail,
         jahr=jahr, jahre=jahre, kw_filter=kw_filter,
         mo_filter=mo_filter, mo_ids=mo_ids,
         ma_filter=ma_filter, ma_ids=ma_ids,
@@ -6730,9 +6847,9 @@ def api_aktivitaeten_mehr():
     is_manager = session.get('rolle') in ('admin', 'verkaufsleiter')
     filt = _aktivitaeten_filter(is_manager)
     seite_wunsch = request.args.get('seite', 2, type=int) or 2
-    aktivitaeten, detail, disp_detail, gesamt_anzahl, seite, seiten_gesamt = _aktivitaeten_seite(filt, seite_wunsch)
+    aktivitaeten, detail, disp_detail, formular_detail, gesamt_anzahl, seite, seiten_gesamt = _aktivitaeten_seite(filt, seite_wunsch)
     html = render_template('_aktivitaeten_karten.html',
-        aktivitaeten=aktivitaeten, detail=detail, disp_detail=disp_detail,
+        aktivitaeten=aktivitaeten, detail=detail, disp_detail=disp_detail, formular_detail=formular_detail,
         is_manager=is_manager, is_admin=is_admin)
     return jsonify({'html': html, 'hat_mehr': seite < seiten_gesamt, 'naechste_seite': seite + 1})
 
@@ -7082,9 +7199,15 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id=None) ->
 
     # ── Sheet 3: Alle Aktivitäten ─────────────────────────────────────────
     ws3 = wb.create_sheet("Aktivitäten-Detail")
+    # Formular-Baukasten (2026-08-02): je aktivem Zusatzfeld eine eigene Spalte am Ende der
+    # Tabelle - leer, wenn Feature per FORMULAR_MODUS abgeschaltet ist oder keine Felder
+    # angelegt wurden.
+    _formular_export_felder = query(
+        "SELECT id, name FROM formular_feld WHERE aktiv=1 ORDER BY sortierung, name"
+    ) if FORMULAR_MODUS == 'an' else []
     cols3 = ['Datum', 'KW', 'Mitarbeiter', 'Verkaufsstelle', 'Ort', 'Typ',
-             'Displays', 'Produkt', UNIT_LABEL, 'Notizen']
-    widths = [14, 6, 20, 28, 16, 16, 10, 20, 10, 35]
+             'Displays', 'Produkt', UNIT_LABEL, 'Notizen'] + [ff['name'] for ff in _formular_export_felder]
+    widths = [14, 6, 20, 28, 16, 16, 10, 20, 10, 35] + [22] * len(_formular_export_felder)
     for i, w in enumerate(widths, 1):
         ws3.column_dimensions[get_column_letter(i)].width = w
 
@@ -7120,6 +7243,19 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id=None) ->
             ORDER BY a.datum DESC
         ''', (str(jahr),) + _ma_ids)
 
+    # Formular-Baukasten-Antworten für alle Aktivitäten dieses Sheets in einer Abfrage
+    # (statt N Einzelabfragen) - Map {aktivitaet_id: {formular_feld_id: wert}}.
+    _formular_export_map = {}
+    if _formular_export_felder:
+        _akt_ids_export = [a['id'] for a in aktivitaeten]
+        if _akt_ids_export:
+            _ph2 = ','.join('?' * len(_akt_ids_export))
+            for _fa in query(
+                f"SELECT aktivitaet_id, formular_feld_id, wert FROM formular_antwort WHERE aktivitaet_id IN ({_ph2})",
+                _akt_ids_export
+            ):
+                _formular_export_map.setdefault(_fa['aktivitaet_id'], {})[_fa['formular_feld_id']] = _fa['wert']
+
     r = 3
     for i, a in enumerate(aktivitaeten):
         positionen = query('''
@@ -7133,6 +7269,8 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id=None) ->
         kw = int(d.strftime('%W'))
         fill = ALT_FILL if i % 2 == 0 else None
 
+        _antworten = _formular_export_map.get(a['id'], {})
+
         if not positionen:
             ws3.cell(r, 1, a['datum'])
             ws3.cell(r, 2, f"KW {kw:02d}")
@@ -7144,7 +7282,9 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id=None) ->
             ws3.cell(r, 8, '–')
             ws3.cell(r, 9, 0)
             ws3.cell(r, 10, _excel_formel_sicher(a['notizen'] or ''))
-            for c in range(1, 11):
+            for _fi, _ff in enumerate(_formular_export_felder):
+                ws3.cell(r, 11 + _fi, _excel_formel_sicher(_antworten.get(_ff['id'], '')))
+            for c in range(1, len(cols3) + 1):
                 ws3.cell(r, c).border = BORDER
                 if fill:
                     ws3.cell(r, c).fill = fill
@@ -7161,7 +7301,10 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id=None) ->
                 ws3.cell(r, 8, pos['name'])
                 ws3.cell(r, 9, pos['kisten_anzahl'])
                 ws3.cell(r, 10, _excel_formel_sicher(a['notizen']) if j == 0 else '')
-                for c in range(1, 11):
+                if j == 0:
+                    for _fi, _ff in enumerate(_formular_export_felder):
+                        ws3.cell(r, 11 + _fi, _excel_formel_sicher(_antworten.get(_ff['id'], '')))
+                for c in range(1, len(cols3) + 1):
                     ws3.cell(r, c).border = BORDER
                     if fill:
                         ws3.cell(r, c).fill = fill
@@ -8035,6 +8178,23 @@ def admin():
     biersorten      = query("SELECT * FROM biersorte ORDER BY sortierung, name")
     displaysorte    = query("SELECT * FROM displaysorte ORDER BY name")
     listungsprodukte_admin = query("SELECT * FROM listungsprodukt ORDER BY aktiv DESC, sortierung, name")
+    # Formular-Baukasten (2026-08-02): vs_typen als Python-Liste vorparsen, damit das Template
+    # nicht selbst JSON dekodieren muss (kein eingebauter "from_json"-Jinja-Filter vorhanden).
+    formularfelder_admin = []
+    for _ff in query("SELECT * FROM formular_feld ORDER BY aktiv DESC, sortierung, name"):
+        _ffd = dict(_ff)
+        try:
+            _ffd['vs_typen_liste'] = json.loads(_ffd['vs_typen']) if _ffd['vs_typen'] else []
+        except (ValueError, TypeError):
+            _ffd['vs_typen_liste'] = []
+        try:
+            _ffd['optionen_liste'] = json.loads(_ffd['optionen']) if _ffd['optionen'] else []
+        except (ValueError, TypeError):
+            _ffd['optionen_liste'] = []
+        formularfelder_admin.append(_ffd)
+    vs_typen_optionen = [r[0] for r in query(
+        "SELECT DISTINCT typ FROM verkaufsstelle WHERE typ IS NOT NULL AND typ != '' ORDER BY typ"
+    )]
 
     # Fotos-Übersicht: letzte 6 Monate zur Auswahl, Default aktueller Monat
     _monat_namen_fotos = ['Januar','Februar','März','April','Mai','Juni',
@@ -8124,6 +8284,9 @@ def admin():
         listungsprodukte_admin=listungsprodukte_admin,
         listungsbild_modus=LISTUNGSBILD_MODUS,
         listungsbild_preispflicht=LISTUNGSBILD_PREISPFLICHT,
+        formularfelder_admin=formularfelder_admin,
+        formular_modus=FORMULAR_MODUS,
+        vs_typen_optionen=vs_typen_optionen,
         fotos_monate_optionen=fotos_monate_optionen,
         fotos_monat_gewaehlt=fotos_monat_gewaehlt,
         fotos_gesamt=fotos_stats['fotos_gesamt'],
@@ -9447,6 +9610,144 @@ def admin_listungsprodukt_verschieben(lp_id):
     if 0 <= ziel < len(ids):
         db.execute("UPDATE listungsprodukt SET sortierung=? WHERE id=?", (ziel, ids[idx]))
         db.execute("UPDATE listungsprodukt SET sortierung=? WHERE id=?", (idx, ids[ziel]))
+        db.commit()
+    return redirect(url_for('admin'))
+
+
+_FORMULARFELD_TYPEN = ('text', 'zahl', 'ja_nein', 'auswahl', 'skala')
+
+
+def _formularfeld_aus_form(form):
+    """Liest + validiert die Formularfeld-Eingaben aus einem POST-Body (Neu/Bearbeiten
+    teilen sich dieselbe Validierung). Gibt (werte_dict, fehler) zurück - werte_dict ist
+    None bei einem Fehler. optionen wird aus einer Textarea (eine Option pro Zeile) zu
+    einer JSON-Liste serialisiert, vs_typen aus mehreren Checkbox-Werten desselben Namens."""
+    name = form.get('name', '').strip()
+    feld_typ = form.get('feld_typ', '').strip()
+    if not name:
+        return None, 'Bitte eine Bezeichnung/Frage eintragen.'
+    if feld_typ not in _FORMULARFELD_TYPEN:
+        return None, 'Ungültiger Feld-Typ.'
+
+    optionen_json = None
+    if feld_typ == 'auswahl':
+        optionen = [z.strip() for z in form.get('optionen_text', '').splitlines() if z.strip()]
+        if not optionen:
+            return None, 'Bitte für den Typ „Auswahl" mindestens eine Option eintragen (eine pro Zeile).'
+        optionen_json = json.dumps(optionen, ensure_ascii=False)
+
+    skala_min = skala_max = None
+    if feld_typ == 'skala':
+        try:
+            skala_min = int(form.get('skala_min', '').strip())
+            skala_max = int(form.get('skala_max', '').strip())
+        except (ValueError, AttributeError):
+            return None, 'Bitte für den Typ „Skala" gültige Ganzzahlen für Min und Max eintragen.'
+        if skala_min >= skala_max:
+            return None, 'Bei einer Skala muss der Minimalwert kleiner als der Maximalwert sein.'
+
+    pflichtfeld = 1 if form.get('pflichtfeld') else 0
+
+    vs_typen = form.getlist('vs_typen')
+    vs_typen_json = json.dumps(vs_typen, ensure_ascii=False) if vs_typen else None
+
+    return {
+        'name': name, 'feld_typ': feld_typ, 'optionen': optionen_json,
+        'skala_min': skala_min, 'skala_max': skala_max,
+        'pflichtfeld': pflichtfeld, 'vs_typen': vs_typen_json,
+    }, None
+
+
+@app.route('/admin/formularfeld/neu', methods=['POST'])
+@admin_required
+def admin_formularfeld_neu():
+    """Formular-Baukasten (2026-08-02): Admin legt frei konfigurierbare Zusatzfragen für das
+    Neue-Aktivität-Formular an, analog admin_listungsprodukt_neu()."""
+    werte, fehler = _formularfeld_aus_form(request.form)
+    if fehler:
+        flash(fehler, 'danger')
+        return redirect(url_for('admin'))
+    _max_sort = query("SELECT COALESCE(MAX(sortierung), -1) AS m FROM formular_feld", one=True)['m']
+    execute(
+        "INSERT INTO formular_feld (name, feld_typ, optionen, skala_min, skala_max, pflichtfeld, vs_typen, sortierung) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        (werte['name'], werte['feld_typ'], werte['optionen'], werte['skala_min'], werte['skala_max'],
+         werte['pflichtfeld'], werte['vs_typen'], _max_sort + 1)
+    )
+    flash(f'Zusatzfrage „{werte["name"]}" angelegt.', 'success')
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/formularfeld/<int:ff_id>/bearbeiten', methods=['POST'])
+@admin_required
+def admin_formularfeld_bearbeiten(ff_id):
+    werte, fehler = _formularfeld_aus_form(request.form)
+    if fehler:
+        flash(fehler, 'danger')
+        return redirect(url_for('admin'))
+    execute(
+        "UPDATE formular_feld SET name=?, feld_typ=?, optionen=?, skala_min=?, skala_max=?, "
+        "pflichtfeld=?, vs_typen=? WHERE id=?",
+        (werte['name'], werte['feld_typ'], werte['optionen'], werte['skala_min'], werte['skala_max'],
+         werte['pflichtfeld'], werte['vs_typen'], ff_id)
+    )
+    flash(f'Zusatzfrage „{werte["name"]}" aktualisiert.', 'success')
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/formularfeld/<int:ff_id>/loeschen', methods=['POST'])
+@admin_required
+def admin_formularfeld_loeschen(ff_id):
+    ff = query("SELECT * FROM formular_feld WHERE id=?", (ff_id,), one=True)
+    if not ff:
+        flash('Zusatzfrage nicht gefunden.', 'danger')
+        return redirect(url_for('admin'))
+    count = query(
+        "SELECT COUNT(*) AS c FROM formular_antwort WHERE formular_feld_id=?", (ff_id,), one=True
+    )['c']
+    if count > 0:
+        execute("UPDATE formular_feld SET aktiv=0 WHERE id=?", (ff_id,))
+        flash(
+            f'„{ff["name"]}" hat {count} verknüpfte Antworten und wurde deaktiviert '
+            f'(erscheint nicht mehr in neuen Aktivitäten, historische Daten bleiben erhalten).',
+            'warning'
+        )
+    else:
+        execute("DELETE FROM formular_feld WHERE id=?", (ff_id,))
+        flash(f'Zusatzfrage „{ff["name"]}" wurde gelöscht.', 'success')
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/formularfeld/<int:ff_id>/reaktivieren', methods=['POST'])
+@admin_required
+def admin_formularfeld_reaktivieren(ff_id):
+    ff = query("SELECT * FROM formular_feld WHERE id=?", (ff_id,), one=True)
+    if ff:
+        execute("UPDATE formular_feld SET aktiv=1 WHERE id=?", (ff_id,))
+        flash(f'Zusatzfrage „{ff["name"]}" wurde reaktiviert.', 'success')
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/formularfeld/<int:ff_id>/verschieben', methods=['POST'])
+@admin_required
+def admin_formularfeld_verschieben(ff_id):
+    richtung = request.form.get('richtung')
+    if richtung not in ('hoch', 'runter'):
+        return redirect(url_for('admin'))
+    db = get_db()
+    alle = db.execute("SELECT id, sortierung FROM formular_feld ORDER BY sortierung, name").fetchall()
+    for i, row in enumerate(alle):
+        if row['sortierung'] != i:
+            db.execute("UPDATE formular_feld SET sortierung=? WHERE id=?", (i, row['id']))
+    alle = db.execute("SELECT id FROM formular_feld ORDER BY sortierung, name").fetchall()
+    ids = [r['id'] for r in alle]
+    if ff_id not in ids:
+        return redirect(url_for('admin'))
+    idx = ids.index(ff_id)
+    ziel = idx - 1 if richtung == 'hoch' else idx + 1
+    if 0 <= ziel < len(ids):
+        db.execute("UPDATE formular_feld SET sortierung=? WHERE id=?", (ziel, ids[idx]))
+        db.execute("UPDATE formular_feld SET sortierung=? WHERE id=?", (idx, ids[ziel]))
         db.commit()
     return redirect(url_for('admin'))
 
