@@ -162,7 +162,7 @@
       </button>
       <div class="dropdown-menu p-2 shadow" id="vsFilterMenu" style="min-width:240px;max-height:320px;overflow-y:auto">
         <input type="text" class="form-control form-control-sm mb-2" placeholder="Suchen…" id="vsFilterSuche"
-               oninput="filterDropdownListe(this, '.karte-vs-item'); vsFilterTrefferButtonsAnzeigen(this);">
+               oninput="filterDropdownListe(this, '.karte-vs-item'); filterTrefferButtonsAnzeigen(this, 'vsFilterTrefferButtons');">
         <div id="vsFilterTrefferButtons" class="d-none mb-2 d-flex gap-2">
           <button type="button" class="btn btn-outline-primary btn-sm flex-fill py-0" id="vsFilterNurTreffer">Nur Treffer</button>
           <button type="button" class="btn btn-outline-secondary btn-sm flex-fill py-0" id="vsFilterTrefferAbwaehlen">Treffer abwählen</button>
@@ -405,6 +405,11 @@ const VS_ID_FILTER = {{ vs_ids_filter | tojson }};
 let vsIdFilter       = VS_ID_FILTER.slice();
 let verkaufsstelleFilter = [];   // [] = alle; sonst Array von Verkaufsstelle-IDs (strings)
 let kategorieFilter  = [];   // [] = alle; sonst Array aus 'A'/'B'/'C'/'__OHNE__'
+// Sentinel für "bewusst nichts ausgewählt" (z.B. "Nur Treffer" bei 0 Treffern, oder alle
+// Checkboxen manuell abgewählt). Ohne das würde ein leeres Array bei den Filtern unten
+// fälschlich als "kein Filter aktiv = alles anzeigen" interpretiert – matcht garantiert
+// keinen echten Wert, macht die Auswahl also wirklich leer statt "alles".
+const KEIN_TREFFER_WERT = '__KEINE_AUSWAHL__';
 let besuchtStationen = {};   // station_id → Besuchsanzahl im Zeitraum (nur bei aktivem Monatsfilter befüllt)
 const JAHR_AKTUELL = new Date().getFullYear();
 let besucheJahrAktuell = {};   // station_id → Besuchsanzahl im laufenden Jahr, unabhängig von Filtern – für den Hover-Tooltip
@@ -428,10 +433,30 @@ function filterDropdownListe(inputEl, itemSelector) {
   });
 }
 
-/* ── "Nur Treffer"/"Treffer abwählen"-Buttons ein-/ausblenden, sobald gesucht wird ── */
-function vsFilterTrefferButtonsAnzeigen(inputEl) {
-  const wrap = document.getElementById('vsFilterTrefferButtons');
+/* ── "Nur Treffer"/"Treffer abwählen"-Buttons: generisches Muster für alle Such-Filter-
+   Dropdowns. Das Suchfeld allein blendet nur Zeilen im Dropdown ein/aus
+   (filterDropdownListe), ändert aber keine Checkbox-Zustände. ───────────────────────── */
+function filterTrefferButtonsAnzeigen(inputEl, wrapId) {
+  const wrap = document.getElementById(wrapId);
   if (wrap) wrap.classList.toggle('d-none', !inputEl.value.trim());
+}
+function wireTrefferButtons(nurBtnId, abwaehlenBtnId, einzelnCbs, itemSelector, onChanged) {
+  const nurBtn = document.getElementById(nurBtnId);
+  const abBtn  = document.getElementById(abwaehlenBtnId);
+  if (!nurBtn || !abBtn) return;
+  const sichtbareCbs = () => Array.from(einzelnCbs).filter(cb => {
+    const item = cb.closest(itemSelector);
+    return !item || item.style.display !== 'none';
+  });
+  nurBtn.onclick = function () {
+    einzelnCbs.forEach(cb => cb.checked = false);
+    sichtbareCbs().forEach(cb => cb.checked = true);
+    onChanged();
+  };
+  abBtn.onclick = function () {
+    sichtbareCbs().forEach(cb => cb.checked = false);
+    onChanged();
+  };
 }
 
 /* ── Karte ──────────────────────────────────────────────────────────────────── */
@@ -801,7 +826,7 @@ document.getElementById('btnSaveZuordnung').addEventListener('click', async func
 
   function applyFilter() {
     const checked = Array.from(einzelnCbs).filter(c => c.checked);
-    repFilter = checked.length === einzelnCbs.length ? [] : checked.map(c => c.value);
+    repFilter = checked.length === einzelnCbs.length ? [] : (checked.length ? checked.map(c => c.value) : [KEIN_TREFFER_WERT]);
     if (typeof heatmapAktiv !== 'undefined' && heatmapAktiv) {
       ladeHeatmap(document.getElementById('heatmapJahr').value || '{{ now.year }}');
     } else if (monateFilter.length) {
@@ -813,13 +838,11 @@ document.getElementById('btnSaveZuordnung').addEventListener('click', async func
 
   allesCb.addEventListener('change', function () {
     einzelnCbs.forEach(cb => cb.checked = this.checked);
-    if (!this.checked) einzelnCbs[0] && (einzelnCbs[0].checked = true);
     syncAlles();
     applyFilter();
   });
 
   einzelnCbs.forEach(cb => cb.addEventListener('change', function () {
-    if (!Array.from(einzelnCbs).some(c => c.checked)) this.checked = true;
     syncAlles();
     applyFilter();
   }));
@@ -875,7 +898,7 @@ function wireVerkaufsstelleFilter() {
 
   function applyFilter() {
     const checked = Array.from(einzelnCbs).filter(c => c.checked);
-    verkaufsstelleFilter = checked.length === einzelnCbs.length ? [] : checked.map(c => c.value);
+    verkaufsstelleFilter = checked.length === einzelnCbs.length ? [] : (checked.length ? checked.map(c => c.value) : [KEIN_TREFFER_WERT]);
     if (typeof heatmapAktiv !== 'undefined' && heatmapAktiv) {
       ladeHeatmap(document.getElementById('heatmapJahr').value || '{{ now.year }}');
     } else if (monateFilter.length) {
@@ -888,45 +911,21 @@ function wireVerkaufsstelleFilter() {
 
   allesCb.onchange = function () {
     einzelnCbs.forEach(cb => cb.checked = this.checked);
-    if (!this.checked) einzelnCbs[0] && (einzelnCbs[0].checked = true);
     syncAlles();
     applyFilter();
   };
   einzelnCbs.forEach(cb => {
     cb.onchange = function () {
-      if (!Array.from(einzelnCbs).some(c => c.checked)) this.checked = true;
-      syncAlles();
+        syncAlles();
       applyFilter();
     };
   });
   syncAlles();
 
-  // "Nur Treffer"/"Treffer abwählen": wirken NUR auf die gerade per Suchfeld sichtbaren
-  // Zeilen (item.style.display !== 'none'), nicht auf die komplette Liste – Suchfeld allein
-  // filtert nur die Anzeige im Dropdown, ändert aber keine Checkbox-Zustände.
-  const sichtbareCbs = () => Array.from(einzelnCbs).filter(cb => {
-    const item = cb.closest('.karte-vs-item');
-    return !item || item.style.display !== 'none';
+  wireTrefferButtons('vsFilterNurTreffer', 'vsFilterTrefferAbwaehlen', einzelnCbs, '.karte-vs-item', () => {
+    syncAlles();
+    applyFilter();
   });
-  const btnNurTreffer = document.getElementById('vsFilterNurTreffer');
-  const btnTrefferAb  = document.getElementById('vsFilterTrefferAbwaehlen');
-  if (btnNurTreffer) {
-    btnNurTreffer.onclick = function () {
-      einzelnCbs.forEach(cb => cb.checked = false);
-      sichtbareCbs().forEach(cb => cb.checked = true);
-      if (!Array.from(einzelnCbs).some(c => c.checked)) einzelnCbs[0] && (einzelnCbs[0].checked = true);
-      syncAlles();
-      applyFilter();
-    };
-  }
-  if (btnTrefferAb) {
-    btnTrefferAb.onclick = function () {
-      sichtbareCbs().forEach(cb => cb.checked = false);
-      if (!Array.from(einzelnCbs).some(c => c.checked)) einzelnCbs[0] && (einzelnCbs[0].checked = true);
-      syncAlles();
-      applyFilter();
-    };
-  }
 }
 {% endif %}
 
@@ -1107,7 +1106,10 @@ document.getElementById('btnBulkUebertragen').addEventListener('click', async fu
 /* ── Besuche-Daten & Monats-Filter ───────────────────────────────────────────── */
 {% if is_manager %}
 async function ladeBesuche() {
-  if (!monateFilter.length) {
+  // KEIN_TREFFER_WERT ist kein echter Monat (1-12) - an die API geschickt würde der
+  // serverseitige int()-Parse damit crashen. "Bewusst kein Monat gewählt" heißt hier:
+  // keine Verkaufsstelle gilt als besucht, ohne den Server überhaupt zu fragen.
+  if (!monateFilter.length || monateFilter[0] === KEIN_TREFFER_WERT) {
     besuchtStationen = {};
     renderMarkers();
     return;
@@ -1142,7 +1144,7 @@ const M_NAMEN_KURZ = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Ok
 
   function applyMonatsFilter() {
     const checked = Array.from(einzelnCbs).filter(c => c.checked);
-    monateFilter = checked.length === einzelnCbs.length ? [] : checked.map(c => c.value);
+    monateFilter = checked.length === einzelnCbs.length ? [] : (checked.length ? checked.map(c => c.value) : [KEIN_TREFFER_WERT]);
     if (typeof heatmapAktiv !== 'undefined' && heatmapAktiv) {
       ladeHeatmap(document.getElementById('heatmapJahr').value || '{{ now.year }}');
     } else {
@@ -1152,11 +1154,9 @@ const M_NAMEN_KURZ = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Ok
 
   allesCb.addEventListener('change', function () {
     einzelnCbs.forEach(cb => cb.checked = this.checked);
-    if (!this.checked) einzelnCbs[0] && (einzelnCbs[0].checked = true);
     syncAlles(); applyMonatsFilter();
   });
   einzelnCbs.forEach(cb => cb.addEventListener('change', function () {
-    if (!Array.from(einzelnCbs).some(c => c.checked)) this.checked = true;
     syncAlles(); applyMonatsFilter();
   }));
 })();
@@ -1182,17 +1182,15 @@ const KAT_LABEL = {A: 'A – Top', B: 'B – Mittel', C: 'C – Klein', __OHNE__
 
   function applyKategorieFilter() {
     const checked = Array.from(einzelnCbs).filter(c => c.checked);
-    kategorieFilter = checked.length === einzelnCbs.length ? [] : checked.map(c => c.value);
+    kategorieFilter = checked.length === einzelnCbs.length ? [] : (checked.length ? checked.map(c => c.value) : [KEIN_TREFFER_WERT]);
     renderMarkers();
   }
 
   allesCb.addEventListener('change', function () {
     einzelnCbs.forEach(cb => cb.checked = this.checked);
-    if (!this.checked) einzelnCbs[0] && (einzelnCbs[0].checked = true);
     syncAlles(); applyKategorieFilter();
   });
   einzelnCbs.forEach(cb => cb.addEventListener('change', function () {
-    if (!Array.from(einzelnCbs).some(c => c.checked)) this.checked = true;
     syncAlles(); applyKategorieFilter();
   }));
 })();
@@ -1292,8 +1290,8 @@ async function ladeHeatmap(jahr) {
   heatmapLayer.clearLayers();
   let data;
   try {
-    const maParam     = repFilter.length    ? `&ma=${repFilter.join(',')}`        : '';
-    const monateParam = monateFilter.length ? `&monate=${monateFilter.join(',')}` : '';
+    const maParam     = (repFilter.length    && repFilter[0]    !== KEIN_TREFFER_WERT) ? `&ma=${repFilter.join(',')}`        : '';
+    const monateParam = (monateFilter.length && monateFilter[0] !== KEIN_TREFFER_WERT) ? `&monate=${monateFilter.join(',')}` : '';
     const ebeneParam  = `&ebene=${heatmapEbene}`;
     const resp = await fetch(`/api/karte/heatmap?jahr=${jahr}${maParam}${monateParam}${ebeneParam}`);
     data = await resp.json();
