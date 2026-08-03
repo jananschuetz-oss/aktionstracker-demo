@@ -2295,10 +2295,16 @@ function ffTypUpdate(suffix) {
           <div class="small text-muted mb-3">
             {{ now.year }}: {{ uk.genommen }} Tage genommen{% if uk.beantragt %}, {{ uk.beantragt }} offen beantragt{% endif %}
             → <strong>{{ uk.verfuegbar }} verfügbar</strong>
+            {% if uk.anteilig_hinweis %}
+            <div class="mt-1" style="color:#8a5a00">
+              <i class="bi bi-info-circle me-1"></i>Anteiliger Anspruch {{ now.year }} wegen {{ uk.anteilig_hinweis }}:
+              {{ uk.anspruch }} von {{ uk.anspruch_voll }} Tagen ({{ uk.anteilig_monate }} Monat{{ 'e' if uk.anteilig_monate != 1 else '' }})
+            </div>
+            {% endif %}
           </div>
           {% endif %}
           <div class="mb-2">
-            <label class="form-label small fw-bold">Jahresanspruch (Tage)</label>
+            <label class="form-label small fw-bold">Jahresanspruch (Tage) <span class="text-muted fw-normal">(voller vertraglicher Anspruch)</span></label>
             <input type="number" name="urlaubsanspruch_jahr" class="form-control form-control-sm"
                    value="{{ m.urlaubsanspruch_jahr if m.urlaubsanspruch_jahr is not none else 30 }}" min="0" max="99" required>
           </div>
@@ -2307,6 +2313,19 @@ function ffTypUpdate(suffix) {
             <input type="number" name="urlaub_uebertrag_vorjahr" class="form-control form-control-sm"
                    value="{{ m.urlaub_uebertrag_vorjahr or 0 }}" min="0" max="99">
           </div>
+          <div class="row g-2 mb-2">
+            <div class="col-6">
+              <label class="form-label small fw-bold">Eintrittsdatum</label>
+              <input type="date" name="eintrittsdatum" class="form-control form-control-sm"
+                     value="{{ m.eintrittsdatum or '' }}">
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-bold">Austrittsdatum</label>
+              <input type="date" name="austrittsdatum" class="form-control form-control-sm"
+                     value="{{ m.austrittsdatum or '' }}">
+            </div>
+          </div>
+          <div class="form-text mb-2">Beide optional. Liegt eines der Daten im laufenden oder einem zukünftigen Urlaubsjahr, wird der Anspruch automatisch anteilig berechnet (1/12 je vollem Beschäftigungsmonat) – der Jahresanspruch oben bleibt dabei unverändert der volle vertragliche Wert.</div>
           <div class="mb-2">
             <label class="form-label small fw-bold">Bereits genommen {{ now.year }} <span class="text-muted fw-normal">(außerhalb des Tools)</span></label>
             <input type="number" name="urlaub_manuell_genommen" class="form-control form-control-sm"

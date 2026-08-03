@@ -1280,6 +1280,11 @@ def init_db():
             # Auffälligkeiten-Dashboard (siehe _check_arbeitszeit_anomalie unten). Ohne
             # gesetzten Wert bleibt der Check einfach inaktiv für diesen Mitarbeiter.
             "ALTER TABLE mitarbeiter ADD COLUMN wochenarbeitszeit_stunden REAL",
+            # Eintritts-/Austrittsdatum (2026-08-03, von Arco portiert): optionale Stammdaten
+            # pro Mitarbeiter, damit der Urlaubsanspruch bei unterjährigem Ein-/Austritt
+            # automatisch anteilig berechnet wird (siehe _urlaub_anteilig()/_urlaub_konto()).
+            "ALTER TABLE mitarbeiter ADD COLUMN eintrittsdatum TEXT",
+            "ALTER TABLE mitarbeiter ADD COLUMN austrittsdatum TEXT",
             # Auffälligkeiten-Dashboard für VKL/Admin (2026-07-26, von Arco portiert):
             # täglicher Batch-Job prüft vier Muster je aktivem Rep – Besuchsfrequenz-
             # Abweichung (12-Wochen-Referenz, Urlaub/Krankheit bereinigt), Zielerreichungs-
@@ -2836,18 +2841,52 @@ def _werktage_zaehlen(von_iso, bis_iso, bundesland):
     return n
 
 
+def _urlaub_anteilig(anspruch_voll, eintrittsdatum, austrittsdatum, jahr):
+    """Berechnet den anteiligen Jahresurlaub bei unterjährigem Ein-/Austritt nach § 5 BUrlG:
+    1/12 des vollen Jahresanspruchs pro vollem Beschäftigungsmonat im angefragten Jahr,
+    Bruchteile auf halbe Tage gerundet. Gibt (anspruch_effektiv, monate, hinweis) zurück –
+    hinweis ist None, wenn im angefragten Jahr keine Proration greift (von Arco portiert)."""
+    monat_von, monat_bis = 1, 12
+    gruende = []
+    if eintrittsdatum:
+        e = date.fromisoformat(eintrittsdatum)
+        if e.year > jahr:
+            return 0, 0, f"noch nicht eingetreten (Eintritt {e.strftime('%d.%m.%Y')})"
+        if e.year == jahr:
+            monat_von = e.month
+            gruende.append(f"Eintritt {e.strftime('%d.%m.%Y')}")
+    if austrittsdatum:
+        a = date.fromisoformat(austrittsdatum)
+        if a.year < jahr:
+            return 0, 0, f"bereits ausgeschieden (Austritt {a.strftime('%d.%m.%Y')})"
+        if a.year == jahr:
+            monat_bis = a.month
+            gruende.append(f"Austritt {a.strftime('%d.%m.%Y')}")
+    if not gruende:
+        return anspruch_voll, 12, None
+    monate = max(0, monat_bis - monat_von + 1)
+    anteilig = math.floor(anspruch_voll * monate / 12 * 2 + 0.5) / 2
+    return anteilig, monate, " & ".join(gruende)
+
+
 def _urlaub_konto(mitarbeiter_id, jahr):
     """Urlaubskonto eines Mitarbeiters für ein Kalenderjahr: Anspruch + Übertrag aus dem
     Vorjahr, abzüglich bereits genehmigter Urlaubstage (nur typ='urlaub', status='bestätigt').
     Beantragte-aber-noch-nicht-genehmigte Tage werden separat ausgewiesen (reservieren das
-    Kontingent noch nicht, damit eine Ablehnung nichts zurückbuchen muss)."""
+    Kontingent noch nicht, damit eine Ablehnung nichts zurückbuchen muss). Der Anspruch wird
+    bei hinterlegtem Ein-/Austrittsdatum im angefragten Jahr automatisch anteilig gerechnet
+    (von Arco portiert) – 'anspruch_voll' bleibt der volle vertragliche Wert zur Anzeige."""
     ma = query(
-        "SELECT urlaubsanspruch_jahr, urlaub_uebertrag_vorjahr, bundesland, urlaub_manuell_genommen FROM mitarbeiter WHERE id=?",
+        "SELECT urlaubsanspruch_jahr, urlaub_uebertrag_vorjahr, bundesland, urlaub_manuell_genommen, "
+        "eintrittsdatum, austrittsdatum FROM mitarbeiter WHERE id=?",
         (mitarbeiter_id,), one=True
     )
     if not ma:
         return None
-    anspruch    = ma['urlaubsanspruch_jahr'] if ma['urlaubsanspruch_jahr'] is not None else 30
+    anspruch_voll = ma['urlaubsanspruch_jahr'] if ma['urlaubsanspruch_jahr'] is not None else 30
+    anspruch, anteilig_monate, anteilig_hinweis = _urlaub_anteilig(
+        anspruch_voll, ma['eintrittsdatum'], ma['austrittsdatum'], jahr
+    )
     uebertrag   = ma['urlaub_uebertrag_vorjahr'] or 0
     bundesland  = ma['bundesland'] or 'BY'
     jahr_start  = f"{jahr}-01-01"
@@ -2872,6 +2911,9 @@ def _urlaub_konto(mitarbeiter_id, jahr):
             beantragt += tage
     return {
         'anspruch':   anspruch,
+        'anspruch_voll': anspruch_voll,
+        'anteilig_monate': anteilig_monate,
+        'anteilig_hinweis': anteilig_hinweis,
         'uebertrag':  uebertrag,
         'genommen':   genommen,
         'beantragt':  beantragt,
@@ -8801,9 +8843,26 @@ def admin_mitarbeiter_urlaubskonto(ma_id):
         manuell_genommen = 0
     if bundesland not in _BUNDESLAENDER:
         bundesland = 'BY'
+    # Eintritts-/Austrittsdatum (2026-08-03, von Arco portiert): beide optional, leeres Feld
+    # = None. date.fromisoformat() prüft zusätzlich gegen manipulierte/kaputte Werte.
+    eintritt_roh  = request.form.get('eintrittsdatum', '').strip()
+    austritt_roh  = request.form.get('austrittsdatum', '').strip()
+    eintrittsdatum = austrittsdatum = None
+    try:
+        if eintritt_roh:
+            eintrittsdatum = date.fromisoformat(eintritt_roh).isoformat()
+        if austritt_roh:
+            austrittsdatum = date.fromisoformat(austritt_roh).isoformat()
+    except ValueError:
+        flash('Ungültiges Datumsformat.', 'danger')
+        return redirect(url_for('admin'))
+    if eintrittsdatum and austrittsdatum and austrittsdatum < eintrittsdatum:
+        flash('Das Austrittsdatum kann nicht vor dem Eintrittsdatum liegen.', 'danger')
+        return redirect(url_for('admin'))
     execute(
-        "UPDATE mitarbeiter SET urlaubsanspruch_jahr=?, urlaub_uebertrag_vorjahr=?, bundesland=?, urlaub_manuell_genommen=? WHERE id=?",
-        (anspruch, uebertrag, bundesland, manuell_genommen, ma_id)
+        "UPDATE mitarbeiter SET urlaubsanspruch_jahr=?, urlaub_uebertrag_vorjahr=?, bundesland=?, "
+        "urlaub_manuell_genommen=?, eintrittsdatum=?, austrittsdatum=? WHERE id=?",
+        (anspruch, uebertrag, bundesland, manuell_genommen, eintrittsdatum, austrittsdatum, ma_id)
     )
     flash(f'Urlaubskonto von „{ma["name"]}" aktualisiert.', 'success')
     return redirect(url_for('admin'))
