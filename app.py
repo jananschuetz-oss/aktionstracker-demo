@@ -3576,7 +3576,7 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
         sonntag = montag + timedelta(days=6)
         pro_rep = []
         for r in reps:
-            arbeitstage = _alert_arbeitstage_in_woche(r['id'], montag, sonntag)
+            arbeitstage = _alert_arbeitstage_in_woche(r['id'], montag, sonntag, bis=min(heute, sonntag))
             if arbeitstage > 0:
                 besuche = _alert_besuche_in_woche(r['id'], montag, sonntag)
                 pro_rep.append({'name': r['name'], 'frequenz': round(besuche / arbeitstage, 2)})
@@ -7953,13 +7953,19 @@ def _alert_wochen_start_ende(referenz_datum, wochen_zurueck=0):
     return montag, montag + timedelta(days=6)
 
 
-def _alert_arbeitstage_in_woche(mitarbeiter_id, montag, sonntag):
+def _alert_arbeitstage_in_woche(mitarbeiter_id, montag, sonntag, bis=None):
     """Anzahl Mo-Fr-Tage in der Woche minus Tage mit bestätigter Abwesenheit (Urlaub/
     Krankheit/AU, vertretung.status='bestätigt'). Feiertage werden bewusst NICHT
     abgezogen (keine bundeslandgenaue Feiertagsdatenbank hier verfügbar) – das macht den
     Arbeitstage-Wert in Feiertagswochen leicht zu hoch, also den Alert seltener statt zu
-    oft auslösend, was für ein Frühwarn-Feature die sichere Richtung ist."""
-    werktage = [montag + timedelta(days=i) for i in range(5)]
+    oft auslösend, was für ein Frühwarn-Feature die sichere Richtung ist.
+    bis: optionaler Stichtag, um nur bereits verstrichene Werktage der Woche zu zählen
+    (Standard: ganze Woche bis sonntag). Bugreport 2026-08-03: die "Besuchsfrequenz
+    (aktuelle Woche)"-Kachel teilte die bisherigen Besuche durch alle 5 Werktage der
+    Woche, nicht nur die bereits verstrichenen – am Wochenanfang dadurch künstlich
+    niedrig (Montag: Besuche/1 Tag Arbeit ÷ 5 Tage Nenner)."""
+    bis = bis or sonntag
+    werktage = [montag + timedelta(days=i) for i in range(5) if montag + timedelta(days=i) <= bis]
     abwesenheiten = query(
         "SELECT von, bis FROM vertretung WHERE abwesender_id=? AND status='bestätigt' "
         "AND von <= ? AND bis >= ?",
@@ -7989,7 +7995,7 @@ def _check_besuchsfrequenz(mitarbeiter_id, heute):
     """Alert-Typ 1: Besuchsfrequenz-Abweichung gegenüber dem 12-Wochen-Schnitt.
     Gibt (schweregrad, titel, detail) zurück, sonst None."""
     akt_montag, akt_sonntag = _alert_wochen_start_ende(heute, 0)
-    akt_arbeitstage = _alert_arbeitstage_in_woche(mitarbeiter_id, akt_montag, akt_sonntag)
+    akt_arbeitstage = _alert_arbeitstage_in_woche(mitarbeiter_id, akt_montag, akt_sonntag, bis=min(heute, akt_sonntag))
     if akt_arbeitstage < 5 * ALERT_BESUCHSFREQUENZ_AKTUELLE_MIN_ARBEITSTAGE_ANTEIL:
         return None  # diese Woche überwiegend abwesend (Urlaub/Krankheit) – kein Alert
 
