@@ -3616,6 +3616,9 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
         }
 
     if 'gratisware_menge' in aktive_keys:
+        # Pro-Mitarbeiter-Aufschlüsselung (von Arco portiert, 2026-08-03): dieselbe
+        # Berechnungslogik wie schon im Gratisware-Report (COALESCE(bs.ist_gratisware,0)=1),
+        # nur zusätzlich nach Mitarbeiter gruppiert statt nur die Summe zu zeigen.
         t_ma_sql, t_ma_p = _team_ma_clause('a')
         BPG_K = "(SELECT bp.aktivitaet_id, SUM(bp.kisten_anzahl) AS gratis_total FROM bestellposition bp JOIN biersorte bs ON bs.id=bp.biersorte_id WHERE COALESCE(bs.ist_gratisware,0)=1 GROUP BY bp.aktivitaet_id)"
         row = query(f'''
@@ -3623,17 +3626,86 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
             FROM aktivitaet a LEFT JOIN {BPG_K} g ON g.aktivitaet_id = a.id
             WHERE strftime('%Y', a.datum)=? AND a.aktionstyp IN ('Bestellung','Besuch'){t_ma_sql}
         ''', (str(jahr),) + t_ma_p, one=True)
-        werte['gratisware_menge'] = row['gesamt']
+        rows_ma = query(f'''
+            SELECT m.name AS name, COALESCE(SUM(g.gratis_total),0) AS menge
+            FROM aktivitaet a LEFT JOIN {BPG_K} g ON g.aktivitaet_id = a.id
+            JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
+            WHERE strftime('%Y', a.datum)=? AND a.aktionstyp IN ('Bestellung','Besuch'){t_ma_sql}
+            GROUP BY m.id
+            HAVING menge > 0
+            ORDER BY menge DESC
+        ''', (str(jahr),) + t_ma_p)
+        werte['gratisware_menge'] = {
+            'gesamt': row['gesamt'],
+            'pro_mitarbeiter': [{'name': r['name'], 'menge': r['menge']} for r in rows_ma],
+        }
 
     if 'aktive_vs' in aktive_keys:
-        werte['aktive_vs'] = query("SELECT COUNT(*) AS n FROM verkaufsstelle WHERE aktiv=1", one=True)['n']
+        # Neu definiert (von Arco portiert, 2026-08-03): pro Mitarbeiter, wie viele
+        # Verkaufsstellen zugeordnet sind und davon wie viele im aktuellen bzw. vorigen Jahr
+        # mindestens eine Aktivität/Bestellung hatten. Firmenwagen-Tanken/Homeoffice/
+        # Verleger/Telefontermin zählen nicht mit.
+        t_m_sql, t_m_p = _team_m_clause('m')
+        reps = query(f'''
+            SELECT m.id, m.name FROM mitarbeiter m
+            WHERE m.rolle IN ('rep','verkaufsleiter') AND m.aktiv=1{t_m_sql}
+            ORDER BY m.name
+        ''', t_m_p)
+        _vs_ausschluss_sql = ("v.typ NOT IN ('Firmenwagen-Tanken','Materialabholung','Verleger','Telefontermin') "
+                               "AND v.homeoffice_mitarbeiter_id IS NULL")
+        pro_mitarbeiter = []
+        for r in reps:
+            vs_ids = [x['id'] for x in query(f'''
+                SELECT v.id FROM mitarbeiter_verkaufsstelle mv
+                JOIN verkaufsstelle v ON v.id = mv.verkaufsstelle_id
+                WHERE mv.mitarbeiter_id = ? AND {_vs_ausschluss_sql}
+            ''', (r['id'],))]
+            if vs_ids:
+                ph = ','.join('?' * len(vs_ids))
+                aktiv_jahr = query(
+                    f"SELECT COUNT(DISTINCT verkaufsstelle_id) AS n FROM aktivitaet WHERE verkaufsstelle_id IN ({ph}) AND strftime('%Y', datum) = ?",
+                    tuple(vs_ids) + (str(jahr),), one=True
+                )['n']
+                aktiv_vorjahr = query(
+                    f"SELECT COUNT(DISTINCT verkaufsstelle_id) AS n FROM aktivitaet WHERE verkaufsstelle_id IN ({ph}) AND strftime('%Y', datum) = ?",
+                    tuple(vs_ids) + (str(jahr - 1),), one=True
+                )['n']
+            else:
+                aktiv_jahr = aktiv_vorjahr = 0
+            pro_mitarbeiter.append({
+                'name': r['name'], 'zugeordnet': len(vs_ids),
+                'aktiv_jahr': aktiv_jahr, 'aktiv_vorjahr': aktiv_vorjahr,
+            })
+        pro_mitarbeiter.sort(key=lambda x: -x['zugeordnet'])
+        werte['aktive_vs'] = {
+            'jahr': jahr, 'vorjahr': jahr - 1,
+            'zugeordnet_gesamt': sum(p['zugeordnet'] for p in pro_mitarbeiter),
+            'pro_mitarbeiter': pro_mitarbeiter,
+        }
 
     if 'neuzugaenge_monat' in aktive_keys:
+        # Pro-Mitarbeiter-Aufschlüsselung (von Arco portiert, 2026-08-03): neue Verkaufsstelle
+        # wird bei der Anlage sofort in mitarbeiter_verkaufsstelle zugeordnet – darüber lässt
+        # sich auswerten, wer diesen Monat wie viele neue Kunden angelegt hat.
         monat_start = date.today().replace(day=1).isoformat()
-        werte['neuzugaenge_monat'] = query(
+        t_m_sql2, t_m_p2 = _team_m_clause('m')
+        row = query(
             "SELECT COUNT(*) AS n FROM verkaufsstelle WHERE erstellt_am IS NOT NULL AND erstellt_am >= ?",
             (monat_start,), one=True
-        )['n']
+        )
+        rows_ma = query(f'''
+            SELECT m.name AS name, COUNT(DISTINCT v.id) AS anzahl
+            FROM verkaufsstelle v
+            JOIN mitarbeiter_verkaufsstelle mv ON mv.verkaufsstelle_id = v.id
+            JOIN mitarbeiter m ON m.id = mv.mitarbeiter_id
+            WHERE v.erstellt_am IS NOT NULL AND v.erstellt_am >= ?{t_m_sql2}
+            GROUP BY m.id
+            ORDER BY anzahl DESC
+        ''', (monat_start,) + t_m_p2)
+        werte['neuzugaenge_monat'] = {
+            'gesamt': row['n'],
+            'pro_mitarbeiter': [{'name': r['name'], 'anzahl': r['anzahl']} for r in rows_ma],
+        }
 
     if 'wochenarbeitszeit_vs_soll' in aktive_keys:
         heute = date.today()
@@ -3670,10 +3742,15 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
             _by_ma_minuten[_r['mitarbeiter_id']] = _by_ma_minuten.get(_r['mitarbeiter_id'], 0) + _r['minuten']
             _by_ma_tage.setdefault(_r['mitarbeiter_id'], set()).add(_r['datum'])
         _urlaub_map = _urlaub_daten_alle([m['id'] for m in mitarbeiter_rows], woche_start, woche_ende) if mitarbeiter_rows else {}
+        # Bugreport 2026-08-03 (von Arco portiert): Anrechnung lief bis woche_ende_d (Freitag),
+        # auch für Tage die noch gar nicht stattgefunden haben – am Montag zeigte ein
+        # Mitarbeiter mit Urlaub die ganze Woche 500%, weil alle 5 Werktage der Woche
+        # angerechnet wurden statt nur der eine bereits vergangene.
+        _zaehlung_bis = min(woche_ende_d, heute)
         rows = []
         for m in mitarbeiter_rows:
             _ist_minuten = _by_ma_minuten.get(m['id'], 0)
-            _zaehlung = _arbeitszeit_tage_zaehlen(woche_start_d, woche_ende_d, _by_ma_tage.get(m['id'], set()), m['id'], _urlaub_map)
+            _zaehlung = _arbeitszeit_tage_zaehlen(woche_start_d, _zaehlung_bis, _by_ma_tage.get(m['id'], set()), m['id'], _urlaub_map)
             _ist_minuten += _az_anrechnung_minuten(_zaehlung['typen'], m['wochenarbeitszeit_stunden'])
             rows.append({'id': m['id'], 'name': m['name'], 'wochenarbeitszeit_stunden': m['wochenarbeitszeit_stunden'], 'ist_minuten': _ist_minuten})
         if rows:
@@ -8287,6 +8364,9 @@ def admin():
             vs_besitzer[vs_id] = ma_namen.get(ma_id_loop, '')
 
     # Vertretungsregelungen
+    # Nur noch relevante Einträge (von Arco portiert, 2026-08-03): erledigte Anträge
+    # (entschieden UND Enddatum bereits vergangen) fallen raus, damit die Liste aktuell
+    # bleibt. Offene Anfragen bleiben unabhängig vom Datum sichtbar.
     vertretungen = query('''
         SELECT v.id, v.von, v.bis, v.status, v.typ, v.grund,
                v.hotel_name_adresse, v.hotel_kosten_pro_nacht,
@@ -8294,6 +8374,7 @@ def admin():
         FROM vertretung v
         JOIN mitarbeiter a ON a.id = v.abwesender_id
         LEFT JOIN mitarbeiter r ON r.id = v.vertreter_id
+        WHERE v.status = 'angefragt' OR v.bis >= date('now')
         ORDER BY v.von DESC
     ''')
     # Alle Außendienst-Mitarbeiter für Dropdowns

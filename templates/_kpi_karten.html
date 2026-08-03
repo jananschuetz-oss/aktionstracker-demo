@@ -134,7 +134,12 @@
             </div>
             <span class="text-muted small">Gratisware-Menge {{ jahr }}</span>
           </div>
-          <div class="fs-3 fw-bold" style="color:#1a3a5c">{{ kpi_daten.gratisware_menge }} <span class="text-muted fs-6">{{ unit_label }}</span></div>
+          <div class="fs-3 fw-bold mb-2" style="color:#1a3a5c">{{ kpi_daten.gratisware_menge.gesamt }} <span class="text-muted fs-6">{{ unit_label }}</span></div>
+          {% for r in kpi_daten.gratisware_menge.pro_mitarbeiter %}
+          <div class="d-flex justify-content-between small mb-1"><span>{{ r.name }}</span><span class="fw-semibold">{{ r.menge }} {{ unit_label }}</span></div>
+          {% else %}
+          <div class="small text-muted">Noch keine Gratisware im Zeitraum erfasst.</div>
+          {% endfor %}
         </div>
       </div>
       {% endif %}
@@ -147,7 +152,16 @@
             </div>
             <span class="text-muted small">Aktive Verkaufsstellen</span>
           </div>
-          <div class="fs-3 fw-bold" style="color:#1a3a5c">{{ kpi_daten.aktive_vs }}</div>
+          <div class="fs-3 fw-bold mb-1" style="color:#1a3a5c">{{ kpi_daten.aktive_vs.zugeordnet_gesamt }}</div>
+          <div class="small text-muted mb-2">zugeordnete Verkaufsstellen · „aktiv" = mind. 1 Aktivität im jeweiligen Jahr</div>
+          {% if kpi_daten.aktive_vs.pro_mitarbeiter %}
+          <div class="d-flex justify-content-between small text-muted mb-1"><span>Mitarbeiter</span><span>zugeordnet · aktiv {{ kpi_daten.aktive_vs.jahr }} · aktiv {{ kpi_daten.aktive_vs.vorjahr }}</span></div>
+          {% endif %}
+          {% for r in kpi_daten.aktive_vs.pro_mitarbeiter %}
+          <div class="d-flex justify-content-between small mb-1"><span>{{ r.name }}</span><span class="fw-semibold">{{ r.zugeordnet }} · {{ r.aktiv_jahr }} · {{ r.aktiv_vorjahr }}</span></div>
+          {% else %}
+          <div class="small text-muted">Keinem Mitarbeiter sind Verkaufsstellen zugeordnet.</div>
+          {% endfor %}
         </div>
       </div>
       {% endif %}
@@ -160,8 +174,12 @@
             </div>
             <span class="text-muted small">Neuzugänge diesen Monat</span>
           </div>
-          <div class="fs-3 fw-bold" style="color:#1a3a5c">{{ kpi_daten.neuzugaenge_monat }}</div>
-          <div class="small text-muted">Verkaufsstellen</div>
+          <div class="fs-3 fw-bold mb-2" style="color:#1a3a5c">{{ kpi_daten.neuzugaenge_monat.gesamt }} <span class="text-muted fs-6">Verkaufsstellen</span></div>
+          {% for r in kpi_daten.neuzugaenge_monat.pro_mitarbeiter %}
+          <div class="d-flex justify-content-between small mb-1"><span>{{ r.name }}</span><span class="fw-semibold">{{ r.anzahl }}</span></div>
+          {% else %}
+          <div class="small text-muted">Diesen Monat noch keine Neuanlage.</div>
+          {% endfor %}
         </div>
       </div>
       {% endif %}
