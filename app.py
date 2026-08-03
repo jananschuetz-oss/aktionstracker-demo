@@ -5618,6 +5618,14 @@ def verkaufsstelle_historie(vs_id):
         if neu < alt: return '#c0392b'
         return '#888'
 
+    def trend_col_invers(neu, alt):
+        """Für Kennzahlen, bei denen weniger besser ist (Gratisware) – Farblogik umgekehrt
+        zu trend_col() (von Arco portiert, Bugreport 2026-08-03: Rückgang bei Gratisware
+        stand fälschlich in Rot, dabei ist weniger Gratisware positiv)."""
+        if neu < alt: return '#2d8a4e'
+        if neu > alt: return '#c0392b'
+        return '#888'
+
     def monatsreihen(jahr):
         """Monatswerte (1-12) für alle Verlaufsdiagramme. Echte Aktivitäten haben Vorrang;
         historische Backfill-Werte (vs_historische_werte) füllen Monate ohne echte Erfassung
@@ -5678,15 +5686,24 @@ def verkaufsstelle_historie(vs_id):
     verlauf_akt = monatsreihen(jahr_akt)
     verlauf_vor = monatsreihen(jahr_vor)
 
+    # Vorjahresvergleich auf denselben Zeitraum deckeln (von Arco portiert, Bugreport
+    # 2026-08-03): bisher verglich der Vorjahreswert immer alle 12 Monate, auch wenn vom
+    # laufenden Jahr erst z.B. Januar-August vorliegen. Die Verlaufsdiagramme zeigen
+    # weiterhin das volle Vorjahr als Kontext, nur die KPI-Kacheln oben werden auf "bis
+    # zum aktuellen Monat" begrenzt.
+    _monate_ytd = heute.month
+    _MONATSNAMEN = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez']
+    jahr_vor_periode = f"{_MONATSNAMEN[0]}–{_MONATSNAMEN[_monate_ytd - 1]} {jahr_vor}" if _monate_ytd < 12 else str(jahr_vor)
+
     return render_template('verkaufsstelle_historie.html',
-        vs=vs, jahr_akt=jahr_akt, jahr_vor=jahr_vor,
-        besuche_akt=besuche_akt, besuche_vor=sum(verlauf_vor['besuche']),
-        bestellungen_akt=kpi_akt['bestellungen'] or 0, bestellungen_vor=sum(verlauf_vor['bestellungen']),
-        aufbauten_akt=kpi_akt['aufbauten'] or 0, aufbauten_vor=sum(verlauf_vor['aufbauten']),
-        kisten_akt=kpi_akt['kisten'] or 0, kisten_vor=sum(verlauf_vor['kisten']),
-        gratisware_akt=kpi_akt['gratisware'] or 0, gratisware_vor=sum(verlauf_vor['gratisware']),
+        vs=vs, jahr_akt=jahr_akt, jahr_vor=jahr_vor, jahr_vor_periode=jahr_vor_periode,
+        besuche_akt=besuche_akt, besuche_vor=sum(verlauf_vor['besuche'][:_monate_ytd]),
+        bestellungen_akt=kpi_akt['bestellungen'] or 0, bestellungen_vor=sum(verlauf_vor['bestellungen'][:_monate_ytd]),
+        aufbauten_akt=kpi_akt['aufbauten'] or 0, aufbauten_vor=sum(verlauf_vor['aufbauten'][:_monate_ytd]),
+        kisten_akt=kpi_akt['kisten'] or 0, kisten_vor=sum(verlauf_vor['kisten'][:_monate_ytd]),
+        gratisware_akt=kpi_akt['gratisware'] or 0, gratisware_vor=sum(verlauf_vor['gratisware'][:_monate_ytd]),
         oe_tage=oe_tage,
-        trend_str=trend_str, trend_col=trend_col,
+        trend_str=trend_str, trend_col=trend_col, trend_col_invers=trend_col_invers,
         verlauf_akt=verlauf_akt, verlauf_vor=verlauf_vor,
         aktivitaeten=aktivitaeten, zurueck_url=zurueck_url)
 

@@ -40,7 +40,7 @@
         <div class="text-muted small mb-1"><i class="bi bi-person-check me-1"></i>Besuche {{ jahr_akt }}</div>
         <div style="font-size:2rem;font-weight:700;color:#1a3a5c">{{ besuche_akt }}</div>
         <div class="small" style="color:{{ trend_col(besuche_akt, besuche_vor) }}">
-          {{ trend_str(besuche_akt, besuche_vor) }} ggü. {{ jahr_vor }} ({{ besuche_vor }})
+          {{ trend_str(besuche_akt, besuche_vor) }} ggü. {{ jahr_vor_periode }} ({{ besuche_vor }})
         </div>
       </div>
     </div>
@@ -51,7 +51,7 @@
         <div class="text-muted small mb-1"><i class="bi bi-clipboard-check me-1" style="color:#2c7a7b"></i>Bestellungen {{ jahr_akt }}</div>
         <div style="font-size:2rem;font-weight:700;color:#2c7a7b">{{ bestellungen_akt }}</div>
         <div class="small" style="color:{{ trend_col(bestellungen_akt, bestellungen_vor) }}">
-          {{ trend_str(bestellungen_akt, bestellungen_vor) }} ggü. {{ jahr_vor }} ({{ bestellungen_vor }})
+          {{ trend_str(bestellungen_akt, bestellungen_vor) }} ggü. {{ jahr_vor_periode }} ({{ bestellungen_vor }})
         </div>
       </div>
     </div>
@@ -62,7 +62,7 @@
         <div class="text-muted small mb-1"><i class="bi bi-box-seam me-1" style="color:#c8860a"></i>{{ unit_label }} {{ jahr_akt }}</div>
         <div style="font-size:2rem;font-weight:700;color:#c8860a">{{ kisten_akt }}</div>
         <div class="small" style="color:{{ trend_col(kisten_akt, kisten_vor) }}">
-          {{ trend_str(kisten_akt, kisten_vor) }} ggü. {{ jahr_vor }} ({{ kisten_vor }})
+          {{ trend_str(kisten_akt, kisten_vor) }} ggü. {{ jahr_vor_periode }} ({{ kisten_vor }})
         </div>
       </div>
     </div>
@@ -74,7 +74,7 @@
         <div style="font-size:2rem;font-weight:700;color:#2e6da4">{{ aufbauten_akt }}</div>
         {% if aufbauten_vor %}
         <div class="small" style="color:{{ trend_col(aufbauten_akt, aufbauten_vor) }}">
-          {{ trend_str(aufbauten_akt, aufbauten_vor) }} ggü. {{ jahr_vor }} ({{ aufbauten_vor }})
+          {{ trend_str(aufbauten_akt, aufbauten_vor) }} ggü. {{ jahr_vor_periode }} ({{ aufbauten_vor }})
         </div>
         {% else %}
         <div class="small text-muted">kein VJ-Vergleich ({{ jahr_vor }} noch nicht digital erfasst)</div>
@@ -88,8 +88,8 @@
       <div class="card-body py-3">
         <div class="text-muted small mb-1"><i class="bi bi-gift me-1" style="color:#8a5a00"></i>Gratisware {{ jahr_akt }}</div>
         <div style="font-size:2rem;font-weight:700;color:#8a5a00">{{ gratisware_akt }}</div>
-        <div class="small" style="color:{{ trend_col(gratisware_akt, gratisware_vor) }}">
-          {{ trend_str(gratisware_akt, gratisware_vor) }} ggü. {{ jahr_vor }} ({{ gratisware_vor }})
+        <div class="small" style="color:{{ trend_col_invers(gratisware_akt, gratisware_vor) }}">
+          {{ trend_str(gratisware_akt, gratisware_vor) }} ggü. {{ jahr_vor_periode }} ({{ gratisware_vor }})
         </div>
       </div>
     </div>
