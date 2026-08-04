@@ -7997,9 +7997,11 @@ def _alert_arbeitstage_in_woche(mitarbeiter_id, montag, sonntag, bis=None):
     niedrig (Montag: Besuche/1 Tag Arbeit ÷ 5 Tage Nenner)."""
     bis = bis or sonntag
     werktage = [montag + timedelta(days=i) for i in range(5) if montag + timedelta(days=i) <= bis]
+    # typ='hotel' (Hotelübernachtung) ist bewusst ausgeschlossen – der Rep arbeitet an
+    # diesen Tagen weiter, übernachtet nur auswärts, das ist keine Abwesenheit.
     abwesenheiten = query(
         "SELECT von, bis FROM vertretung WHERE abwesender_id=? AND status='bestätigt' "
-        "AND von <= ? AND bis >= ?",
+        "AND typ != 'hotel' AND von <= ? AND bis >= ?",
         (mitarbeiter_id, sonntag.isoformat(), montag.isoformat())
     )
     abwesende_tage = set()
