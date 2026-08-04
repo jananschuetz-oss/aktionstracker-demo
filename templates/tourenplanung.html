@@ -271,8 +271,8 @@ function wpFilterDropdownListe(inputEl, itemSelector) {
           {% endif %}
           <span class="fw-bold flex-shrink-0" style="color:#adb5bd;min-width:22px;font-size:.85rem">{{ loop.index }}.</span>
           <div style="flex:1;min-width:0">
-            <div class="fw-semibold {{ 'text-decoration-line-through text-muted' if stop.erledigt else '' }}"
-                 style="font-size:.9rem;color:#1a3a5c">{{ stop.station }}</div>
+            <div class="fw-semibold"
+                 style="font-size:.9rem;color:{{ '#4a7c59' if stop.erledigt else '#1a3a5c' }}">{{ stop.station }}</div>
             {% if stop.plz or stop.ort %}<div style="font-size:.76rem;color:#6c757d">{% if stop.plz %}{{ stop.plz }} {% endif %}{{ stop.ort or '' }}</div>{% endif %}
             {% if stop.ansprechpartner or stop.hinweis %}
             <div style="font-size:.76rem;color:#555">
@@ -565,8 +565,8 @@ function wpFilterDropdownListe(inputEl, itemSelector) {
                 {% endif %}
                 <span class="fw-bold flex-shrink-0" style="color:#adb5bd;min-width:20px;font-size:.8rem">{{ loop.index }}.</span>
                 <div style="flex:1;min-width:0">
-                  <span class="fw-semibold {{ 'text-decoration-line-through text-muted' if stop.erledigt else '' }}"
-                        style="font-size:.88rem;color:#1a3a5c">{{ stop.station }}</span>
+                  <span class="fw-semibold"
+                        style="font-size:.88rem;color:{{ '#4a7c59' if stop.erledigt else '#1a3a5c' }}">{{ stop.station }}</span>
                   {% if stop.plz or stop.ort %}<span class="ms-2" style="font-size:.76rem;color:#6c757d">{% if stop.plz %}{{ stop.plz }} {% endif %}{{ stop.ort or '' }}</span>{% endif %}
                   {% if stop.ansprechpartner or stop.hinweis %}
                   <div style="font-size:.74rem;color:#555">
