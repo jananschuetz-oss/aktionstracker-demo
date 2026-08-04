@@ -9566,17 +9566,14 @@ def admin_vs_bearbeiten(vs_id):
          lieferant or None, kundennummer or None, hinweis or None, kategorie_override or None, vs_id)
     )
     if adresse_geaendert and KARTE_MODUS != 'aus' and (strasse or ort):
-        lat, lng, quelle, kreis_aus_geo = _geocode_adresse(strasse, ort, plz=plz or None)
-        if lat is not None:
-            if kreis_aus_geo and not landkreis:
-                execute("UPDATE verkaufsstelle SET lat=?, lng=?, geocode_quelle=?, landkreis=? WHERE id=?",
-                        (lat, lng, quelle, kreis_aus_geo, vs_id))
-            else:
-                execute("UPDATE verkaufsstelle SET lat=?, lng=?, geocode_quelle=? WHERE id=?",
-                        (lat, lng, quelle, vs_id))
-            flash(f'„{name}" gespeichert und neu auf Karte verortet.', 'success')
-        else:
-            flash(f'„{name}" gespeichert. Koordinaten konnten nicht neu ermittelt werden.', 'warning')
+        # Koordinate NICHT automatisch neu ermitteln (kann bei mehrdeutigen Adressen
+        # unbemerkt auf einen zu ungenauen Fallback-Treffer zurückfallen, z.B. nur
+        # Ort-Ebene statt echter Straße) – stattdessen zurücksetzen, damit die Karte
+        # die Verkaufsstelle über den bestehenden "fehlende Koordinaten"-Mechanismus
+        # sauber neu (oder manuell) verortet.
+        execute("UPDATE verkaufsstelle SET lat=NULL, lng=NULL WHERE id=?", (vs_id,))
+        flash(f'„{name}" gespeichert. Adresse geändert – Koordinate wird beim nächsten '
+              f'Kartenaufruf neu ermittelt (oder unten manuell eintragen).', 'warning')
     else:
         flash(f'„{name}" gespeichert.', 'success')
     return redirect(url_for('admin'))
@@ -12808,12 +12805,10 @@ def verkaufsstelle_kontakt_aktualisieren(vs_id):
             (name, strasse, plz, ort, landkreis, typ, kundennummer, lieferant, ansprechpartner, hinweis, vs_id)
         )
         if adresse_geaendert and KARTE_MODUS != 'aus' and (strasse or ort):
-            lat, lng, quelle, kreis_aus_geo = _geocode_adresse(strasse, ort, plz=plz)
-            if lat is not None:
-                if kreis_aus_geo and not landkreis:
-                    execute("UPDATE verkaufsstelle SET lat=?, lng=?, geocode_quelle=?, landkreis=? WHERE id=?", (lat, lng, quelle, kreis_aus_geo, vs_id))
-                else:
-                    execute("UPDATE verkaufsstelle SET lat=?, lng=?, geocode_quelle=? WHERE id=?", (lat, lng, quelle, vs_id))
+            # Wie admin_vs_bearbeiten: nicht automatisch neu geocoden (Risiko eines
+            # unbemerkt ungenauen Fallback-Treffers), sondern zurücksetzen und über
+            # den bestehenden "fehlende Koordinaten"-Mechanismus neu verorten lassen.
+            execute("UPDATE verkaufsstelle SET lat=NULL, lng=NULL WHERE id=?", (vs_id,))
     else:
         execute(
             "UPDATE verkaufsstelle SET lieferant=?, ansprechpartner=?, hinweis=? WHERE id=?",
