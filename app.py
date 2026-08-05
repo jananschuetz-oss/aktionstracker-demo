@@ -13671,6 +13671,23 @@ def _strasse_varianten(strasse):
     return [f"{v} {hausnr}".strip() for v in varianten]
 
 
+def _plz_varianten(plz):
+    """Alternative PLZ-Schreibweisen (Nutzerwunsch 2026-08-05): vierstellige PLZ sind in
+    Österreich/Schweiz normal, kommen aber auch als Tippfehler bei deutschen Adressen in
+    den 'neuen Bundesländern' vor (dort führte die Postleitzahlenreform 1993 eine führende
+    Null ein, die bei der Erfassung manchmal weggelassen wird). Ohne ein Länderfeld lässt
+    sich das nicht sicher unterscheiden – daher wird bei 4 Ziffern zusätzlich die
+    5-stellige Variante mit führender Null probiert (und umgekehrt bei führender Null die
+    4-stellige), der Bounds-Check in _geocode_adresse entscheidet dann, welche stimmt."""
+    if not plz or not plz.isdigit():
+        return []
+    if len(plz) == 4:
+        return ['0' + plz]
+    if len(plz) == 5 and plz.startswith('0'):
+        return [plz[1:]]
+    return []
+
+
 def _geocode_adresse(strasse, ort, plz=None, timeout=8):
     """Koordinaten via Nominatim mit strukturierten Parametern und PLZ-Priorisierung.
     Fallback-Kette: Straße+PLZ+Ort → Straßen-Varianten+PLZ+Ort → PLZ+Ort → PLZ allein
@@ -13693,8 +13710,13 @@ def _geocode_adresse(strasse, ort, plz=None, timeout=8):
     if strasse and ort:
         for variante in _strasse_varianten(strasse):
             kandidaten.append(_strukturiert(street=variante, postalcode=plz, city=ort))
+    if strasse and ort and plz:
+        for plz_variante in _plz_varianten(plz):
+            kandidaten.append(_strukturiert(street=strasse, postalcode=plz_variante, city=ort))
     if plz and ort:
         kandidaten.append(_strukturiert(postalcode=plz, city=ort))
+        for plz_variante in _plz_varianten(plz):
+            kandidaten.append(_strukturiert(postalcode=plz_variante, city=ort))
     if plz:
         kandidaten.append(_strukturiert(postalcode=plz))
     if ort:
