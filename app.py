@@ -13681,7 +13681,14 @@ def _strasse_varianten(strasse):
     probiert werden, damit ein echter Straßen-Treffer wahrscheinlicher bleibt."""
     if not strasse:
         return []
-    m = re.match(r'^(.*?)(?:\s+(\d.*))?$', strasse.strip())
+    # Whitespace (inkl. Zeilenumbrüche) normalisieren – manche Straßenfelder enthalten
+    # mehrzeilige Freitext-Notizen (Bugreport 2026-08-05, Arco: '(alte Adresse)\nneu:
+    # neue Adresse'). Ohne Normalisierung matcht die Regex mit '\n' nicht (kein DOTALL),
+    # re.match liefert dann None und der .group()-Zugriff stürzt mit AttributeError ab.
+    strasse_glatt = re.sub(r'\s+', ' ', strasse).strip()
+    m = re.match(r'^(.*?)(?:\s+(\d.*))?$', strasse_glatt)
+    if not m:
+        return []
     kern, hausnr = m.group(1).strip(), (m.group(2) or '').strip()
     kern_lower = kern.lower()
     varianten = set()
@@ -13731,6 +13738,8 @@ def _geocode_adresse(strasse, ort, plz=None, timeout=8):
     überschneiden sich zwischen DE/AT/CH) – dafür deckt _plz_zentroid() diesen Fall
     am Ende sicherer ab. Ergebnis wird gegen DACH-Bounding-Box validiert.
     Gibt (lat, lng, quelle) zurück; quelle ist 'nominatim', 'plz' oder None."""
+    if strasse:
+        strasse = re.sub(r'\s+', ' ', strasse).strip()
     base = 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&countrycodes=de,at,ch'
     headers = {'User-Agent': 'AktionsTracker/1.0 (info@aktionstracker.de)'}
 
