@@ -13599,8 +13599,14 @@ def _in_dach(lat, lon):
     return (_DACH_BBOX['lat_min'] <= lat <= _DACH_BBOX['lat_max'] and
             _DACH_BBOX['lon_min'] <= lon <= _DACH_BBOX['lon_max'])
 
-def _plz_zentroid(plz, timeout=6):
+def _plz_zentroid(plz, ort=None, timeout=6):
     """PLZ-Mittelpunkt: erst lokaler Cache (plz_zentrum), dann Nominatim-PLZ-Lookup.
+    Probiert bei 4/5-stelliger Verwechslung auch die PLZ-Variante (Nutzerwunsch
+    2026-08-05, siehe _plz_varianten) – reine PLZ-Suche ohne Ortsbezug ist sonst
+    riskant, da sich PLZ-Bereiche zwischen DE/AT/CH überschneiden (z.B. PLZ '7407'
+    existiert sowohl in Thüringen als auch in Graubünden/Schweiz). Ist `ort` gegeben,
+    wird das Ergebnis dagegen geprüft und bei Nichtübereinstimmung die nächste
+    Variante versucht statt das erste (falsche) Ergebnis zu übernehmen.
     Thread-sicher durch eigene sqlite3-Verbindung. Gibt (lat, lng) oder (None, None) zurück."""
     if not plz or len(plz.strip()) < 4:
         return None, None
@@ -13613,24 +13619,53 @@ def _plz_zentroid(plz, timeout=6):
                 return r[0], r[1]
     except Exception:
         pass
-    url = (f'https://nominatim.openstreetmap.org/search?format=json&limit=1'
-           f'&countrycodes=de,at,ch&postalcode={urllib.parse.quote(plz)}')
-    try:
-        req = urllib.request.Request(url, headers={'User-Agent': 'AktionsTracker/1.0 (info@aktionstracker.de)'})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            hits = json.loads(resp.read().decode())
-        if hits:
-            lat, lng = float(hits[0]['lat']), float(hits[0]['lon'])
-            if _in_dach(lat, lng):
-                try:
-                    with _sq3.connect(DATABASE) as _c:
-                        _c.execute("INSERT OR IGNORE INTO plz_zentrum (plz, lat, lng) VALUES (?,?,?)",
-                                   (plz, lat, lng))
-                except Exception:
-                    pass
-                return lat, lng
-    except Exception as exc:
-        app.logger.warning(f"PLZ-Zentroid '{plz}': {exc}")
+
+    ort_lower = (ort or '').lower()
+    ort_woerter = set(re.findall(r'\w+', ort_lower))
+    bester_treffer = None  # letzter DACH-gültiger Treffer als Rückfallebene, falls kein Ort exakt passt
+
+    def _speichern(kandidat, lat, lng):
+        try:
+            with _sq3.connect(DATABASE) as _c:
+                _c.execute("INSERT OR IGNORE INTO plz_zentrum (plz, lat, lng) VALUES (?,?,?)", (plz, lat, lng))
+                if kandidat != plz:
+                    _c.execute("INSERT OR IGNORE INTO plz_zentrum (plz, lat, lng) VALUES (?,?,?)", (kandidat, lat, lng))
+        except Exception:
+            pass
+
+    for kandidat in [plz] + _plz_varianten(plz):
+        url = (f'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1'
+               f'&countrycodes=de,at,ch&postalcode={urllib.parse.quote(kandidat)}')
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'AktionsTracker/1.0 (info@aktionstracker.de)'})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                hits = json.loads(resp.read().decode())
+            if hits:
+                lat, lng = float(hits[0]['lat']), float(hits[0]['lon'])
+                if _in_dach(lat, lng):
+                    if ort_woerter:
+                        addr = hits[0].get('address', {})
+                        stadt = (addr.get('city') or addr.get('town') or addr.get('village')
+                                 or addr.get('municipality') or '').lower()
+                        if ort_woerter & set(re.findall(r'\w+', stadt)):
+                            _speichern(kandidat, lat, lng)
+                            return lat, lng
+                        # Ort passt nicht exakt (z.B. Nachbargemeinde derselben PLZ-Zone) –
+                        # als Rückfall merken (spätere/korrigierte Variante überschreibt frühere,
+                        # da Tippfehler meist die ORIGINAL-PLZ betreffen), aber weiter nach einem
+                        # echten Treffer suchen statt sofort eine evtl. falsche Region zu akzeptieren.
+                        bester_treffer = (kandidat, lat, lng)
+                        continue
+                    _speichern(kandidat, lat, lng)
+                    return lat, lng
+        except Exception as exc:
+            app.logger.warning(f"PLZ-Zentroid '{kandidat}': {exc}")
+        _time.sleep(1.1)
+
+    if bester_treffer:
+        kandidat, lat, lng = bester_treffer
+        _speichern(kandidat, lat, lng)
+        return lat, lng
     return None, None
 
 _STRASSEN_SUFFIXE = ('straße', 'strasse', 'weg', 'allee', 'platz', 'ring', 'gasse',
@@ -13690,9 +13725,11 @@ def _plz_varianten(plz):
 
 def _geocode_adresse(strasse, ort, plz=None, timeout=8):
     """Koordinaten via Nominatim mit strukturierten Parametern und PLZ-Priorisierung.
-    Fallback-Kette: Straße+PLZ+Ort → Straßen-Varianten+PLZ+Ort → PLZ+Ort → PLZ allein
-    → Ort (Freitext) → PLZ-Zentroid.
-    Ergebnis wird gegen DACH-Bounding-Box validiert.
+    Fallback-Kette: Straße+PLZ+Ort → Straßen-Varianten+PLZ+Ort → Straße+PLZ-Varianten+Ort
+    → PLZ+Ort (+Varianten) → Ort (Freitext) → PLZ-Zentroid.
+    'PLZ allein' bewusst kein eigener Kandidat (Bugreport 2026-08-05: PLZ-Bereiche
+    überschneiden sich zwischen DE/AT/CH) – dafür deckt _plz_zentroid() diesen Fall
+    am Ende sicherer ab. Ergebnis wird gegen DACH-Bounding-Box validiert.
     Gibt (lat, lng, quelle) zurück; quelle ist 'nominatim', 'plz' oder None."""
     base = 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&countrycodes=de,at,ch'
     headers = {'User-Agent': 'AktionsTracker/1.0 (info@aktionstracker.de)'}
@@ -13717,10 +13754,13 @@ def _geocode_adresse(strasse, ort, plz=None, timeout=8):
         kandidaten.append(_strukturiert(postalcode=plz, city=ort))
         for plz_variante in _plz_varianten(plz):
             kandidaten.append(_strukturiert(postalcode=plz_variante, city=ort))
-    if plz:
-        kandidaten.append(_strukturiert(postalcode=plz))
     if ort:
-        kandidaten.append(f"{base}&q={urllib.parse.quote(ort + ', Deutschland')}")
+        kandidaten.append(f"{base}&q={urllib.parse.quote(ort)}")
+    # 'PLZ allein' (ohne Ort) bewusst NICHT als Kandidat aufgenommen (Bugreport 2026-08-05):
+    # Postleitzahlen sind zwischen DE/AT/CH unabhängig vergeben und überschneiden sich
+    # (PLZ '7407' existiert sowohl in Thüringen als auch als Schweizer PLZ in Graubünden/
+    # Domleschg) – ohne Ortsnamen zur Prüfung landete eine Filiale dadurch in der Schweiz.
+    # Der bestehende _plz_zentroid()-Fallback unten deckt den Fall bereits sicherer ab.
 
     for url in kandidaten:
         if not url:
@@ -13742,7 +13782,7 @@ def _geocode_adresse(strasse, ort, plz=None, timeout=8):
 
     if plz:
         _time.sleep(1.1)
-        lat, lng = _plz_zentroid(plz)
+        lat, lng = _plz_zentroid(plz, ort=ort)
         if lat is not None:
             app.logger.info(f"PLZ-Zentroid verwendet für PLZ {plz}")
             return lat, lng, 'plz', None
