@@ -13633,9 +13633,48 @@ def _plz_zentroid(plz, timeout=6):
         app.logger.warning(f"PLZ-Zentroid '{plz}': {exc}")
     return None, None
 
+_STRASSEN_SUFFIXE = ('straße', 'strasse', 'weg', 'allee', 'platz', 'ring', 'gasse',
+                      'damm', 'ufer', 'steig', 'chaussee', 'promenade')
+
+
+def _strasse_varianten(strasse):
+    """Alternative Schreibweisen eines Straßennamens (Nutzerwunsch 2026-08-05):
+    Kundenstamm-Importe und manuelle Eingaben schreiben zusammengesetzte Straßennamen
+    uneinheitlich – 'Bahnhofstraße' vs. 'Bahnhof Straße' vs. 'Bahnhofstr.'. Der
+    Geocoding-Dienst kennt oft nur eine Variante. Gibt zusätzliche Suchkandidaten
+    zurück (ohne die Original-Straße selbst), die vor dem groben Ort-Fallback
+    probiert werden, damit ein echter Straßen-Treffer wahrscheinlicher bleibt."""
+    if not strasse:
+        return []
+    m = re.match(r'^(.*?)(?:\s+(\d.*))?$', strasse.strip())
+    kern, hausnr = m.group(1).strip(), (m.group(2) or '').strip()
+    kern_lower = kern.lower()
+    varianten = set()
+
+    if kern_lower.endswith('str.') or kern_lower.endswith(' str'):
+        basis = re.sub(r'\s*str\.?$', '', kern, flags=re.IGNORECASE).rstrip()
+        if basis:
+            varianten.add(f"{basis}straße")
+            varianten.add(f"{basis} Straße")
+
+    for suf in _STRASSEN_SUFFIXE:
+        if kern_lower.endswith(suf) and not kern_lower.endswith(' ' + suf):
+            basis = kern[:-len(suf)].rstrip()
+            if basis:
+                varianten.add(f"{basis} {suf.capitalize()}")
+        elif kern_lower.endswith(' ' + suf):
+            basis = kern[:-(len(suf) + 1)].rstrip()
+            if basis:
+                varianten.add(f"{basis}{suf}")
+
+    varianten.discard(kern)
+    return [f"{v} {hausnr}".strip() for v in varianten]
+
+
 def _geocode_adresse(strasse, ort, plz=None, timeout=8):
     """Koordinaten via Nominatim mit strukturierten Parametern und PLZ-Priorisierung.
-    Fallback-Kette: Straße+PLZ+Ort → PLZ+Ort → PLZ allein → Ort (Freitext) → PLZ-Zentroid.
+    Fallback-Kette: Straße+PLZ+Ort → Straßen-Varianten+PLZ+Ort → PLZ+Ort → PLZ allein
+    → Ort (Freitext) → PLZ-Zentroid.
     Ergebnis wird gegen DACH-Bounding-Box validiert.
     Gibt (lat, lng, quelle) zurück; quelle ist 'nominatim', 'plz' oder None."""
     base = 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&countrycodes=de,at,ch'
@@ -13651,6 +13690,9 @@ def _geocode_adresse(strasse, ort, plz=None, timeout=8):
     kandidaten = []
     if strasse and plz and ort:
         kandidaten.append(_strukturiert(street=strasse, postalcode=plz, city=ort))
+    if strasse and ort:
+        for variante in _strasse_varianten(strasse):
+            kandidaten.append(_strukturiert(street=variante, postalcode=plz, city=ort))
     if plz and ort:
         kandidaten.append(_strukturiert(postalcode=plz, city=ort))
     if plz:
