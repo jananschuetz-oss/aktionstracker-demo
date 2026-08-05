@@ -1197,6 +1197,26 @@
     </div>
   </div>
 
+  <!-- Alle Verkaufsstellen als Stammdaten-Excel -->
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header" style="background:linear-gradient(135deg,#1a5276,#2980b9)">
+        <i class="bi bi-building me-2"></i>Alle Verkaufsstellen
+      </div>
+      <div class="card-body">
+        <p class="small text-muted mb-3">
+          <i class="bi bi-info-circle me-1"></i>
+          Excel-Download aller Verkaufsstellen mit Adresse, Typ, Kundennummer, Lieferant,
+          Ansprechpartner und zugeordnetem Mitarbeiter – zum eigenen Filtern/Sortieren
+          (z.B. "alle Rewe").
+        </p>
+        <a href="{{ url_for('admin_export_verkaufsstellen_stammdaten') }}" class="btn btn-primary w-100">
+          <i class="bi bi-download me-2"></i>Excel herunterladen
+        </a>
+      </div>
+    </div>
+  </div>
+
   <!-- Hotelübernachtung-Report monatlich -->
   <div class="col-md-6">
     <div class="card">

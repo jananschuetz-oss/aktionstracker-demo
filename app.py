@@ -7933,6 +7933,110 @@ def export_excel():
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
+def _leeres_workbook_bytes(hinweis: str) -> bytes:
+    wb = openpyxl.Workbook()
+    wb.active.cell(1, 1, hinweis)
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.read()
+
+
+def _build_vs_stammdaten_excel(team_id=None) -> bytes:
+    """Admin-Download: ALLE Verkaufsstellen als Stammdaten-Liste (Nutzerwunsch
+    2026-08-05: "alle Verkaufsstellen runterladen, dann z.B. alle Rewe raussuchen
+    können"). Homeoffice-Einträge und die geteilten Sonderkategorien (Firmenwagen-
+    Tanken/Materialabholung/Verleger/Telefontermin) werden ausgeschlossen – gleiche
+    Konvention wie überall sonst in der App. team_id: None = alle (Admin bzw. VKL
+    ohne eigenes Team), sonst nur VS mit Zuordnung zu einem Mitarbeiter dieses Teams."""
+    if team_id:
+        vs_rows = query('''
+            SELECT DISTINCT v.* FROM verkaufsstelle v
+            JOIN mitarbeiter_verkaufsstelle mv ON mv.verkaufsstelle_id = v.id
+            JOIN mitarbeiter m ON m.id = mv.mitarbeiter_id
+            WHERE v.aktiv=1 AND v.homeoffice_mitarbeiter_id IS NULL
+              AND v.typ NOT IN ('Firmenwagen-Tanken','Materialabholung','Verleger','Telefontermin')
+              AND m.team_id=?
+            ORDER BY v.name
+        ''', (team_id,))
+    else:
+        vs_rows = query('''
+            SELECT * FROM verkaufsstelle
+            WHERE aktiv=1 AND homeoffice_mitarbeiter_id IS NULL
+              AND typ NOT IN ('Firmenwagen-Tanken','Materialabholung','Verleger','Telefontermin')
+            ORDER BY name
+        ''')
+    if not vs_rows:
+        return _leeres_workbook_bytes("Keine Verkaufsstellen gefunden.")
+
+    zuordnungen = query('''
+        SELECT mv.verkaufsstelle_id, m.name
+        FROM mitarbeiter_verkaufsstelle mv JOIN mitarbeiter m ON m.id = mv.mitarbeiter_id
+        WHERE mv.verkaufsstelle_id IN (''' + ','.join('?' * len(vs_rows)) + ')',
+        tuple(r['id'] for r in vs_rows)
+    )
+    vs_mitarbeiter = {}
+    for z in zuordnungen:
+        vs_mitarbeiter.setdefault(z['verkaufsstelle_id'], []).append(z['name'])
+
+    wb = openpyxl.Workbook()
+    HEADER_FILL = PatternFill("solid", fgColor="1a3a5c")
+    HEADER_FONT = Font(bold=True, color="FFFFFF", size=11)
+    BORDER = Border(
+        left=Side(style='thin', color='CCCCCC'), right=Side(style='thin', color='CCCCCC'),
+        top=Side(style='thin', color='CCCCCC'), bottom=Side(style='thin', color='CCCCCC'),
+    )
+    ws = wb.active
+    ws.title = "Verkaufsstellen"
+    headers = ['Verkaufsstelle', 'Typ', 'Straße', 'PLZ', 'Ort', 'Landkreis',
+               'Kundennummer', 'Lieferant', 'Ansprechpartner', 'Hinweis', 'Mitarbeiter']
+    widths  = [26, 16, 24, 8, 18, 18, 14, 16, 20, 30, 20]
+    for col, (h, w) in enumerate(zip(headers, widths), 1):
+        ws.cell(1, col, h)
+        ws.column_dimensions[get_column_letter(col)].width = w
+        cell = ws.cell(1, col)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.border = BORDER
+
+    for r_idx, v in enumerate(vs_rows, 2):
+        werte = [
+            _excel_formel_sicher(v['name']),
+            v['typ'],
+            _excel_formel_sicher(v['strasse']),
+            v['plz'],
+            v['ort'],
+            v['landkreis'],
+            v['kundennummer'],
+            _excel_formel_sicher(v['lieferant']),
+            _excel_formel_sicher(v['ansprechpartner']),
+            _excel_formel_sicher(v['hinweis']),
+            ', '.join(vs_mitarbeiter.get(v['id'], [])),
+        ]
+        for col, wert in enumerate(werte, 1):
+            ws.cell(r_idx, col, wert).border = BORDER
+
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{len(vs_rows) + 1}"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.read()
+
+
+@app.route('/admin/export/verkaufsstellen-stammdaten')
+@manager_required
+def admin_export_verkaufsstellen_stammdaten():
+    is_admin = session.get('rolle') == 'admin'
+    team_id = None if is_admin else session.get('team_id')
+    data = _build_vs_stammdaten_excel(team_id=team_id)
+    fname = f"Verkaufsstellen_{date.today().isoformat()}.xlsx"
+    app.logger.info(f"Audit: Verkaufsstellen-Stammdaten-Export heruntergeladen von {session.get('kuerzel')} (Rolle {session.get('rolle')})")
+    return send_file(io.BytesIO(data), as_attachment=True, download_name=fname,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
 # ─── Routes: Admin ────────────────────────────────────────────────────────────
 
 @app.route('/admin/demo-cleanup', methods=['POST'])
