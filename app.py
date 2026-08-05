@@ -9664,7 +9664,8 @@ def admin_vs_bearbeiten(vs_id):
     if not name:
         flash('Name ist ein Pflichtfeld.', 'danger')
         return redirect(url_for('admin'))
-    adresse_geaendert = strasse != (vs['strasse'] or '') or ort != (vs['ort'] or '')
+    adresse_geaendert = (strasse != (vs['strasse'] or '') or ort != (vs['ort'] or '')
+                          or plz != (vs['plz'] or ''))
     execute(
         "UPDATE verkaufsstelle SET name=?, strasse=?, plz=?, ort=?, landkreis=?, typ=?, ansprechpartner=?, "
         "lieferant=?, kundennummer=?, hinweis=?, kategorie_override=? WHERE id=?",
@@ -12902,8 +12903,10 @@ def verkaufsstelle_kontakt_aktualisieren(vs_id):
         typ          = (data.get('typ') or '').strip() or None
         kundennummer = (data.get('kundennummer') or '').strip() or None
 
-        vs_alt = query("SELECT strasse, ort FROM verkaufsstelle WHERE id=?", (vs_id,), one=True)
-        adresse_geaendert = strasse != (vs_alt['strasse'] if vs_alt else None) or ort != (vs_alt['ort'] if vs_alt else None)
+        vs_alt = query("SELECT strasse, ort, plz FROM verkaufsstelle WHERE id=?", (vs_id,), one=True)
+        adresse_geaendert = (strasse != (vs_alt['strasse'] if vs_alt else None)
+                              or ort != (vs_alt['ort'] if vs_alt else None)
+                              or plz != (vs_alt['plz'] if vs_alt else None))
 
         execute(
             "UPDATE verkaufsstelle SET name=?, strasse=?, plz=?, ort=?, landkreis=?, typ=?, "
