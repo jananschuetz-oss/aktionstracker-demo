@@ -9644,6 +9644,17 @@ def admin_vs_neu():
     kundennummer     = request.form.get('kundennummer',     '').strip()
     hinweis          = request.form.get('hinweis',          '').strip()
     if name:
+        # Nutzerwunsch 2026-08-06: vor dem Anlegen auf Adress-Dubletten prüfen (Straße+
+        # Hausnummer, Ort, PLZ - nicht der Name, da derselbe Kunde unter leicht anderem
+        # Namen erneut angelegt werden könnte). Blockiert die Anlage NICHT, warnt aber.
+        dubletten = _verkaufsstelle_adress_dubletten(strasse, plz, ort)
+        if dubletten:
+            namen = ', '.join(f'„{d["name"]}" (Kd-Nr. {d["kundennummer"] or "–"})' for d in dubletten)
+            flash(
+                f'⚠️ Unter dieser Adresse existiert bereits: {namen}. Falls das derselbe Kunde ist, '
+                f'bitte im Bereich „Verkaufsstellen-Dubletten" zusammenführen, statt zwei parallel zu führen.',
+                'warning'
+            )
         new_id = execute(
             "INSERT INTO verkaufsstelle (name, strasse, plz, ort, landkreis, typ, ansprechpartner, lieferant, kundennummer, hinweis) VALUES (?,?,?,?,?,?,?,?,?,?)",
             (name, strasse, plz or None, ort, landkreis or None, typ, ansprechpartner, lieferant or None, kundennummer or None, hinweis or None)
@@ -9783,6 +9794,35 @@ def _strasse_kern_hausnr(strasse):
     return m.group(1), (m.group(2) or '')
 
 
+def _verkaufsstelle_adress_dubletten(strasse, plz, ort, ausschluss_id=None):
+    """Findet aktive Verkaufsstellen mit derselben Adresse (Straße+Hausnummer normalisiert,
+    Ort, PLZ – Nutzerwunsch 2026-08-06: Prüfkriterien sind Straße+Hausnummer, Ort und PLZ,
+    NICHT der Name, da derselbe Kunde unter leicht anderem Namen erneut angelegt werden
+    könnte). Wird bei der VS-Neuanlage genutzt, um den Mitarbeiter zu warnen statt eine
+    Dublette stillschweigend entstehen zu lassen. Gibt eine Liste von Treffern zurück
+    (leer, wenn Straße oder PLZ fehlen – ohne die beiden ist kein sinnvoller Abgleich
+    möglich)."""
+    kern, hausnr = _strasse_kern_hausnr(strasse)
+    plz = (plz or '').strip()
+    ort = (ort or '').strip()
+    if not kern or not plz:
+        return []
+    rows = query(
+        "SELECT id, name, strasse, plz, ort, kundennummer FROM verkaufsstelle "
+        "WHERE aktiv=1 AND strasse IS NOT NULL AND strasse != '' AND plz=?"
+        + (" AND id != ?" if ausschluss_id else ""),
+        (plz, ausschluss_id) if ausschluss_id else (plz,)
+    )
+    treffer = []
+    for r in rows:
+        r_kern, r_hausnr = _strasse_kern_hausnr(r['strasse'])
+        if r_kern == kern and r_hausnr == hausnr:
+            if ort and r['ort'] and ort.lower() != r['ort'].strip().lower():
+                continue  # Ort explizit widersprüchlich angegeben - eher kein Treffer
+            treffer.append(r)
+    return treffer
+
+
 def _verkaufsstelle_dubletten_kandidaten():
     """Findet potenzielle Dubletten unter aktiven Verkaufsstellen: gleicher Straßenkern
     + gleiche Hausnummer + gleiche PLZ (Ort bewusst nicht Teil des Schlüssels, da bei
@@ -9911,6 +9951,19 @@ def vs_neu_rep():
                 )
             flash(f'„{vorhanden["name"]}" in {vorhanden["ort"] or "unbekanntem Ort"} existiert bereits – direkt ausgewählt.', 'info')
             return redirect(url_for('dashboard') if vom_dashboard else url_for('neue_aktivitaet', vs_id=vorhanden['id']))
+
+        # Nutzerwunsch 2026-08-06: zusätzlich auf Adress-Dubletten prüfen (Straße+Hausnummer,
+        # Ort, PLZ - nicht der Name, da derselbe Kunde unter leicht anderem Namen erneut
+        # angelegt werden könnte). Der obige Check greift nur bei exaktem Namen; hier warnen
+        # wir zusätzlich, blockieren die Anlage aber nicht, falls es doch ein neuer Kunde ist.
+        dubletten = _verkaufsstelle_adress_dubletten(strasse, plz_rep, ort)
+        if dubletten:
+            namen = ', '.join(f'„{d["name"]}" (Kd-Nr. {d["kundennummer"] or "–"})' for d in dubletten)
+            flash(
+                f'⚠️ Unter dieser Adresse existiert bereits: {namen}. Falls das derselbe Kunde ist, bitte '
+                f'diese Verkaufsstelle auswählen statt eine neue anzulegen (Adminbereich kann sie später zusammenführen).',
+                'warning'
+            )
 
         new_id = execute(
             "INSERT INTO verkaufsstelle (name, strasse, plz, ort, typ, ansprechpartner) VALUES (?,?,?,?,?,?)",
