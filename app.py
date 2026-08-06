@@ -3789,8 +3789,18 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
         # Soll wird anteilig auf die bereits vergangenen Werktage (Mo-Fr) der Woche
         # heruntergerechnet – sonst steht Montagfrüh immer 0% gegen das volle Wochensoll,
         # unabhängig davon ob jemand im Soll liegt (Bugreport 2026-07-27).
+        # Der heutige Tag selbst zählt anteilig nach Uhrzeit statt sofort komplett
+        # (Bugreport 2026-08-05: um 6 Uhr morgens zählte der laufende Tag schon voll mit,
+        # das Soll lag dadurch permanent vor dem tatsächlich Erreichbaren) – Basis ist ein
+        # angenommenes Arbeitsfenster 7-18 Uhr, davor 0%, danach voll (100%) angerechnet.
+        ARBEITSTAG_START_H, ARBEITSTAG_ENDE_H = 7, 18
         gesamt_werktage = 5
-        elapsed_werktage = min(heute.weekday() + 1, gesamt_werktage) if heute.weekday() < 5 else gesamt_werktage
+        if heute.weekday() < 5:
+            jetzt_stunde = datetime.now().hour + datetime.now().minute / 60
+            heute_anteil = max(0.0, min(1.0, (jetzt_stunde - ARBEITSTAG_START_H) / (ARBEITSTAG_ENDE_H - ARBEITSTAG_START_H)))
+            elapsed_werktage = min(heute.weekday() + heute_anteil, gesamt_werktage)
+        else:
+            elapsed_werktage = gesamt_werktage
         anteil = elapsed_werktage / gesamt_werktage
         t_m_sql, t_m_p = _team_m_clause('m')
         mitarbeiter_rows = query(f'''
@@ -3844,7 +3854,7 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
         pro_mitarbeiter.sort(key=lambda x: -(x['quote'] or 0))
         werte['wochenarbeitszeit_vs_soll'] = {
             'ist_std': round(ist_h, 1), 'soll_std': round(soll_h, 1), 'soll_std_voll': round(soll_h_voll, 1),
-            'elapsed_werktage': elapsed_werktage, 'gesamt_werktage': gesamt_werktage,
+            'elapsed_werktage': round(elapsed_werktage, 1), 'gesamt_werktage': gesamt_werktage,
             'anzahl': len(rows), 'pro_mitarbeiter': pro_mitarbeiter,
         }
 
