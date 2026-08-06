@@ -3791,14 +3791,11 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
         # unabhängig davon ob jemand im Soll liegt (Bugreport 2026-07-27).
         # Der heutige Tag selbst zählt anteilig nach Uhrzeit statt sofort komplett
         # (Bugreport 2026-08-05: um 6 Uhr morgens zählte der laufende Tag schon voll mit,
-        # das Soll lag dadurch permanent vor dem tatsächlich Erreichbaren) – Basis ist ein
-        # angenommenes Arbeitsfenster 7-18 Uhr, davor 0%, danach voll (100%) angerechnet.
-        ARBEITSTAG_START_H, ARBEITSTAG_ENDE_H = 7, 18
+        # das Soll lag dadurch permanent vor dem tatsächlich Erreichbaren) – siehe
+        # _tagesanteil_jetzt() für das angenommene Arbeitsfenster.
         gesamt_werktage = 5
         if heute.weekday() < 5:
-            jetzt_stunde = datetime.now().hour + datetime.now().minute / 60
-            heute_anteil = max(0.0, min(1.0, (jetzt_stunde - ARBEITSTAG_START_H) / (ARBEITSTAG_ENDE_H - ARBEITSTAG_START_H)))
-            elapsed_werktage = min(heute.weekday() + heute_anteil, gesamt_werktage)
+            elapsed_werktage = min(heute.weekday() + _tagesanteil_jetzt(), gesamt_werktage)
         else:
             elapsed_werktage = gesamt_werktage
         anteil = elapsed_werktage / gesamt_werktage
@@ -8098,6 +8095,18 @@ def _alert_wochen_start_ende(referenz_datum, wochen_zurueck=0):
     return montag, montag + timedelta(days=6)
 
 
+ARBEITSTAG_START_H, ARBEITSTAG_ENDE_H = 7, 18
+
+
+def _tagesanteil_jetzt():
+    """Anteil des heutigen Tages, der im angenommenen Arbeitsfenster (7-18 Uhr) schon
+    vergangen ist, als Wert zwischen 0.0 und 1.0 – vor 7 Uhr 0.0, ab 18 Uhr 1.0, dazwischen
+    linear. Gemeinsam genutzt von KPIs, die den laufenden Tag nicht sofort komplett, sondern
+    anteilig nach Uhrzeit zählen sollen (Bugreport 2026-08-05)."""
+    jetzt_stunde = datetime.now().hour + datetime.now().minute / 60
+    return max(0.0, min(1.0, (jetzt_stunde - ARBEITSTAG_START_H) / (ARBEITSTAG_ENDE_H - ARBEITSTAG_START_H)))
+
+
 def _alert_arbeitstage_in_woche(mitarbeiter_id, montag, sonntag, bis=None):
     """Anzahl Mo-Fr-Tage in der Woche minus Tage mit bestätigter Abwesenheit (Urlaub/
     Krankheit/AU, vertretung.status='bestätigt'). Feiertage werden bewusst NICHT
@@ -8109,8 +8118,8 @@ def _alert_arbeitstage_in_woche(mitarbeiter_id, montag, sonntag, bis=None):
     (aktuelle Woche)"-Kachel teilte die bisherigen Besuche durch alle 5 Werktage der
     Woche, nicht nur die bereits verstrichenen – am Wochenanfang dadurch künstlich
     niedrig (Montag: Besuche/1 Tag Arbeit ÷ 5 Tage Nenner)."""
-    bis = bis or sonntag
-    werktage = [montag + timedelta(days=i) for i in range(5) if montag + timedelta(days=i) <= bis]
+    bis_stichtag = bis or sonntag
+    werktage = [montag + timedelta(days=i) for i in range(5) if montag + timedelta(days=i) <= bis_stichtag]
     # typ='hotel' (Hotelübernachtung) ist bewusst ausgeschlossen – der Rep arbeitet an
     # diesen Tagen weiter, übernachtet nur auswärts, das ist keine Abwesenheit.
     abwesenheiten = query(
@@ -8120,10 +8129,19 @@ def _alert_arbeitstage_in_woche(mitarbeiter_id, montag, sonntag, bis=None):
     )
     abwesende_tage = set()
     for a in abwesenheiten:
-        von, bis = date.fromisoformat(a['von']), date.fromisoformat(a['bis'])
+        von, bis_a = date.fromisoformat(a['von']), date.fromisoformat(a['bis'])
         for t in werktage:
-            if von <= t <= bis:
+            if von <= t <= bis_a:
                 abwesende_tage.add(t)
+    # Der heutige Tag zählt anteilig nach Uhrzeit statt sofort als voller Arbeitstag
+    # (Bugreport 2026-08-05: um 6 Uhr morgens ging der laufende Tag schon voll in den
+    # Nenner ein, obwohl noch gar kein Besuch möglich war – "Besuchsfrequenz" wirkte
+    # dadurch künstlich niedrig). Nur relevant, wenn heute im gezählten Zeitraum liegt
+    # und noch nicht abwesend ist.
+    heute_echt = date.today()
+    if heute_echt in werktage and heute_echt not in abwesende_tage:
+        werktage_voll = [t for t in werktage if t != heute_echt]
+        return len(werktage_voll) - len(abwesende_tage) + _tagesanteil_jetzt()
     return len(werktage) - len(abwesende_tage)
 
 
