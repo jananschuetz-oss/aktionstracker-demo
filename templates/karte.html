@@ -509,11 +509,34 @@ function renderMarkers() {
   const ohneKoord = [];
   const bounds    = [];
 
+  // Sichtbare Stationen vorab sammeln, um Stationen mit exakt/nahezu identischer
+  // Koordinate zu erkennen (Bugreport 2026-08-06: mehrere VS landen z.B. durch einen
+  // Orts-Fallback ohne genaue Straße auf demselben Punkt - ohne Versatz lag der zuletzt
+  // gezeichnete Marker exakt über den anderen, die darunter waren weder sichtbar noch
+  // anklickbar).
+  const sichtbar = [];
   alleStellen.forEach(s => {
     if (!stelleIstSichtbar(s)) return;
     if (s.lat == null || s.lng == null || (s.lat === 0 && s.lng === 0)) {
       ohneKoord.push(s);
       return;
+    }
+    sichtbar.push(s);
+  });
+  const koordGruppen = {};
+  sichtbar.forEach(s => {
+    const key = s.lat.toFixed(5) + '_' + s.lng.toFixed(5);
+    (koordGruppen[key] = koordGruppen[key] || []).push(s);
+  });
+
+  sichtbar.forEach(s => {
+    const gruppe = koordGruppen[s.lat.toFixed(5) + '_' + s.lng.toFixed(5)];
+    let lat = s.lat, lng = s.lng;
+    if (gruppe.length > 1) {
+      const winkel = (2 * Math.PI * gruppe.indexOf(s)) / gruppe.length;
+      const radiusGrad = 0.00035;
+      lat += radiusGrad * Math.cos(winkel);
+      lng += radiusGrad * Math.sin(winkel) / Math.cos(s.lat * Math.PI / 180);
     }
 
     const hatBesuche   = !monateFilter.length || (besuchtStationen[String(s.id)] || 0) > 0;
@@ -521,7 +544,7 @@ function renderMarkers() {
     const mehrfach     = s.zuordnungen.length > 1;
     const istHomeoffice = !!s.homeoffice_mitarbeiter_id;
 
-    const m = L.circleMarker([s.lat, s.lng], {
+    const m = L.circleMarker([lat, lng], {
       radius:      istHomeoffice ? 10 : (hatBesuche ? 9 : 6),
       fillColor:   farbe,
       color:       istHomeoffice ? '#000' : (hatBesuche ? (mehrfach ? '#fff' : 'white') : '#495057'),
@@ -544,7 +567,7 @@ function renderMarkers() {
 
     m.on('click', () => openStationModal(s.id));
     markers[s.id] = m;
-    bounds.push([s.lat, s.lng]);
+    bounds.push([lat, lng]);
   });
 
   if (bounds.length > 0) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 13 });
