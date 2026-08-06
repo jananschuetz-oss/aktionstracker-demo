@@ -9692,8 +9692,12 @@ def admin_vs_bearbeiten(vs_id):
     if not name:
         flash('Name ist ein Pflichtfeld.', 'danger')
         return redirect(url_for('admin'))
-    adresse_geaendert = (strasse != (vs['strasse'] or '') or ort != (vs['ort'] or '')
-                          or plz != (vs['plz'] or ''))
+    # Nutzerwunsch 2026-08-06: Koordinate soll bei JEDER Stammdaten-Änderung zurückgesetzt
+    # werden, die die Verortung beeinflussen könnte - nicht nur Straße/PLZ/Ort, sondern
+    # auch Name und Landkreis.
+    adresse_geaendert = (name != (vs['name'] or '') or strasse != (vs['strasse'] or '')
+                          or ort != (vs['ort'] or '') or plz != (vs['plz'] or '')
+                          or landkreis != (vs['landkreis'] or ''))
     execute(
         "UPDATE verkaufsstelle SET name=?, strasse=?, plz=?, ort=?, landkreis=?, typ=?, ansprechpartner=?, "
         "lieferant=?, kundennummer=?, hinweis=?, kategorie_override=? WHERE id=?",
@@ -12931,10 +12935,14 @@ def verkaufsstelle_kontakt_aktualisieren(vs_id):
         typ          = (data.get('typ') or '').strip() or None
         kundennummer = (data.get('kundennummer') or '').strip() or None
 
-        vs_alt = query("SELECT strasse, ort, plz FROM verkaufsstelle WHERE id=?", (vs_id,), one=True)
-        adresse_geaendert = (strasse != (vs_alt['strasse'] if vs_alt else None)
+        # Nutzerwunsch 2026-08-06: Koordinate bei JEDER Stammdaten-Änderung zurücksetzen,
+        # die die Verortung beeinflussen könnte - auch Name und Landkreis.
+        vs_alt = query("SELECT name, strasse, ort, plz, landkreis FROM verkaufsstelle WHERE id=?", (vs_id,), one=True)
+        adresse_geaendert = (name != (vs_alt['name'] if vs_alt else None)
+                              or strasse != (vs_alt['strasse'] if vs_alt else None)
                               or ort != (vs_alt['ort'] if vs_alt else None)
-                              or plz != (vs_alt['plz'] if vs_alt else None))
+                              or plz != (vs_alt['plz'] if vs_alt else None)
+                              or landkreis != (vs_alt['landkreis'] if vs_alt else None))
 
         execute(
             "UPDATE verkaufsstelle SET name=?, strasse=?, plz=?, ort=?, landkreis=?, typ=?, "
