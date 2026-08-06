@@ -1259,6 +1259,7 @@
   </div>
 
   <!-- Demo-Daten Nachfüllen -->
+  {% if demo_modus %}
   <div class="col-md-6">
     <div class="card">
       <div class="card-header" style="background:linear-gradient(135deg,#c8860a,#e6a820)">
@@ -1268,7 +1269,7 @@
         <p class="small text-muted mb-3">
           <i class="bi bi-info-circle me-1"></i>
           Fügt für jeden Rep ~10 Aktivitäten (Aufbau/Bestellung/Besuch) in die Vorwoche ein.
-          Läuft automatisch jeden Sonntag 23:30 – hier manuell auslösen:
+          Manuell auslösen:
         </p>
         <form method="POST" action="{{ url_for('admin_demo_seed') }}"
               onsubmit="return confirm('Demo-Aktivitäten für die Vorwoche jetzt einfügen?')">
@@ -1284,6 +1285,7 @@
       </div>
     </div>
   </div>
+  {% endif %}
 
   <!-- E-Mail / Passwort-Reset -->
   <div class="col-md-6">

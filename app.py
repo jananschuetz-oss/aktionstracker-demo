@@ -10693,7 +10693,12 @@ def admin_import_historische_werte():
 @app.route('/admin/demo-seed', methods=['POST'])
 @admin_required
 def admin_demo_seed():
-    """Manueller Trigger: Demo-Aktivitäten für die Vorwoche nachfüllen."""
+    """Manueller Trigger: Demo-Aktivitäten für die Vorwoche nachfüllen. Nur in der Demo-App
+    verfügbar - server-seitig abgesichert, falls die Route direkt aufgerufen wird (die
+    Karte im Admin-Panel ist bereits per demo_modus ausgeblendet, Nutzerwunsch 2026-08-06)."""
+    if not DEMO_MODUS:
+        flash('Nur in der Demo-App verfügbar.', 'danger')
+        return redirect(url_for('admin'))
     _do_demo_woche_nachfuellen(force=True)
     from datetime import date, timedelta
     today      = date.today()
