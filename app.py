@@ -9771,6 +9771,117 @@ def admin_vs_koordinaten_setzen(vs_id):
         return jsonify({'error': str(e)}), 400
 
 
+def _strasse_kern_hausnr(strasse):
+    """Normalisierter Straßenkern + Hausnummer für den Dubletten-Vergleich (Nutzerwunsch
+    2026-08-06): 'Richard-Wagnerstr. 40' und 'Richard-Wagner-Straße 40' sollen als
+    dieselbe Adresse erkannt werden."""
+    if not strasse:
+        return '', ''
+    s = strasse.lower().replace('straße', 'str').replace('strasse', 'str')
+    s = re.sub(r'[^a-zäöüß0-9]', '', s)
+    m = re.match(r'^(.*?)(\d.*)?$', s)
+    return m.group(1), (m.group(2) or '')
+
+
+def _verkaufsstelle_dubletten_kandidaten():
+    """Findet potenzielle Dubletten unter aktiven Verkaufsstellen: gleicher Straßenkern
+    + gleiche Hausnummer + gleiche PLZ (Ort bewusst nicht Teil des Schlüssels, da bei
+    Dubletten oft nur eine der beiden Zeilen einen Ort hinterlegt hat)."""
+    rows = query(
+        "SELECT id, name, strasse, plz, ort, kundennummer, lieferant, typ "
+        "FROM verkaufsstelle WHERE aktiv=1 AND strasse IS NOT NULL AND strasse != '' "
+        "AND plz IS NOT NULL AND plz != ''"
+    )
+    gruppen = {}
+    for r in rows:
+        kern, hausnr = _strasse_kern_hausnr(r['strasse'])
+        if not kern:
+            continue
+        key = (kern, hausnr, r['plz'].strip())
+        gruppen.setdefault(key, []).append(r)
+    kandidaten = [g for g in gruppen.values() if len(g) > 1]
+    result = []
+    for gruppe in kandidaten:
+        angereichert = []
+        for r in gruppe:
+            besuche = query(
+                "SELECT COUNT(*) AS n FROM aktivitaet WHERE verkaufsstelle_id=?", (r['id'],), one=True
+            )['n']
+            mitarbeiter = query(
+                "SELECT m.name FROM mitarbeiter_verkaufsstelle mv JOIN mitarbeiter m ON m.id = mv.mitarbeiter_id "
+                "WHERE mv.verkaufsstelle_id=?", (r['id'],)
+            )
+            angereichert.append({**dict(r), 'besuche': besuche, 'mitarbeiter': [m['name'] for m in mitarbeiter]})
+        result.append(angereichert)
+    return result
+
+
+@app.route('/admin/vs-dubletten')
+@admin_required
+def admin_vs_dubletten():
+    """Übersicht potenzieller Verkaufsstellen-Dubletten (Nutzerwunsch 2026-08-06)."""
+    return render_template('vs_dubletten.html', gruppen=_verkaufsstelle_dubletten_kandidaten())
+
+
+@app.route('/admin/verkaufsstelle/<int:quelle_id>/zusammenfuehren', methods=['POST'])
+@admin_required
+def admin_vs_zusammenfuehren(quelle_id):
+    """Führt eine Duplikat-Verkaufsstelle (quelle_id) in eine Ziel-VS zusammen: alle
+    Besuche/Aktivitäten, Mitarbeiter-Zuordnungen, VS-Hinweise, Tagesplan-Einträge und
+    historischen Werte werden auf die Ziel-VS umgehängt, bevor die Quelle gelöscht wird."""
+    try:
+        ziel_id = int(request.form.get('ziel_id', ''))
+    except (TypeError, ValueError):
+        flash('Ungültige Ziel-Verkaufsstelle.', 'danger')
+        return redirect(url_for('admin_vs_dubletten'))
+    if ziel_id == quelle_id:
+        flash('Quelle und Ziel dürfen nicht identisch sein.', 'danger')
+        return redirect(url_for('admin_vs_dubletten'))
+
+    quelle = query("SELECT id, name FROM verkaufsstelle WHERE id=?", (quelle_id,), one=True)
+    ziel = query("SELECT id, name FROM verkaufsstelle WHERE id=?", (ziel_id,), one=True)
+    if not quelle or not ziel:
+        flash('Verkaufsstelle(n) nicht gefunden.', 'danger')
+        return redirect(url_for('admin_vs_dubletten'))
+
+    db = get_db()
+    besuche_n = query(
+        "SELECT COUNT(*) AS n FROM aktivitaet WHERE verkaufsstelle_id=?", (quelle_id,), one=True
+    )['n']
+
+    db.execute("UPDATE aktivitaet SET verkaufsstelle_id=? WHERE verkaufsstelle_id=?", (ziel_id, quelle_id))
+    db.execute("UPDATE tagesplan SET verkaufsstelle_id=? WHERE verkaufsstelle_id=?", (ziel_id, quelle_id))
+    db.execute("UPDATE vs_hinweis_meldung SET verkaufsstelle_id=? WHERE verkaufsstelle_id=?", (ziel_id, quelle_id))
+
+    db.execute(
+        "INSERT OR IGNORE INTO mitarbeiter_verkaufsstelle (mitarbeiter_id, verkaufsstelle_id) "
+        "SELECT mitarbeiter_id, ? FROM mitarbeiter_verkaufsstelle WHERE verkaufsstelle_id=?",
+        (ziel_id, quelle_id)
+    )
+    db.execute("DELETE FROM mitarbeiter_verkaufsstelle WHERE verkaufsstelle_id=?", (quelle_id,))
+
+    # PRIMARY KEY hier (verkaufsstelle_id, jahr, monat, mitarbeiter_id) - anders als bei
+    # Arco eine Spalte mehr im Schlüssel, sonst identisches Vorgehen.
+    db.execute(
+        "INSERT OR IGNORE INTO vs_historische_werte "
+        "(verkaufsstelle_id, jahr, monat, mitarbeiter_id, besuche, bestellungen, kisten, aufbauten, gratisware) "
+        "SELECT ?, jahr, monat, mitarbeiter_id, besuche, bestellungen, kisten, aufbauten, gratisware "
+        "FROM vs_historische_werte WHERE verkaufsstelle_id=?",
+        (ziel_id, quelle_id)
+    )
+    db.execute("DELETE FROM vs_historische_werte WHERE verkaufsstelle_id=?", (quelle_id,))
+
+    db.execute("DELETE FROM verkaufsstelle WHERE id=?", (quelle_id,))
+    db.commit()
+
+    flash(
+        f'„{quelle["name"]}" (ID {quelle_id}) wurde mit „{ziel["name"]}" zusammengeführt: '
+        f'{besuche_n} Besuch(e)/Aktivität(en) übertragen, Duplikat gelöscht.',
+        'success'
+    )
+    return redirect(url_for('admin_vs_dubletten'))
+
+
 @app.route('/verkaufsstelle/neu', methods=['POST'])
 @login_required
 def vs_neu_rep():

@@ -1,0 +1,91 @@
+{% extends 'base.html' %}
+{% block title %}Verkaufsstellen-Dubletten{% endblock %}
+{% block content %}
+<div class="container-fluid py-3">
+  <div class="d-flex align-items-center gap-3 mb-3">
+    <a href="{{ url_for('admin') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-arrow-left me-1"></i>Admin
+    </a>
+    <h5 class="mb-0">{{ gruppen|length }} mögliche Dublette(n)</h5>
+    <span class="text-muted small">Gleicher Straßenkern + Hausnummer + PLZ (Schreibweise-unabhängig)</span>
+  </div>
+
+  <div class="alert alert-info py-2 small">
+    <strong>So geht's:</strong> Pro Gruppe die VS auswählen, die als Ziel bestehen bleiben soll, dann „Zusammenführen" klicken.
+    Alle Besuche/Aktivitäten, Mitarbeiter-Zuordnungen, Hinweise und historischen Werte der anderen VS werden automatisch übertragen,
+    danach wird das Duplikat gelöscht. <strong>Es geht nichts verloren.</strong>
+  </div>
+
+  {% if not gruppen %}
+  <div class="alert alert-success py-2 small mb-0">
+    <i class="bi bi-check-circle me-1"></i>Keine Dubletten gefunden.
+  </div>
+  {% endif %}
+
+  {% for gruppe in gruppen %}
+  <div class="card mb-3">
+    <div class="card-header py-2 small text-muted">
+      {{ gruppe[0].strasse }} · {{ gruppe[0].plz }}
+    </div>
+    <div class="card-body py-2">
+      <form method="POST" action="{{ url_for('admin_vs_zusammenfuehren', quelle_id=0) }}" class="merge-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <table class="table table-sm mb-2">
+          <thead>
+            <tr>
+              <th style="width:40px">Ziel</th>
+              <th>Name</th>
+              <th>Adresse</th>
+              <th>Kd-Nr.</th>
+              <th>Lieferant</th>
+              <th>Zugeordnet</th>
+              <th>Besuche</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for s in gruppe %}
+            <tr>
+              <td>
+                <input type="radio" name="ziel_id" value="{{ s.id }}" class="ziel-radio" required
+                       {% if loop.index0 == 0 %}checked{% endif %}>
+              </td>
+              <td class="fw-semibold">{{ s.name }}</td>
+              <td class="text-muted small">{{ s.strasse }}, {{ s.plz }} {{ s.ort or '' }}</td>
+              <td class="text-muted small">{{ s.kundennummer or '–' }}</td>
+              <td class="text-muted small">{{ s.lieferant or '–' }}</td>
+              <td class="text-muted small">{{ s.mitarbeiter|join(', ') or '–' }}</td>
+              <td class="text-muted small">{{ s.besuche }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <div class="d-flex gap-2">
+          {% for s in gruppe %}
+          <button type="submit" formaction="{{ url_for('admin_vs_zusammenfuehren', quelle_id=s.id) }}"
+                  class="btn btn-outline-danger btn-sm quelle-btn" data-id="{{ s.id }}"
+                  onclick="return confirm('„{{ s.name }}\' (ID {{ s.id }}) wird in die ausgewählte Ziel-VS eingeschmolzen und danach gelöscht. Fortfahren?')">
+            <i class="bi bi-arrow-right-circle me-1"></i>„{{ s.name }}" (ID {{ s.id }}) einschmelzen
+          </button>
+          {% endfor %}
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<script>
+// Verhindert, dass eine VS gleichzeitig als Ziel UND als einzuschmelzende Quelle gewählt wird.
+document.querySelectorAll('.merge-form').forEach(form => {
+  form.querySelectorAll('.quelle-btn').forEach(btn => {
+    btn.addEventListener('click', function(e) {
+      const zielChecked = form.querySelector('.ziel-radio:checked');
+      if (zielChecked && zielChecked.value === this.dataset.id) {
+        e.preventDefault();
+        alert('Ziel und einzuschmelzende Quelle dürfen nicht dieselbe VS sein – bitte oben eine andere VS als Ziel wählen.');
+      }
+    });
+  });
+});
+</script>
+{% endblock %}

@@ -760,6 +760,23 @@
   </div>
 </div>
 
+<!-- Dubletten-Prüfung -->
+<div class="row g-4 mt-2">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+          <div class="fw-semibold" style="color:#1a3a5c"><i class="bi bi-signpost-split me-2"></i>Verkaufsstellen-Dubletten</div>
+          <p class="text-muted small mb-0">Findet Verkaufsstellen mit gleicher Adresse in unterschiedlicher Schreibweise (z.B. "Musterstr." vs. "Musterstraße") und führt sie ohne Datenverlust zusammen.</p>
+        </div>
+        <a href="{{ url_for('admin_vs_dubletten') }}" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-search me-1"></i>Prüfen
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Excel-Import -->
 <div class="row g-4 mt-2">
   <div class="col-12">
