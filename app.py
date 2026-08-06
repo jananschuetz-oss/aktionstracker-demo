@@ -992,6 +992,16 @@ def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_formular_antwort_aktivitaet ON formular_antwort(aktivitaet_id);
 
+            CREATE TABLE IF NOT EXISTS vs_dubletten_ignoriert (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                strasse_kern  TEXT NOT NULL,
+                hausnr        TEXT NOT NULL,
+                plz           TEXT NOT NULL,
+                ignoriert_von INTEGER REFERENCES mitarbeiter(id),
+                ignoriert_am  TEXT DEFAULT (datetime('now','localtime')),
+                UNIQUE(strasse_kern, hausnr, plz)
+            );
+
             CREATE TABLE IF NOT EXISTS displaysorte (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
@@ -9826,22 +9836,29 @@ def _verkaufsstelle_adress_dubletten(strasse, plz, ort, ausschluss_id=None):
 def _verkaufsstelle_dubletten_kandidaten():
     """Findet potenzielle Dubletten unter aktiven Verkaufsstellen: gleicher Straßenkern
     + gleiche Hausnummer + gleiche PLZ (Ort bewusst nicht Teil des Schlüssels, da bei
-    Dubletten oft nur eine der beiden Zeilen einen Ort hinterlegt hat)."""
+    Dubletten oft nur eine der beiden Zeilen einen Ort hinterlegt hat). Gruppen, die
+    bereits explizit als "keine Dublette" markiert wurden (siehe vs_dubletten_ignoriert),
+    werden ausgeschlossen."""
     rows = query(
         "SELECT id, name, strasse, plz, ort, kundennummer, lieferant, typ "
         "FROM verkaufsstelle WHERE aktiv=1 AND strasse IS NOT NULL AND strasse != '' "
         "AND plz IS NOT NULL AND plz != ''"
     )
+    ignoriert = {(r['strasse_kern'], r['hausnr'], r['plz']) for r in query(
+        "SELECT strasse_kern, hausnr, plz FROM vs_dubletten_ignoriert"
+    )}
     gruppen = {}
     for r in rows:
         kern, hausnr = _strasse_kern_hausnr(r['strasse'])
         if not kern:
             continue
         key = (kern, hausnr, r['plz'].strip())
+        if key in ignoriert:
+            continue
         gruppen.setdefault(key, []).append(r)
-    kandidaten = [g for g in gruppen.values() if len(g) > 1]
+    kandidaten = [(key, g) for key, g in gruppen.items() if len(g) > 1]
     result = []
-    for gruppe in kandidaten:
+    for (kern, hausnr, plz), gruppe in kandidaten:
         angereichert = []
         for r in gruppe:
             besuche = query(
@@ -9852,7 +9869,7 @@ def _verkaufsstelle_dubletten_kandidaten():
                 "WHERE mv.verkaufsstelle_id=?", (r['id'],)
             )
             angereichert.append({**dict(r), 'besuche': besuche, 'mitarbeiter': [m['name'] for m in mitarbeiter]})
-        result.append(angereichert)
+        result.append({'kern': kern, 'hausnr': hausnr, 'plz': plz, 'vs': angereichert})
     return result
 
 
@@ -9860,7 +9877,53 @@ def _verkaufsstelle_dubletten_kandidaten():
 @admin_required
 def admin_vs_dubletten():
     """Übersicht potenzieller Verkaufsstellen-Dubletten (Nutzerwunsch 2026-08-06)."""
-    return render_template('vs_dubletten.html', gruppen=_verkaufsstelle_dubletten_kandidaten())
+    anzahl_ignoriert = query("SELECT COUNT(*) AS n FROM vs_dubletten_ignoriert", one=True)['n']
+    return render_template(
+        'vs_dubletten.html',
+        gruppen=_verkaufsstelle_dubletten_kandidaten(),
+        anzahl_ignoriert=anzahl_ignoriert
+    )
+
+
+@app.route('/admin/vs-dubletten/ignorieren', methods=['POST'])
+@admin_required
+def admin_vs_dublette_ignorieren():
+    """Markiert eine Adressgruppe dauerhaft als "keine Dublette" (Nutzerwunsch 2026-08-06),
+    damit sie bei künftigen Aufrufen von /admin/vs-dubletten nicht erneut zur Entscheidung
+    vorgelegt wird. Schlüssel ist der Gruppen-Key, nicht einzelne VS-IDs."""
+    kern = request.form.get('kern', '').strip()
+    hausnr = request.form.get('hausnr', '').strip()
+    plz = request.form.get('plz', '').strip()
+    if kern and plz:
+        execute(
+            "INSERT OR IGNORE INTO vs_dubletten_ignoriert (strasse_kern, hausnr, plz, ignoriert_von) VALUES (?,?,?,?)",
+            (kern, hausnr, plz, session['user_id'])
+        )
+        flash('Als "keine Dublette" markiert – wird nicht mehr angezeigt.', 'success')
+    return redirect(url_for('admin_vs_dubletten'))
+
+
+@app.route('/admin/vs-dubletten/ausgeblendet')
+@admin_required
+def admin_vs_dubletten_ausgeblendet():
+    """Übersicht der als "keine Dublette" markierten Adressgruppen, damit ein Fehlklick
+    rückgängig gemacht werden kann (Nutzerwunsch 2026-08-06)."""
+    rows = query(
+        "SELECT vdi.id, vdi.strasse_kern, vdi.hausnr, vdi.plz, vdi.ignoriert_am, m.name AS ignoriert_von_name "
+        "FROM vs_dubletten_ignoriert vdi LEFT JOIN mitarbeiter m ON m.id = vdi.ignoriert_von "
+        "ORDER BY vdi.ignoriert_am DESC"
+    )
+    return render_template('vs_dubletten_ausgeblendet.html', eintraege=rows)
+
+
+@app.route('/admin/vs-dubletten/ausgeblendet/<int:eintrag_id>/reaktivieren', methods=['POST'])
+@admin_required
+def admin_vs_dublette_reaktivieren(eintrag_id):
+    """Nimmt eine Adressgruppe wieder aus der Ignorier-Liste – sie taucht dann wieder als
+    mögliche Dublette auf, falls sie noch ≥2 aktive Verkaufsstellen umfasst."""
+    execute("DELETE FROM vs_dubletten_ignoriert WHERE id=?", (eintrag_id,))
+    flash('Gruppe wird wieder als mögliche Dublette angezeigt.', 'success')
+    return redirect(url_for('admin_vs_dubletten_ausgeblendet'))
 
 
 @app.route('/admin/verkaufsstelle/<int:quelle_id>/zusammenfuehren', methods=['POST'])

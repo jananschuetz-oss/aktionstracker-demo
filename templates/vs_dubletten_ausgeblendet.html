@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+{% block title %}Ausgeblendete Dubletten{% endblock %}
+{% block content %}
+<div class="container-fluid py-3">
+  <div class="d-flex align-items-center gap-3 mb-3">
+    <a href="{{ url_for('admin_vs_dubletten') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-arrow-left me-1"></i>Dubletten
+    </a>
+    <h5 class="mb-0">{{ eintraege|length }} als „keine Dublette" markierte Gruppe(n)</h5>
+  </div>
+
+  {% if not eintraege %}
+  <div class="alert alert-success py-2 small mb-0">
+    <i class="bi bi-check-circle me-1"></i>Keine ausgeblendeten Gruppen.
+  </div>
+  {% endif %}
+
+  {% if eintraege %}
+  <div class="card">
+    <div class="card-body py-2">
+      <table class="table table-sm mb-0">
+        <thead>
+          <tr>
+            <th>Straße</th>
+            <th>PLZ</th>
+            <th>Markiert von</th>
+            <th>Markiert am</th>
+            <th style="width:160px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in eintraege %}
+          <tr>
+            <td class="text-muted small">{{ e.strasse_kern }} {{ e.hausnr }}</td>
+            <td class="text-muted small">{{ e.plz }}</td>
+            <td class="text-muted small">{{ e.ignoriert_von_name or '–' }}</td>
+            <td class="text-muted small">{{ e.ignoriert_am }}</td>
+            <td>
+              <form method="POST" action="{{ url_for('admin_vs_dublette_reaktivieren', eintrag_id=e.id) }}" class="mb-0">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline-secondary btn-sm">
+                  <i class="bi bi-arrow-counterclockwise me-1"></i>Reaktivieren
+                </button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
