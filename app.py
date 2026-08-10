@@ -3637,7 +3637,7 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
             WHERE z.jahr=? AND m.aktiv=1{t_m_sql}
         ''', (jahr,) + t_m_p, one=True)
         ist_gesamt = query(f'''
-            SELECT COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung' THEN b.kisten_total ELSE 0 END),0) AS kisten_ist,
+            SELECT COALESCE(SUM(b.kisten_total),0) AS kisten_ist,
                    COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.anzahl_displays ELSE 0 END),0) AS displays_ist
             FROM aktivitaet a LEFT JOIN {BP_Z} b ON b.aktivitaet_id = a.id
             WHERE strftime('%Y', a.datum)=?{t_a_sql}
@@ -3651,7 +3651,7 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
         kategorie_werte = []
         for k in kategorien_ziel:
             ist_k = query(f'''
-                SELECT COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung' THEN b.kisten_total ELSE 0 END),0) AS kisten_ist,
+                SELECT COALESCE(SUM(b.kisten_total),0) AS kisten_ist,
                        COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.anzahl_displays ELSE 0 END),0) AS displays_ist
                 FROM aktivitaet a JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id
                 LEFT JOIN {BP_Z} b ON b.aktivitaet_id = a.id
@@ -3903,7 +3903,7 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
         t_m_sql, t_m_p = _team_m_clause('m')
         rows = query(f'''
             SELECT m.id, m.name, z.kisten_ziel, z.displays_ziel,
-                   COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung' THEN b.kisten_total ELSE 0 END), 0) AS kisten_ist,
+                   COALESCE(SUM(b.kisten_total), 0) AS kisten_ist,
                    COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.anzahl_displays ELSE 0 END), 0) AS displays_ist
             FROM mitarbeiter m
             JOIN zielzahlen z ON z.mitarbeiter_id = m.id AND z.jahr = ?
@@ -3928,7 +3928,7 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
         BP_T = "(SELECT aktivitaet_id, SUM(kisten_anzahl) AS kisten_total FROM bestellposition GROUP BY aktivitaet_id)"
         rows = query(f'''
             SELECT m.id, t.name AS team_name, z.kisten_ziel, z.displays_ziel,
-                   COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung' THEN b.kisten_total ELSE 0 END), 0) AS kisten_ist,
+                   COALESCE(SUM(b.kisten_total), 0) AS kisten_ist,
                    COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.anzahl_displays ELSE 0 END), 0) AS displays_ist
             FROM mitarbeiter m
             JOIN team t ON t.id = m.team_id
@@ -3961,7 +3961,7 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
         def _jahreswerte(j):
             return query(f'''
                 SELECT COUNT(DISTINCT a.id) AS besuche,
-                       COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung' THEN b.kisten_total ELSE 0 END),0) AS kisten,
+                       COALESCE(SUM(b.kisten_total),0) AS kisten,
                        COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.anzahl_displays ELSE 0 END),0) AS displays
                 FROM aktivitaet a LEFT JOIN {BP_V} b ON b.aktivitaet_id = a.id
                 WHERE strftime('%Y', a.datum) = ?{t_ma_sql}
@@ -4068,7 +4068,7 @@ def dashboard():
     # Displays zählen nur bei Aufbau (inkl. Altdaten/NULL); Kisten nur bei Bestellung
     _AUF     = "COALESCE(a.aktionstyp,'Aufbau')='Aufbau'"
     DISP_IST = f"SUM(CASE WHEN {_AUF} THEN a.anzahl_displays ELSE 0 END)"
-    KIST_IST = "COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung' THEN b.kisten_total ELSE 0 END), 0)"
+    KIST_IST = "COALESCE(SUM(b.kisten_total), 0)"
 
     # Team-Filter (VKL mit zugewiesenem Team sieht nur eigene Team-Mitglieder)
     t_ma_sql, t_ma_p = _team_ma_clause('a')
@@ -4153,7 +4153,7 @@ def dashboard():
             FROM bestellposition bp
             JOIN biersorte bs ON bs.id = bp.biersorte_id
             JOIN aktivitaet a ON a.id = bp.aktivitaet_id
-            WHERE strftime('%Y', a.datum) = ? AND a.aktionstyp='Bestellung' {ma_clause}{t_ma_sql}
+            WHERE strftime('%Y', a.datum) = ? {ma_clause}{t_ma_sql}
             GROUP BY bs.id ORDER BY kisten DESC LIMIT 6
         ''', (str(jahr),) + ma_params + t_ma_p)
     else:
@@ -4162,7 +4162,7 @@ def dashboard():
             FROM bestellposition bp
             JOIN biersorte bs ON bs.id = bp.biersorte_id
             JOIN aktivitaet a ON a.id = bp.aktivitaet_id
-            WHERE strftime('%Y', a.datum) = ? AND a.mitarbeiter_id = ? AND a.aktionstyp='Bestellung'
+            WHERE strftime('%Y', a.datum) = ? AND a.mitarbeiter_id = ?
             GROUP BY bs.id ORDER BY kisten DESC LIMIT 6
         ''', (str(jahr), session['user_id']))
 
@@ -4345,7 +4345,7 @@ def dashboard():
                 SELECT
                     (SELECT COALESCE(SUM(b.kisten_total), 0) FROM aktivitaet a
                      JOIN {BP} b ON b.aktivitaet_id = a.id
-                     WHERE a.aktionstyp='Bestellung' AND {_where}) AS kisten,
+                     WHERE {_where}) AS kisten,
                     (SELECT COUNT(DISTINCT a.id) FROM aktivitaet a
                      WHERE {_where}) AS besuche,
                     (SELECT COALESCE(SUM(dp.anzahl), 0) FROM aktivitaet a
@@ -5679,7 +5679,7 @@ def verkaufsstelle_historie(vs_id):
             SELECT COUNT(a.id) AS besuche,
                    SUM(CASE WHEN a.aktionstyp='Bestellung' THEN 1 ELSE 0 END) AS bestellungen,
                    SUM(CASE WHEN a.aktionstyp='Aufbau' THEN 1 ELSE 0 END) AS aufbauten,
-                   COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung' THEN b.kisten_total ELSE 0 END), 0) AS kisten,
+                   COALESCE(SUM(b.kisten_total), 0) AS kisten,
                    COALESCE(SUM(g.gratis_total), 0) AS gratisware,
                    MIN(a.datum) AS erster, MAX(a.datum) AS letzter
             FROM aktivitaet a
@@ -5731,7 +5731,7 @@ def verkaufsstelle_historie(vs_id):
                    COUNT(a.id) AS besuche,
                    SUM(CASE WHEN a.aktionstyp='Bestellung' THEN 1 ELSE 0 END) AS bestellungen,
                    SUM(CASE WHEN a.aktionstyp='Aufbau' THEN 1 ELSE 0 END) AS aufbauten,
-                   COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung' THEN b.kisten_total ELSE 0 END), 0) AS kisten,
+                   COALESCE(SUM(b.kisten_total), 0) AS kisten,
                    COALESCE(SUM(g.gratis_total), 0) AS gratisware
             FROM aktivitaet a
             LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
@@ -11197,7 +11197,7 @@ def team_vergleich():
 
     BP       = "(SELECT aktivitaet_id, SUM(kisten_anzahl) AS kisten_total FROM bestellposition GROUP BY aktivitaet_id)"
     DISP_IST = "SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.anzahl_displays ELSE 0 END)"
-    KIST_IST = "COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung' THEN b.kisten_total ELSE 0 END), 0)"
+    KIST_IST = "COALESCE(SUM(b.kisten_total), 0)"
 
     teams = query("SELECT id, name FROM team ORDER BY name")
 
@@ -11547,8 +11547,7 @@ def _do_send_wochenbericht(force=False):
                                                    THEN a.id END) AS aufbauten,
                                COUNT(DISTINCT CASE WHEN a.aktionstyp=\'Bestellung\'
                                                    THEN a.id END) AS bestellungen,
-                               COALESCE(SUM(CASE WHEN a.aktionstyp=\'Bestellung\'
-                                                 THEN bp.kisten_anzahl END), 0) AS kisten,
+                               COALESCE(SUM(bp.kisten_anzahl), 0) AS kisten,
                                COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,\'Aufbau\')=\'Aufbau\'
                                                  THEN a.anzahl_displays END), 0) AS displays
                         FROM aktivitaet a
@@ -11580,7 +11579,7 @@ def _do_send_wochenbericht(force=False):
                     LEFT JOIN (
                         SELECT a2.mitarbeiter_id AS mid, SUM(bp2.kisten_anzahl) AS kisten
                         FROM aktivitaet a2 JOIN bestellposition bp2 ON bp2.aktivitaet_id = a2.id
-                        WHERE a2.aktionstyp=\'Bestellung\' AND a2.datum BETWEEN ? AND ?
+                        WHERE a2.datum BETWEEN ? AND ?
                         GROUP BY a2.mitarbeiter_id
                     ) bpx ON bpx.mid = m.id
                     LEFT JOIN (
@@ -11600,8 +11599,7 @@ def _do_send_wochenbericht(force=False):
                 _rs_vw = query(f'''
                     SELECT m.id AS mitarbeiter_id,
                            COUNT(DISTINCT a.id) AS besuche,
-                           COALESCE(SUM(CASE WHEN a.aktionstyp=\'Bestellung\'
-                                             THEN bp.kisten_anzahl END), 0) AS kisten
+                           COALESCE(SUM(bp.kisten_anzahl), 0) AS kisten
                     FROM aktivitaet a
                     JOIN mitarbeiter m ON m.id=a.mitarbeiter_id
                     LEFT JOIN bestellposition bp ON bp.aktivitaet_id=a.id
@@ -11915,8 +11913,7 @@ def _do_send_monatsbericht(force=False):
                                                THEN a.id END) AS aufbauten,
                            COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung'
                                                THEN a.id END) AS bestellungen,
-                           COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
-                                             THEN bp.kisten_anzahl END), 0) AS kisten,
+                           COALESCE(SUM(bp.kisten_anzahl), 0) AS kisten,
                            COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
                                              THEN a.anzahl_displays END), 0) AS displays
                     FROM aktivitaet a
@@ -11943,7 +11940,7 @@ def _do_send_monatsbericht(force=False):
                 LEFT JOIN (
                     SELECT a2.mitarbeiter_id AS mid, SUM(bp2.kisten_anzahl) AS kisten
                     FROM aktivitaet a2 JOIN bestellposition bp2 ON bp2.aktivitaet_id = a2.id
-                    WHERE a2.aktionstyp='Bestellung' AND a2.datum BETWEEN ? AND ?
+                    WHERE a2.datum BETWEEN ? AND ?
                     GROUP BY a2.mitarbeiter_id
                 ) bpx ON bpx.mid = m.id
                 LEFT JOIN (
@@ -11963,8 +11960,7 @@ def _do_send_monatsbericht(force=False):
             _rs_vm = query(f'''
                 SELECT m.id AS mitarbeiter_id,
                        COUNT(DISTINCT a.id) AS besuche,
-                       COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
-                                         THEN bp.kisten_anzahl END), 0) AS kisten
+                       COALESCE(SUM(bp.kisten_anzahl), 0) AS kisten
                 FROM aktivitaet a
                 JOIN mitarbeiter m ON m.id=a.mitarbeiter_id
                 LEFT JOIN bestellposition bp ON bp.aktivitaet_id=a.id
@@ -12542,8 +12538,7 @@ def wochenbericht_vorschau():
                                        THEN a.id END) AS aufbauten,
                    COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung'
                                        THEN a.id END) AS bestellungen,
-                   COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
-                                     THEN bp.kisten_anzahl END), 0) AS kisten,
+                   COALESCE(SUM(bp.kisten_anzahl), 0) AS kisten,
                    COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
                                      THEN a.anzahl_displays END), 0) AS displays
             FROM aktivitaet a
@@ -12568,7 +12563,7 @@ def wochenbericht_vorschau():
         LEFT JOIN (
             SELECT a2.mitarbeiter_id AS mid, SUM(bp2.kisten_anzahl) AS kisten
             FROM aktivitaet a2 JOIN bestellposition bp2 ON bp2.aktivitaet_id = a2.id
-            WHERE a2.aktionstyp='Bestellung' AND a2.datum BETWEEN ? AND ?
+            WHERE a2.datum BETWEEN ? AND ?
             GROUP BY a2.mitarbeiter_id
         ) bpx ON bpx.mid = m.id
         LEFT JOIN (
@@ -12588,8 +12583,7 @@ def wochenbericht_vorschau():
     rep_letzte_w = query('''
         SELECT m.id AS mitarbeiter_id,
                COUNT(DISTINCT a.id) AS besuche,
-               COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
-                                 THEN bp.kisten_anzahl END), 0) AS kisten
+               COALESCE(SUM(bp.kisten_anzahl), 0) AS kisten
         FROM aktivitaet a
         JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
         LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
@@ -12786,8 +12780,7 @@ def monatsbericht_vorschau():
                                        THEN a.id END) AS aufbauten,
                    COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung'
                                        THEN a.id END) AS bestellungen,
-                   COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
-                                     THEN bp.kisten_anzahl END), 0) AS kisten,
+                   COALESCE(SUM(bp.kisten_anzahl), 0) AS kisten,
                    COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
                                      THEN a.anzahl_displays END), 0) AS displays
             FROM aktivitaet a
@@ -12812,7 +12805,7 @@ def monatsbericht_vorschau():
         LEFT JOIN (
             SELECT a2.mitarbeiter_id AS mid, SUM(bp2.kisten_anzahl) AS kisten
             FROM aktivitaet a2 JOIN bestellposition bp2 ON bp2.aktivitaet_id = a2.id
-            WHERE a2.aktionstyp='Bestellung' AND a2.datum BETWEEN ? AND ?
+            WHERE a2.datum BETWEEN ? AND ?
             GROUP BY a2.mitarbeiter_id
         ) bpx ON bpx.mid = m.id
         LEFT JOIN (
@@ -12832,8 +12825,7 @@ def monatsbericht_vorschau():
     rep_letzte_m = query('''
         SELECT m.id AS mitarbeiter_id,
                COUNT(DISTINCT a.id) AS besuche,
-               COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung'
-                                 THEN bp.kisten_anzahl END), 0) AS kisten
+               COALESCE(SUM(bp.kisten_anzahl), 0) AS kisten
         FROM aktivitaet a
         JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
         LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
@@ -13374,7 +13366,7 @@ def verkaufsstellen_vergleich():
             return query(f"""
                 SELECT COUNT(a.id) AS besuche,
                        SUM(CASE WHEN a.aktionstyp='Bestellung' THEN 1 ELSE 0 END) AS bestellungen,
-                       COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung' THEN b.kisten_total ELSE 0 END), 0) AS kisten,
+                       COALESCE(SUM(b.kisten_total), 0) AS kisten,
                        COUNT(DISTINCT a.verkaufsstelle_id) AS kunden_besucht
                 FROM aktivitaet a
                 JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id AND {vs_sql}{ex_sql}
@@ -13399,7 +13391,7 @@ def verkaufsstellen_vergleich():
             return query(f"""
                 SELECT COUNT(a.id) AS besuche,
                        SUM(CASE WHEN a.aktionstyp='Bestellung' THEN 1 ELSE 0 END) AS bestellungen,
-                       COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung' THEN b.kisten_total ELSE 0 END), 0) AS kisten,
+                       COALESCE(SUM(b.kisten_total), 0) AS kisten,
                        COUNT(DISTINCT a.verkaufsstelle_id) AS kunden_besucht
                 FROM aktivitaet a
                 JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id AND v.typ = ?{ex_sql}
@@ -14195,8 +14187,7 @@ def api_karte_heatmap():
             metric     = "COUNT(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN 1 END) AS anzahl"
             extra_join = ""
         elif ebene == 'volumen':
-            metric     = ("COALESCE(SUM(CASE WHEN a.aktionstyp='Bestellung' "
-                          "THEN bp.kisten_anzahl END), 0) AS anzahl")
+            metric     = "COALESCE(SUM(bp.kisten_anzahl), 0) AS anzahl"
             extra_join = "LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id"
         else:  # betreuung
             metric     = "COUNT(a.id) AS anzahl"
