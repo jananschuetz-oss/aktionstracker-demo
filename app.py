@@ -1173,6 +1173,11 @@ def init_db():
             # Schreib-Overhead bei jedem INSERT auf bestellposition.
             "CREATE INDEX IF NOT EXISTS idx_bestellposition_akt_kisten ON bestellposition(aktivitaet_id, kisten_anzahl)",
             "DROP INDEX IF EXISTS idx_bestellposition_aktivitaet",
+            # Performance (Review 2026-08-10, von Arco portiert): die Bestell-Pipeline-
+            # Queries (Dashboard-Rep-Zweig, /bestellungen, team_vergleich) filtern auf
+            # aktionstyp='Bestellung' (teils + datum BETWEEN) – ohne Index scannt
+            # jede davon die volle aktivitaet-Tabelle über alle Jahre.
+            "CREATE INDEX IF NOT EXISTS idx_aktivitaet_aktionstyp_datum ON aktivitaet(aktionstyp, datum)",
             "CREATE INDEX IF NOT EXISTS idx_displayposition_aktivitaet ON displayposition(aktivitaet_id)",
             # Performance-Check 2026-07-28 (analog zu Arco): WHERE dp.status='offen' lief
             # bei jedem Seitenaufruf für Admin/VKL (Freigaben-Badge im context_processor)
@@ -3630,7 +3635,12 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
     if 'zielerreichung_kisten_displays' in aktive_keys:
         t_m_sql, t_m_p = _team_m_clause('m')
         t_a_sql, t_a_p = _team_ma_clause('a')
-        BP_Z = "(SELECT aktivitaet_id, SUM(kisten_anzahl) AS kisten_total FROM bestellposition GROUP BY aktivitaet_id)"
+        # Jahres-Scope in der Subquery (Review 2026-08-10, von Arco portiert, Performance):
+        # identisches Ergebnis (äußere Query filtert bereits aufs Jahr), aber der Scan
+        # schrumpft von der Gesamt-Historie aufs Jahr. jahr ist int-validiert.
+        BP_Z = (f"(SELECT bp.aktivitaet_id, SUM(bp.kisten_anzahl) AS kisten_total FROM bestellposition bp "
+                f"JOIN aktivitaet ax ON ax.id=bp.aktivitaet_id AND ax.datum>='{int(jahr)}-01-01' AND ax.datum<'{int(jahr) + 1}-01-01' "
+                f"GROUP BY bp.aktivitaet_id)")
         ziel_gesamt = query(f'''
             SELECT COALESCE(SUM(z.kisten_ziel),0) AS kisten_ziel, COALESCE(SUM(z.displays_ziel),0) AS displays_ziel
             FROM zielzahlen z JOIN mitarbeiter m ON m.id = z.mitarbeiter_id
@@ -3704,16 +3714,18 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
         # nur zusätzlich nach Mitarbeiter gruppiert statt nur die Summe zu zeigen.
         t_ma_sql, t_ma_p = _team_ma_clause('a')
         BPG_K = "(SELECT bp.aktivitaet_id, SUM(bp.kisten_anzahl) AS gratis_total FROM bestellposition bp JOIN biersorte bs ON bs.id=bp.biersorte_id WHERE COALESCE(bs.ist_gratisware,0)=1 GROUP BY bp.aktivitaet_id)"
+        # Kein aktionstyp-Filter (Review 2026-08-10, von Arco portiert, gleiche Klasse wie
+        # Kisten-Fix): Gratisware kann auch an einem Aufbau-Kombi-Besuch hängen und muss mitzählen.
         row = query(f'''
             SELECT COALESCE(SUM(g.gratis_total),0) AS gesamt
             FROM aktivitaet a LEFT JOIN {BPG_K} g ON g.aktivitaet_id = a.id
-            WHERE strftime('%Y', a.datum)=? AND a.aktionstyp IN ('Bestellung','Besuch'){t_ma_sql}
+            WHERE strftime('%Y', a.datum)=?{t_ma_sql}
         ''', (str(jahr),) + t_ma_p, one=True)
         rows_ma = query(f'''
             SELECT m.name AS name, COALESCE(SUM(g.gratis_total),0) AS menge
             FROM aktivitaet a LEFT JOIN {BPG_K} g ON g.aktivitaet_id = a.id
             JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
-            WHERE strftime('%Y', a.datum)=? AND a.aktionstyp IN ('Bestellung','Besuch'){t_ma_sql}
+            WHERE strftime('%Y', a.datum)=?{t_ma_sql}
             GROUP BY m.id
             HAVING menge > 0
             ORDER BY menge DESC
@@ -3899,7 +3911,10 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
         }
 
     if 'rep_ranking_zielerreichung' in aktive_keys:
-        BP = "(SELECT aktivitaet_id, SUM(kisten_anzahl) AS kisten_total FROM bestellposition GROUP BY aktivitaet_id)"
+        # Jahres-Scope wie bei BP_Z (Review 2026-08-10, von Arco portiert) – Ergebnis identisch.
+        BP = (f"(SELECT bp.aktivitaet_id, SUM(bp.kisten_anzahl) AS kisten_total FROM bestellposition bp "
+              f"JOIN aktivitaet ax ON ax.id=bp.aktivitaet_id AND ax.datum>='{int(jahr)}-01-01' AND ax.datum<'{int(jahr) + 1}-01-01' "
+              f"GROUP BY bp.aktivitaet_id)")
         t_m_sql, t_m_p = _team_m_clause('m')
         rows = query(f'''
             SELECT m.id, m.name, z.kisten_ziel, z.displays_ziel,
@@ -3956,7 +3971,11 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
 
     if 'vorjahresvergleich' in aktive_keys:
         t_ma_sql, t_ma_p = _team_ma_clause('a')
-        BP_V = "(SELECT aktivitaet_id, SUM(kisten_anzahl) AS kisten_total FROM bestellposition GROUP BY aktivitaet_id)"
+        # Scope über BEIDE Vergleichsjahre (aktuell + Vorjahr) – _jahreswerte() wird für
+        # jahr und jahr-1 aufgerufen (Review 2026-08-10, von Arco portiert). Ergebnis identisch.
+        BP_V = (f"(SELECT bp.aktivitaet_id, SUM(bp.kisten_anzahl) AS kisten_total FROM bestellposition bp "
+                f"JOIN aktivitaet ax ON ax.id=bp.aktivitaet_id AND ax.datum>='{int(jahr) - 1}-01-01' AND ax.datum<'{int(jahr) + 1}-01-01' "
+                f"GROUP BY bp.aktivitaet_id)")
 
         def _jahreswerte(j):
             return query(f'''
@@ -4062,8 +4081,14 @@ def dashboard():
     ma_params = (ma_filter,) if ma_filter else ()
 
     # KW-Daten (Wochenübersicht)
-    # Subquery: Kisten pro Aktivität voraggregieren → verhindert Duplikation von anzahl_displays
-    BP = "(SELECT aktivitaet_id, SUM(kisten_anzahl) AS kisten_total FROM bestellposition GROUP BY aktivitaet_id)"
+    # Subquery: Kisten pro Aktivität voraggregieren → verhindert Duplikation von anzahl_displays.
+    # Jahres-Scope in der Subquery (Review 2026-08-10, von Arco portiert, Performance): ohne
+    # ihn aggregiert jedes der Dashboard-Statements die KOMPLETTE bestellposition-Historie
+    # neu, obwohl die äußere Query aufs Jahr filtert – Ergebnis identisch (der LEFT JOIN
+    # liefert für Fremdjahres-IDs ohnehin NULL), nur der Scan schrumpft aufs Jahr.
+    # jahr ist via request.args type=int validiert, daher als Literal unbedenklich.
+    _BP_JAHR = f"JOIN aktivitaet ax ON ax.id=bp.aktivitaet_id AND ax.datum>='{jahr}-01-01' AND ax.datum<'{jahr + 1}-01-01'"
+    BP = f"(SELECT bp.aktivitaet_id, SUM(bp.kisten_anzahl) AS kisten_total FROM bestellposition bp {_BP_JAHR} GROUP BY bp.aktivitaet_id)"
 
     # Displays zählen nur bei Aufbau (inkl. Altdaten/NULL); Kisten nur bei Bestellung
     _AUF     = "COALESCE(a.aktionstyp,'Aufbau')='Aufbau'"
@@ -4073,29 +4098,42 @@ def dashboard():
     # Team-Filter (VKL mit zugewiesenem Team sieht nur eigene Team-Mitglieder)
     t_ma_sql, t_ma_p = _team_ma_clause('a')
 
+    # ISO-Kalenderwoche statt strftime('%W') (Review 2026-08-10, von Arco portiert): %W zählt
+    # Wochen ab dem ersten Montag des Jahres und lag z.B. 2026 (Jahresbeginn Donnerstag)
+    # ganzjährig um 1 unter der ISO-KW, die überall sonst (Wochenbericht, KW-Filter)
+    # angezeigt wird. Portable Formel (Donnerstag der jeweiligen Woche), da SQLites %V
+    # erst ab 3.46 existiert.
+    ISO_KW = "((CAST(strftime('%j', date(a.datum, '-3 days', 'weekday 4')) AS INTEGER) - 1) / 7 + 1)"
+    # Sonder-VS aus KW-Chart/Jahreswerten/Ranking ausschließen (Review 2026-08-10, von Arco
+    # portiert): Tanken/Materialabholung/Verleger/Telefontermin/Homeoffice zählten hier als
+    # "Besuche" mit, überall sonst (aktive_vs-KPI, Kundenauswertung) nicht – die Jahreszahl
+    # passte dadurch nie zur Summe der anderen Ansichten.
+    _VS_AUS = ("AND a.verkaufsstelle_id NOT IN (SELECT id FROM verkaufsstelle WHERE typ IN "
+               "('Firmenwagen-Tanken','Materialabholung','Verleger','Telefontermin') "
+               "OR homeoffice_mitarbeiter_id IS NOT NULL)")
     if is_manager:
         kw_data = query(f'''
-            SELECT strftime('%W', a.datum) AS kw,
-                   CAST(strftime('%W', a.datum) AS INTEGER) AS kw_int,
+            SELECT {ISO_KW} AS kw,
+                   {ISO_KW} AS kw_int,
                    {DISP_IST} AS displays,
                    {KIST_IST} AS kisten,
                    COUNT(a.id) AS besuche
             FROM aktivitaet a
             LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
-            WHERE strftime('%Y', a.datum) = ? {ma_clause}{t_ma_sql}
+            WHERE strftime('%Y', a.datum) = ? {ma_clause}{t_ma_sql} {_VS_AUS}
             GROUP BY kw
             ORDER BY kw
         ''', (str(jahr),) + ma_params + t_ma_p)
     else:
         kw_data = query(f'''
-            SELECT strftime('%W', a.datum) AS kw,
-                   CAST(strftime('%W', a.datum) AS INTEGER) AS kw_int,
+            SELECT {ISO_KW} AS kw,
+                   {ISO_KW} AS kw_int,
                    {DISP_IST} AS displays,
                    {KIST_IST} AS kisten,
                    COUNT(a.id) AS besuche
             FROM aktivitaet a
             LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
-            WHERE strftime('%Y', a.datum) = ? AND a.mitarbeiter_id = ?
+            WHERE strftime('%Y', a.datum) = ? AND a.mitarbeiter_id = ? {_VS_AUS}
             GROUP BY kw
             ORDER BY kw
         ''', (str(jahr), session['user_id']))
@@ -4109,7 +4147,7 @@ def dashboard():
                    COUNT(DISTINCT a.mitarbeiter_id) AS mitarbeiter_aktiv
             FROM aktivitaet a
             LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
-            WHERE strftime('%Y', a.datum) = ? {ma_clause}{t_ma_sql}
+            WHERE strftime('%Y', a.datum) = ? {ma_clause}{t_ma_sql} {_VS_AUS}
         ''', (str(jahr),) + ma_params + t_ma_p, one=True)
     else:
         jahres = query(f'''
@@ -4118,7 +4156,7 @@ def dashboard():
                    COUNT(a.id) AS besuche
             FROM aktivitaet a
             LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
-            WHERE strftime('%Y', a.datum) = ? AND a.mitarbeiter_id = ?
+            WHERE strftime('%Y', a.datum) = ? AND a.mitarbeiter_id = ? {_VS_AUS}
         ''', (str(jahr), session['user_id']), one=True)
 
     # KONZEPT-V2: Pipeline-Kennzahlen (Manager: Teaser mit Link; Rep: nur eigene offene)
@@ -4178,7 +4216,7 @@ def dashboard():
             FROM mitarbeiter m
             JOIN aktivitaet a ON a.mitarbeiter_id = m.id
             LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
-            WHERE strftime('%Y', a.datum) = ?{t_m_sql}
+            WHERE strftime('%Y', a.datum) = ?{t_m_sql} {_VS_AUS}
             GROUP BY m.id ORDER BY kisten DESC
         ''', (str(jahr),) + t_m_p)
 
@@ -4191,9 +4229,9 @@ def dashboard():
             JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
             JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id
             LEFT JOIN bestellposition b ON b.aktivitaet_id = a.id
-            WHERE strftime('%Y', a.datum) = ? {ma_clause}{t_ma_sql}
+            WHERE a.datum >= ? AND a.datum < ? {ma_clause}{t_ma_sql}
             GROUP BY a.id ORDER BY a.datum DESC, a.erstellt_am DESC LIMIT 10
-        ''', (str(jahr),) + ma_params + t_ma_p)
+        ''', (f'{jahr}-01-01', f'{jahr + 1}-01-01') + ma_params + t_ma_p)
     else:
         letzte = query('''
             SELECT a.id, a.datum, m.name AS mitarbeiter, v.name AS verkaufsstelle,
@@ -4202,9 +4240,9 @@ def dashboard():
             JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
             JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id
             LEFT JOIN bestellposition b ON b.aktivitaet_id = a.id
-            WHERE strftime('%Y', a.datum) = ? AND a.mitarbeiter_id = ?
+            WHERE a.datum >= ? AND a.datum < ? AND a.mitarbeiter_id = ?
             GROUP BY a.id ORDER BY a.datum DESC, a.erstellt_am DESC LIMIT 10
-        ''', (str(jahr), session['user_id']))
+        ''', (f'{jahr}-01-01', f'{jahr + 1}-01-01', session['user_id']))
 
     _tm_sql, _tm_p = _team_m_clause('m')
     alle_ma = query(
@@ -4339,12 +4377,21 @@ def dashboard():
         # Stückzahl (displayposition.anzahl kann >1 sein, z.B. "2× Display" in einer Zeile).
         # Jetzt einheitlich: kisten/aktivitaeten unabhängig per Subquery ermitteln,
         # SUM(dp.anzahl) über zielrelevante Positionen statt COUNT(dp.id)/aktionstyp-Filter.
+        # Eigener BP-Scope für die Karten (Review 2026-08-10, von Arco portiert): sie laufen
+        # immer auf dem HEUTIGEN Datum (unabhängig vom jahr-Parameter der Seite), daher
+        # rollierendes 45-Tage-Fenster statt des Jahres-Scopes von {BP} – deckt Heute/Woche/
+        # Vorwoche/Monat auch über Jahres-/Monatswechsel ab und bleibt trotzdem ein kleiner Scan.
+        _bpk_ab = (date.today() - timedelta(days=45)).isoformat()
+        BP_K = (f"(SELECT bp.aktivitaet_id, SUM(bp.kisten_anzahl) AS kisten_total FROM bestellposition bp "
+                f"JOIN aktivitaet ax ON ax.id=bp.aktivitaet_id AND ax.datum>='{_bpk_ab}' "
+                f"GROUP BY bp.aktivitaet_id)")
+
         def _stats_zeitraum(where_zeitraum):
             _where = f"{where_zeitraum} AND a.mitarbeiter_id = ?"
             return query(f'''
                 SELECT
                     (SELECT COALESCE(SUM(b.kisten_total), 0) FROM aktivitaet a
-                     JOIN {BP} b ON b.aktivitaet_id = a.id
+                     JOIN {BP_K} b ON b.aktivitaet_id = a.id
                      WHERE {_where}) AS kisten,
                     (SELECT COUNT(DISTINCT a.id) FROM aktivitaet a
                      WHERE {_where}) AS besuche,
@@ -4358,8 +4405,17 @@ def dashboard():
                      WHERE {_where}) AS genehmigt
             ''', _uid * 4, one=True)
         heute_stats = _stats_zeitraum("a.datum = date('now','localtime')")
-        diese_woche_stats = _stats_zeitraum("strftime('%Y-%W', a.datum) = strftime('%Y-%W', date('now','localtime'))")
-        vorwoche_stats = _stats_zeitraum("strftime('%Y-%W', a.datum) = strftime('%Y-%W', date('now','localtime','-7 days'))")
+        # Expliziter Montag-Sonntag-Datumsbereich statt strftime('%Y-%W')-Vergleich
+        # (Review 2026-08-10, von Arco portiert): der %Y-%W-Schlüssel zerreißt eine Woche
+        # am Jahreswechsel (29.12. hat '2026-52', 01.01. '2027-00') – die Kachel zeigte in
+        # der Silvesterwoche 0, obwohl Mo-Do erfasst war. Datumsbereiche sind zudem
+        # index-freundlich.
+        _wo_mo = date.today() - timedelta(days=date.today().weekday())
+        _vw_mo = _wo_mo - timedelta(days=7)
+        diese_woche_stats = _stats_zeitraum(
+            f"a.datum BETWEEN '{_wo_mo.isoformat()}' AND '{(_wo_mo + timedelta(days=6)).isoformat()}'")
+        vorwoche_stats = _stats_zeitraum(
+            f"a.datum BETWEEN '{_vw_mo.isoformat()}' AND '{(_vw_mo + timedelta(days=6)).isoformat()}'")
         dieser_monat_stats = _stats_zeitraum("strftime('%Y-%m', a.datum) = strftime('%Y-%m', date('now','localtime'))")
 
     # Tagesplan für Rep: Montag–Sonntag der gewählten (oder aktuellen) Woche
@@ -4377,8 +4433,11 @@ def dashboard():
         tp_woche_montag = _today - timedelta(days=_today.weekday())
     tp_woche_sonntag = tp_woche_montag + timedelta(days=6)
     tp_kw            = tp_woche_montag.isocalendar()[1]
-    tp_prev_kw       = tp_kw - 1 if tp_kw > 1 else 52
-    tp_next_kw       = tp_kw + 1 if tp_kw < 52 else 1
+    # KW-Labels direkt aus dem Datum der Nachbarwoche statt hartkodierter 52
+    # (Review 2026-08-10, von Arco portiert: Jahre mit 53 ISO-Wochen, z.B. 2026, zeigten
+    # sonst in KW 52 als "nächste Woche" KW 1 statt KW 53).
+    tp_prev_kw       = (tp_woche_montag - timedelta(days=7)).isocalendar()[1]
+    tp_next_kw       = (tp_woche_montag + timedelta(days=7)).isocalendar()[1]
     tp_prev_woche    = (tp_woche_montag - timedelta(days=7)).isoformat()
     tp_next_woche    = (tp_woche_montag + timedelta(days=7)).isoformat()
     datum_woche_rep  = [(tp_woche_montag + timedelta(days=i)).isoformat() for i in range(7)]
@@ -7324,7 +7383,7 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id=None) ->
     _BP = "(SELECT aktivitaet_id, SUM(kisten_anzahl) AS kisten_total FROM bestellposition GROUP BY aktivitaet_id)"
     if is_admin:
         kw_data = query(f'''
-            SELECT CAST(strftime('%W', a.datum) AS INTEGER) AS kw,
+            SELECT ((CAST(strftime('%j', date(a.datum, '-3 days', 'weekday 4')) AS INTEGER) - 1) / 7 + 1) AS kw,
                    SUM(a.anzahl_displays) AS displays,
                    COALESCE(SUM(b.kisten_total), 0) AS kisten,
                    COUNT(a.id) AS besuche
@@ -7335,7 +7394,7 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id=None) ->
         ''', (str(jahr),))
     else:
         kw_data = query(f'''
-            SELECT CAST(strftime('%W', a.datum) AS INTEGER) AS kw,
+            SELECT ((CAST(strftime('%j', date(a.datum, '-3 days', 'weekday 4')) AS INTEGER) - 1) / 7 + 1) AS kw,
                    SUM(a.anzahl_displays) AS displays,
                    COALESCE(SUM(b.kisten_total), 0) AS kisten,
                    COUNT(a.id) AS besuche
@@ -7489,7 +7548,7 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id=None) ->
 
         import datetime as dt
         d = dt.date.fromisoformat(a['datum'])
-        kw = int(d.strftime('%W'))
+        kw = d.isocalendar()[1]
         fill = ALT_FILL if i % 2 == 0 else None
 
         _antworten = _formular_export_map.get(a['id'], {})
@@ -7857,7 +7916,9 @@ def _build_gratisware_report_excel(von_str: str, bis_str: str) -> bytes:
         JOIN verkaufsstelle v ON v.id = a.verkaufsstelle_id
         JOIN bestellposition bp ON bp.aktivitaet_id = a.id
         JOIN biersorte bs ON bs.id = bp.biersorte_id
-        WHERE a.aktionstyp IN ('Bestellung','Besuch') AND a.datum BETWEEN ? AND ?
+        -- Kein aktionstyp-Filter (Review 2026-08-10, von Arco portiert): Gratisware kann
+        -- auch an einem Aufbau-Kombi-Besuch hängen und muss mitzählen.
+        WHERE a.datum BETWEEN ? AND ?
         GROUP BY a.id
         HAVING verleger > 0 OR kofferraum > 0
         ORDER BY a.datum, m.name
@@ -7891,9 +7952,11 @@ def _build_gratisware_report_excel(von_str: str, bis_str: str) -> bytes:
     for r, row in enumerate(rows, start=2):
         werte = [
             datetime.strptime(row['datum'], '%Y-%m-%d').strftime('%d.%m.%Y'),
-            row['mitarbeiter'], row['verkaufsstelle'], row['strasse'] or '', row['plz'] or '',
-            row['ort'] or '', row['lieferant'] or '', row['kundennummer'] or '',
-            row['verleger'], row['kofferraum'], row['bestellung'] or '',
+            _excel_formel_sicher(row['mitarbeiter']), _excel_formel_sicher(row['verkaufsstelle']),
+            _excel_formel_sicher(row['strasse'] or ''), row['plz'] or '',
+            _excel_formel_sicher(row['ort'] or ''), _excel_formel_sicher(row['lieferant'] or ''),
+            _excel_formel_sicher(row['kundennummer'] or ''),
+            row['verleger'], row['kofferraum'], _excel_formel_sicher(row['bestellung'] or ''),
             '',  # Rechnung – manuell nachzutragen, keine Datenquelle in der App
         ]
         for col, wert in enumerate(werte, 1):
@@ -9415,14 +9478,14 @@ def _send_hotel_email(vtr_id: int, status: str, ablehnung_grund: str | None = No
         <h2 style="margin:0;font-size:1.2rem">Hotelübernachtung <span style="color:{farbe}">{icon} {status}</span></h2>
       </div>
       <div style="padding:1.4rem 1.6rem;border:1px solid #e0e0e0;border-top:none;border-radius:0 0 6px 6px">
-        <p style="margin:0 0 1rem">Hallo {vtr['abwesender_name']},</p>
+        <p style="margin:0 0 1rem">Hallo {html.escape(vtr['abwesender_name'])},</p>
         <p style="margin:0 0 1rem">deine Hotelübernachtung wurde
           <strong style="color:{farbe}">{status}</strong>.</p>
         <table style="width:100%;border-collapse:collapse;margin:0 0 1rem">
           <tr><td style="padding:.35rem .7rem;background:#f4f6fa;font-weight:600">Zeitraum</td>
               <td style="padding:.35rem .7rem">{vtr['von']} bis {vtr['bis']}</td></tr>
           <tr><td style="padding:.35rem .7rem;background:#f4f6fa;font-weight:600">Hotel</td>
-              <td style="padding:.35rem .7rem">{vtr['hotel_name_adresse']}</td></tr>
+              <td style="padding:.35rem .7rem">{html.escape(vtr['hotel_name_adresse'] or '')}</td></tr>
           {kosten_zeile}
           {grund_zeile}
         </table>
@@ -10732,8 +10795,11 @@ def vergleich():
     if date.today().year not in alle_jahre:
         alle_jahre.insert(0, date.today().year)
 
-    # IST-Werte aller Reps – Subquery verhindert Doppelung von anzahl_displays
-    _BP = "(SELECT aktivitaet_id, SUM(kisten_anzahl) AS kisten_total FROM bestellposition GROUP BY aktivitaet_id)"
+    # IST-Werte aller Reps – Subquery verhindert Doppelung von anzahl_displays.
+    # Jahres-Scope in der Subquery (Review 2026-08-10, von Arco portiert, Performance):
+    # Ergebnis identisch (äußere Queries filtern aufs Jahr), Scan schrumpft aufs Jahr.
+    _V_JAHR = f"JOIN aktivitaet ax ON ax.id=bp.aktivitaet_id AND ax.datum>='{int(jahr)}-01-01' AND ax.datum<'{int(jahr) + 1}-01-01'"
+    _BP = f"(SELECT bp.aktivitaet_id, SUM(bp.kisten_anzahl) AS kisten_total FROM bestellposition bp {_V_JAHR} GROUP BY bp.aktivitaet_id)"
     _vm_sql, _vm_p = _team_m_clause('m')
     ist = query(f'''
         SELECT m.id, m.name, m.kuerzel,
@@ -10771,14 +10837,17 @@ def vergleich():
     disp_ist    = [r['displays_ist'] for r in ist]
     disp_soll   = [ziele.get(r['id'], {}).get('displays_ziel', 0) or 0 for r in ist]
 
-    # KW-Verlauf je Mitarbeiter (für Liniendiagramm)
+    # KW-Verlauf je Mitarbeiter (für Liniendiagramm) – ISO-KW statt strftime('%W') und
+    # Gratisware ausgeschlossen (Review 2026-08-10, von Arco portiert: Linie zeigte inkl.
+    # Gratisware mehr als die übrigen Kisten-Auswertungen ohne Gratisware).
     kw_verlauf = query(f'''
         SELECT m.name,
-               CAST(strftime('%W', a.datum) AS INTEGER) AS kw,
-               COALESCE(SUM(bp.kisten_anzahl), 0) AS kisten
+               ((CAST(strftime('%j', date(a.datum, '-3 days', 'weekday 4')) AS INTEGER) - 1) / 7 + 1) AS kw,
+               COALESCE(SUM(CASE WHEN COALESCE(bsg.ist_gratisware,0)=0 THEN bp.kisten_anzahl END), 0) AS kisten
         FROM mitarbeiter m
         JOIN aktivitaet a ON a.mitarbeiter_id = m.id
         LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
+        LEFT JOIN biersorte bsg ON bsg.id = bp.biersorte_id
         WHERE strftime('%Y', a.datum) = ? AND m.rolle IN ('rep','verkaufsleiter'){_vm_sql}
         GROUP BY m.id, kw
         ORDER BY m.name, kw
@@ -10793,8 +10862,8 @@ def vergleich():
     # ── Saisonaler Zielkurs (Sonnenschlüssel) ────────────────────────────────
     aktueller_monat = date.today().month  # 1–12
 
-    # Monatliche IST-Werte je Rep (mit korrekter BP-Subquery)
-    _BPm = "(SELECT aktivitaet_id, SUM(kisten_anzahl) AS kisten_total FROM bestellposition GROUP BY aktivitaet_id)"
+    # Monatliche IST-Werte je Rep (mit korrekter BP-Subquery, Jahres-Scope wie _BP)
+    _BPm = f"(SELECT bp.aktivitaet_id, SUM(bp.kisten_anzahl) AS kisten_total FROM bestellposition bp {_V_JAHR} GROUP BY bp.aktivitaet_id)"
     monatlich_raw = query(f'''
         SELECT m.id AS rep_id,
                CAST(strftime('%m', a.datum) AS INTEGER) AS monat,
@@ -11195,7 +11264,14 @@ def team_vergleich():
         label  = f'KW {heute.isocalendar()[1]:02d} · {heute.year}'
         periode = 'woche'
 
-    BP       = "(SELECT aktivitaet_id, SUM(kisten_anzahl) AS kisten_total FROM bestellposition GROUP BY aktivitaet_id)"
+    # Scope der Subquery auf die letzten ~12 Monate vor dem Periodenstart (Review
+    # 2026-08-10, von Arco portiert, Performance): deckt aktuelle Periode, Vorperiode und
+    # die Jahres-IST-Query ab; alle äußeren Queries filtern ohnehin enger – Ergebnis
+    # identisch, aber die Subquery aggregiert nicht mehr die gesamte Historie.
+    _bp_ab   = (start - timedelta(days=366)).isoformat()
+    BP       = (f"(SELECT bp.aktivitaet_id, SUM(bp.kisten_anzahl) AS kisten_total FROM bestellposition bp "
+                f"JOIN aktivitaet ax ON ax.id=bp.aktivitaet_id AND ax.datum>='{_bp_ab}' "
+                f"GROUP BY bp.aktivitaet_id)")
     DISP_IST = "SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN a.anzahl_displays ELSE 0 END)"
     KIST_IST = "COALESCE(SUM(b.kisten_total), 0)"
 
@@ -11547,12 +11623,15 @@ def _do_send_wochenbericht(force=False):
                                                    THEN a.id END) AS aufbauten,
                                COUNT(DISTINCT CASE WHEN a.aktionstyp=\'Bestellung\'
                                                    THEN a.id END) AS bestellungen,
-                               COALESCE(SUM(bp.kisten_anzahl), 0) AS kisten,
+                               COALESCE(SUM(b.kisten_total), 0) AS kisten,
                                COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,\'Aufbau\')=\'Aufbau\'
                                                  THEN a.anzahl_displays END), 0) AS displays
                         FROM aktivitaet a
                         JOIN mitarbeiter m ON m.id=a.mitarbeiter_id
-                        LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
+                        LEFT JOIN (SELECT bp.aktivitaet_id, SUM(bp.kisten_anzahl) AS kisten_total
+                                   FROM bestellposition bp JOIN biersorte bs ON bs.id=bp.biersorte_id
+                                   WHERE COALESCE(bs.ist_gratisware,0)=0
+                                   GROUP BY bp.aktivitaet_id) b ON b.aktivitaet_id = a.id
                         WHERE a.datum BETWEEN ? AND ?{tf}
                     ''', [von.isoformat(), bis.isoformat()] + t_p, one=True)
 
@@ -11577,8 +11656,8 @@ def _do_send_wochenbericht(force=False):
                     FROM mitarbeiter m
                     LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
                     LEFT JOIN (
-                        SELECT a2.mitarbeiter_id AS mid, SUM(bp2.kisten_anzahl) AS kisten
-                        FROM aktivitaet a2 JOIN bestellposition bp2 ON bp2.aktivitaet_id = a2.id
+                        SELECT a2.mitarbeiter_id AS mid, SUM(CASE WHEN COALESCE(bs2.ist_gratisware,0)=0 THEN bp2.kisten_anzahl ELSE 0 END) AS kisten
+                        FROM aktivitaet a2 JOIN bestellposition bp2 ON bp2.aktivitaet_id = a2.id JOIN biersorte bs2 ON bs2.id = bp2.biersorte_id
                         WHERE a2.datum BETWEEN ? AND ?
                         GROUP BY a2.mitarbeiter_id
                     ) bpx ON bpx.mid = m.id
@@ -11599,10 +11678,11 @@ def _do_send_wochenbericht(force=False):
                 _rs_vw = query(f'''
                     SELECT m.id AS mitarbeiter_id,
                            COUNT(DISTINCT a.id) AS besuche,
-                           COALESCE(SUM(bp.kisten_anzahl), 0) AS kisten
+                           COALESCE(SUM(CASE WHEN COALESCE(bsg.ist_gratisware,0)=0 THEN bp.kisten_anzahl END), 0) AS kisten
                     FROM aktivitaet a
                     JOIN mitarbeiter m ON m.id=a.mitarbeiter_id
                     LEFT JOIN bestellposition bp ON bp.aktivitaet_id=a.id
+                    LEFT JOIN biersorte bsg ON bsg.id=bp.biersorte_id
                     WHERE a.datum BETWEEN ? AND ? AND (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id))){tf}
                     GROUP BY m.id
                 ''', [montag_letzte.isoformat(), sonntag_letzte.isoformat()] + t_p) or []
@@ -11913,12 +11993,15 @@ def _do_send_monatsbericht(force=False):
                                                THEN a.id END) AS aufbauten,
                            COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung'
                                                THEN a.id END) AS bestellungen,
-                           COALESCE(SUM(bp.kisten_anzahl), 0) AS kisten,
+                           COALESCE(SUM(b.kisten_total), 0) AS kisten,
                            COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
                                              THEN a.anzahl_displays END), 0) AS displays
                     FROM aktivitaet a
                     JOIN mitarbeiter m ON m.id=a.mitarbeiter_id
-                    LEFT JOIN bestellposition bp ON bp.aktivitaet_id=a.id
+                    LEFT JOIN (SELECT bp.aktivitaet_id, SUM(bp.kisten_anzahl) AS kisten_total
+                               FROM bestellposition bp JOIN biersorte bs ON bs.id=bp.biersorte_id
+                               WHERE COALESCE(bs.ist_gratisware,0)=0
+                               GROUP BY bp.aktivitaet_id) b ON b.aktivitaet_id=a.id
                     WHERE a.datum BETWEEN ? AND ?{tf}
                 ''', [von.isoformat(), bis.isoformat()] + t_p, one=True)
 
@@ -11938,8 +12021,8 @@ def _do_send_monatsbericht(force=False):
                 FROM mitarbeiter m
                 LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
                 LEFT JOIN (
-                    SELECT a2.mitarbeiter_id AS mid, SUM(bp2.kisten_anzahl) AS kisten
-                    FROM aktivitaet a2 JOIN bestellposition bp2 ON bp2.aktivitaet_id = a2.id
+                    SELECT a2.mitarbeiter_id AS mid, SUM(CASE WHEN COALESCE(bs2.ist_gratisware,0)=0 THEN bp2.kisten_anzahl ELSE 0 END) AS kisten
+                    FROM aktivitaet a2 JOIN bestellposition bp2 ON bp2.aktivitaet_id = a2.id JOIN biersorte bs2 ON bs2.id = bp2.biersorte_id
                     WHERE a2.datum BETWEEN ? AND ?
                     GROUP BY a2.mitarbeiter_id
                 ) bpx ON bpx.mid = m.id
@@ -11960,10 +12043,11 @@ def _do_send_monatsbericht(force=False):
             _rs_vm = query(f'''
                 SELECT m.id AS mitarbeiter_id,
                        COUNT(DISTINCT a.id) AS besuche,
-                       COALESCE(SUM(bp.kisten_anzahl), 0) AS kisten
+                       COALESCE(SUM(CASE WHEN COALESCE(bsg.ist_gratisware,0)=0 THEN bp.kisten_anzahl END), 0) AS kisten
                 FROM aktivitaet a
                 JOIN mitarbeiter m ON m.id=a.mitarbeiter_id
                 LEFT JOIN bestellposition bp ON bp.aktivitaet_id=a.id
+                LEFT JOIN biersorte bsg ON bsg.id=bp.biersorte_id
                 WHERE a.datum BETWEEN ? AND ? AND (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id))){tf}
                 GROUP BY m.id
             ''', [erster_vorvorm.isoformat(), letzter_vorvorm.isoformat()] + t_p) or []
@@ -12538,11 +12622,14 @@ def wochenbericht_vorschau():
                                        THEN a.id END) AS aufbauten,
                    COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung'
                                        THEN a.id END) AS bestellungen,
-                   COALESCE(SUM(bp.kisten_anzahl), 0) AS kisten,
+                   COALESCE(SUM(b.kisten_total), 0) AS kisten,
                    COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
                                      THEN a.anzahl_displays END), 0) AS displays
             FROM aktivitaet a
-            LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
+            LEFT JOIN (SELECT bp.aktivitaet_id, SUM(bp.kisten_anzahl) AS kisten_total
+                       FROM bestellposition bp JOIN biersorte bs ON bs.id=bp.biersorte_id
+                       WHERE COALESCE(bs.ist_gratisware,0)=0
+                       GROUP BY bp.aktivitaet_id) b ON b.aktivitaet_id = a.id
             WHERE a.datum BETWEEN ? AND ?
         ''', (von.isoformat(), bis.isoformat()), one=True)
 
@@ -12561,8 +12648,8 @@ def wochenbericht_vorschau():
         FROM mitarbeiter m
         LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
         LEFT JOIN (
-            SELECT a2.mitarbeiter_id AS mid, SUM(bp2.kisten_anzahl) AS kisten
-            FROM aktivitaet a2 JOIN bestellposition bp2 ON bp2.aktivitaet_id = a2.id
+            SELECT a2.mitarbeiter_id AS mid, SUM(CASE WHEN COALESCE(bs2.ist_gratisware,0)=0 THEN bp2.kisten_anzahl ELSE 0 END) AS kisten
+            FROM aktivitaet a2 JOIN bestellposition bp2 ON bp2.aktivitaet_id = a2.id JOIN biersorte bs2 ON bs2.id = bp2.biersorte_id
             WHERE a2.datum BETWEEN ? AND ?
             GROUP BY a2.mitarbeiter_id
         ) bpx ON bpx.mid = m.id
@@ -12583,10 +12670,11 @@ def wochenbericht_vorschau():
     rep_letzte_w = query('''
         SELECT m.id AS mitarbeiter_id,
                COUNT(DISTINCT a.id) AS besuche,
-               COALESCE(SUM(bp.kisten_anzahl), 0) AS kisten
+               COALESCE(SUM(CASE WHEN COALESCE(bsg.ist_gratisware,0)=0 THEN bp.kisten_anzahl END), 0) AS kisten
         FROM aktivitaet a
         JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
         LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
+        LEFT JOIN biersorte bsg ON bsg.id = bp.biersorte_id
         WHERE a.datum BETWEEN ? AND ? AND (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id)))
         GROUP BY m.id
     ''', (montag_letzte.isoformat(), sonntag_letzte.isoformat()))
@@ -12786,11 +12874,14 @@ def monatsbericht_vorschau():
                                        THEN a.id END) AS aufbauten,
                    COUNT(DISTINCT CASE WHEN a.aktionstyp='Bestellung'
                                        THEN a.id END) AS bestellungen,
-                   COALESCE(SUM(bp.kisten_anzahl), 0) AS kisten,
+                   COALESCE(SUM(b.kisten_total), 0) AS kisten,
                    COALESCE(SUM(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau'
                                      THEN a.anzahl_displays END), 0) AS displays
             FROM aktivitaet a
-            LEFT JOIN bestellposition bp ON bp.aktivitaet_id=a.id
+            LEFT JOIN (SELECT bp.aktivitaet_id, SUM(bp.kisten_anzahl) AS kisten_total
+                       FROM bestellposition bp JOIN biersorte bs ON bs.id=bp.biersorte_id
+                       WHERE COALESCE(bs.ist_gratisware,0)=0
+                       GROUP BY bp.aktivitaet_id) b ON b.aktivitaet_id=a.id
             WHERE a.datum BETWEEN ? AND ?
         ''', (von.isoformat(), bis.isoformat()), one=True)
 
@@ -12809,8 +12900,8 @@ def monatsbericht_vorschau():
         FROM mitarbeiter m
         LEFT JOIN aktivitaet a ON a.mitarbeiter_id = m.id AND a.datum BETWEEN ? AND ?
         LEFT JOIN (
-            SELECT a2.mitarbeiter_id AS mid, SUM(bp2.kisten_anzahl) AS kisten
-            FROM aktivitaet a2 JOIN bestellposition bp2 ON bp2.aktivitaet_id = a2.id
+            SELECT a2.mitarbeiter_id AS mid, SUM(CASE WHEN COALESCE(bs2.ist_gratisware,0)=0 THEN bp2.kisten_anzahl ELSE 0 END) AS kisten
+            FROM aktivitaet a2 JOIN bestellposition bp2 ON bp2.aktivitaet_id = a2.id JOIN biersorte bs2 ON bs2.id = bp2.biersorte_id
             WHERE a2.datum BETWEEN ? AND ?
             GROUP BY a2.mitarbeiter_id
         ) bpx ON bpx.mid = m.id
@@ -12831,10 +12922,11 @@ def monatsbericht_vorschau():
     rep_letzte_m = query('''
         SELECT m.id AS mitarbeiter_id,
                COUNT(DISTINCT a.id) AS besuche,
-               COALESCE(SUM(bp.kisten_anzahl), 0) AS kisten
+               COALESCE(SUM(CASE WHEN COALESCE(bsg.ist_gratisware,0)=0 THEN bp.kisten_anzahl END), 0) AS kisten
         FROM aktivitaet a
         JOIN mitarbeiter m ON m.id = a.mitarbeiter_id
         LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id
+        LEFT JOIN biersorte bsg ON bsg.id = bp.biersorte_id
         WHERE a.datum BETWEEN ? AND ? AND (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id)))
         GROUP BY m.id
     ''', (erster_vorvorm.isoformat(), letzter_vorvorm.isoformat()))
@@ -14193,8 +14285,11 @@ def api_karte_heatmap():
             metric     = "COUNT(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN 1 END) AS anzahl"
             extra_join = ""
         elif ebene == 'volumen':
-            metric     = "COALESCE(SUM(bp.kisten_anzahl), 0) AS anzahl"
-            extra_join = "LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id"
+            # Gratisware ausgeschlossen – gleiche Definition wie Kundenauswertung/VS-Vergleich
+            # (Review 2026-08-10, von Arco portiert)
+            metric     = "COALESCE(SUM(CASE WHEN COALESCE(bsg.ist_gratisware,0)=0 THEN bp.kisten_anzahl END), 0) AS anzahl"
+            extra_join = ("LEFT JOIN bestellposition bp ON bp.aktivitaet_id = a.id "
+                          "LEFT JOIN biersorte bsg ON bsg.id = bp.biersorte_id")
         else:  # betreuung
             metric     = "COUNT(a.id) AS anzahl"
             extra_join = ""
