@@ -1081,6 +1081,11 @@ def init_db():
             "ALTER TABLE aktivitaet    ADD COLUMN realisiert_am      TEXT",   # Phase 3: wann Bestellung aufgebaut/storniert wurde
             # Bestand: bereits vorhandene Bestellungen als 'offen' markieren
             "UPDATE aktivitaet SET bestell_status='offen' WHERE aktionstyp='Bestellung' AND bestell_status IS NULL",
+            # Teamziel-Duplikate bereinigen (Bugreport 2026-08-10, von Arco portiert):
+            # ON CONFLICT griff für mitarbeiter_id IS NULL nie (SQLite behandelt NULLs
+            # im UNIQUE-Constraint als verschieden) – jüngste Zeile je Jahr behalten.
+            ("DELETE FROM zielzahlen WHERE mitarbeiter_id IS NULL AND id NOT IN "
+             "(SELECT MAX(id) FROM zielzahlen WHERE mitarbeiter_id IS NULL GROUP BY jahr)"),
             "ALTER TABLE mitarbeiter   ADD COLUMN email               TEXT",
             "ALTER TABLE mitarbeiter   ADD COLUMN reset_token         TEXT",
             "ALTER TABLE mitarbeiter   ADD COLUMN reset_token_ablauf  DATETIME",
@@ -11026,15 +11031,16 @@ def zielzahlen():
                     kisten_ziel   = excluded.kisten_ziel
             ''', (rep['id'], jar, _ziel_int(d_ziel), _ziel_int(k_ziel)))
 
-        # Teamziel
+        # Teamziel – DELETE+INSERT statt ON CONFLICT (Bugreport 2026-08-10, von Arco
+        # portiert): der Konflikt-Pfad griff für mitarbeiter_id=NULL nie (SQLite
+        # behandelt NULLs im UNIQUE-Constraint als verschieden), jeder Speichervorgang
+        # legte eine weitere Teamziel-Zeile an.
         td = request.form.get('team_disp', 0) or 0
         tk = request.form.get('team_kist', 0) or 0
+        execute("DELETE FROM zielzahlen WHERE mitarbeiter_id IS NULL AND jahr=?", (jar,))
         execute('''
             INSERT INTO zielzahlen (mitarbeiter_id, jahr, displays_ziel, kisten_ziel)
             VALUES (NULL, ?, ?, ?)
-            ON CONFLICT(mitarbeiter_id, jahr) DO UPDATE SET
-                displays_ziel = excluded.displays_ziel,
-                kisten_ziel   = excluded.kisten_ziel
         ''', (jar, _ziel_int(td), _ziel_int(tk)))
 
         flash(f'Zielzahlen für {jar} gespeichert.', 'success')
