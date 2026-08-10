@@ -12592,18 +12592,24 @@ def wochenbericht_vorschau():
     ''', (montag_letzte.isoformat(), sonntag_letzte.isoformat()))
     letzte_map_w = {r['mitarbeiter_id']: r for r in rep_letzte_w}
 
+    # Nur bis heute laufen lassen (nicht bis Sonntag) – die "Besuchsplanung diese Woche"
+    # zeigt den laufenden Fortschritt, spätere Wochentage sind noch nicht dran und sollen
+    # nicht als "geplant" in die Quote einfließen (Bugreport 2026-08-10, Arco: Montag zeigte
+    # 10/19 statt 10/12, weil bereits Di-Fr geplante Stopps mitgezählt wurden). Analog zur
+    # bereits korrekten monatsbericht_vorschau()-Variante (erster_dieses..heute).
+    _tp_bis_v = min(sonntag_diese, heute)
     _tp_team_v_row = query(
         "SELECT COUNT(*) AS geplant, COALESCE(SUM(tp.erledigt),0) AS erledigt "
         "FROM tagesplan tp JOIN mitarbeiter m ON m.id=tp.mitarbeiter_id "
         "WHERE tp.datum BETWEEN ? AND ? AND COALESCE(tp.geloescht,0)=0 AND (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id)))",
-        (montag_diese.isoformat(), sonntag_diese.isoformat()), one=True)
+        (montag_diese.isoformat(), _tp_bis_v.isoformat()), one=True)
     _tp_team_v = dict(_tp_team_v_row) if _tp_team_v_row else {}
     _tp_reps_v = query(
         "SELECT tp.mitarbeiter_id, COUNT(*) AS geplant, COALESCE(SUM(tp.erledigt),0) AS erledigt "
         "FROM tagesplan tp JOIN mitarbeiter m ON m.id=tp.mitarbeiter_id "
         "WHERE tp.datum BETWEEN ? AND ? AND COALESCE(tp.geloescht,0)=0 AND (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id))) "
         "GROUP BY tp.mitarbeiter_id",
-        (montag_diese.isoformat(), sonntag_diese.isoformat())) or []
+        (montag_diese.isoformat(), _tp_bis_v.isoformat())) or []
     tp_map_v = {r['mitarbeiter_id']: dict(r) for r in _tp_reps_v}
 
     def _plan_badge_v(geplant, erledigt):
