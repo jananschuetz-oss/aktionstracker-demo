@@ -7166,6 +7166,75 @@ def _aktivitaeten_seite(filt, seite):
     return aktivitaeten, detail, disp_detail, formular_detail, gesamt_anzahl, seite, seiten_gesamt
 
 
+def _aktivitaeten_hotel_eintraege(is_manager, filt, aktivitaeten):
+    """Liefert Hotelübernachtungen (vertretung typ='hotel', bestätigt), die zeitlich in
+    den Datumsbereich der aktuellen Aktivitäten-Ansicht fallen – für die Anzeige als eigene
+    Karten zwischen den Aktivitäts-Karten in der Aktivitäten-Liste. Respektiert denselben
+    Mitarbeiter-/Team-Scope wie _aktivitaeten_filter() und wird nur eingeblendet, wenn kein
+    Aktivitätstyp-Filter aktiv ist oder 'Hotel' explizit mit ausgewählt wurde.
+
+    Der Datumsbereich kommt primär aus Jahr/Monat/KW-Filter (wie in _aktivitaeten_filter()
+    berechnet), zusätzlich auf die aktuell geladene Aktivitäten-Seite eingeengt, sofern
+    aktivitaeten nicht leer ist – das hält Hotel-Karten seitenkonsistent beim Infinite
+    Scroll. Ist aktivitaeten leer (z.B. weil der 'Hotel'-Chip exklusiv gewählt wurde, wo
+    logischerweise keine echte Aktivität matcht), bleibt der reine Jahr/Monat/KW-Bereich
+    bestehen, statt komplett leer zu laufen. Von Arco portiert."""
+    if filt['vs_history_mode']:
+        return []
+    if filt['at_ids'] and 'Hotel' not in filt['at_ids']:
+        return []
+
+    jahr = filt['jahr']
+    von_bound = f"{jahr}-01-01"
+    bis_bound = f"{jahr}-12-31"
+
+    if filt['kw_filter']:
+        try:
+            kw_start = date.fromisocalendar(jahr, int(filt['kw_filter']), 1)
+            von_bound = kw_start.isoformat()
+            bis_bound = (kw_start + timedelta(days=6)).isoformat()
+        except ValueError:
+            pass
+    elif filt['mo_ids']:
+        monate = sorted(int(m) for m in filt['mo_ids'])
+        von_bound = f"{jahr}-{monate[0]:02d}-01"
+        letzter_monat = monate[-1]
+        bis_bound = (f"{jahr}-12-31" if letzter_monat == 12
+                     else (date(jahr, letzter_monat + 1, 1) - timedelta(days=1)).isoformat())
+
+    if aktivitaeten:
+        von_bound = max(von_bound, aktivitaeten[-1]['datum'])
+        bis_bound = min(bis_bound, aktivitaeten[0]['datum'])
+
+    where_sql = " WHERE v.typ='hotel' AND v.status='bestätigt' AND v.von <= ? AND v.bis >= ?"
+    params = [bis_bound, von_bound]
+
+    if not is_manager:
+        where_sql += " AND v.abwesender_id = ?"
+        params.append(session['user_id'])
+    elif filt['ma_ids']:
+        _ph = ','.join('?' * len(filt['ma_ids']))
+        where_sql += f" AND v.abwesender_id IN ({_ph})"
+        params.extend(filt['ma_ids'])
+    elif session.get('rolle') == 'verkaufsleiter' and session.get('team_id'):
+        where_sql += " AND v.abwesender_id IN (SELECT id FROM mitarbeiter WHERE team_id = ?)"
+        params.append(session['team_id'])
+
+    rows = query(f'''
+        SELECT v.id, v.von, v.bis, v.hotel_name_adresse, v.hotel_kosten_pro_nacht,
+               m.id AS mitarbeiter_id, m.name AS mitarbeiter
+        FROM vertretung v JOIN mitarbeiter m ON m.id = v.abwesender_id
+        {where_sql}
+        ORDER BY v.von DESC
+    ''', params)
+
+    ergebnis = []
+    for r in rows:
+        naechte = (date.fromisoformat(r['bis']) - date.fromisoformat(r['von'])).days
+        ergebnis.append({**dict(r), 'naechte': max(naechte, 1)})
+    return ergebnis
+
+
 @app.route('/aktivitaeten')
 @login_required
 def aktivitaeten_liste():
@@ -7175,6 +7244,7 @@ def aktivitaeten_liste():
     filt = _aktivitaeten_filter(is_manager)
     seite_wunsch = request.args.get('seite', 1, type=int) or 1
     aktivitaeten, detail, disp_detail, formular_detail, gesamt_anzahl, seite, seiten_gesamt = _aktivitaeten_seite(filt, seite_wunsch)
+    hotel_eintraege = _aktivitaeten_hotel_eintraege(is_manager, filt, aktivitaeten)
     jahr, kw_filter = filt['jahr'], filt['kw_filter']
     mo_filter, mo_ids = filt['mo_filter'], filt['mo_ids']
     ma_filter, ma_ids = filt['ma_filter'], filt['ma_ids']
@@ -7205,7 +7275,7 @@ def aktivitaeten_liste():
         jahre = [date.today().year]
 
     return render_template('aktivitaeten.html',
-        aktivitaeten=aktivitaeten, detail=detail, disp_detail=disp_detail, formular_detail=formular_detail,
+        aktivitaeten=aktivitaeten, hotel_eintraege=hotel_eintraege, detail=detail, disp_detail=disp_detail, formular_detail=formular_detail,
         jahr=jahr, jahre=jahre, kw_filter=kw_filter,
         mo_filter=mo_filter, mo_ids=mo_ids,
         ma_filter=ma_filter, ma_ids=ma_ids,
@@ -7228,8 +7298,9 @@ def api_aktivitaeten_mehr():
     filt = _aktivitaeten_filter(is_manager)
     seite_wunsch = request.args.get('seite', 2, type=int) or 2
     aktivitaeten, detail, disp_detail, formular_detail, gesamt_anzahl, seite, seiten_gesamt = _aktivitaeten_seite(filt, seite_wunsch)
+    hotel_eintraege = _aktivitaeten_hotel_eintraege(is_manager, filt, aktivitaeten)
     html = render_template('_aktivitaeten_karten.html',
-        aktivitaeten=aktivitaeten, detail=detail, disp_detail=disp_detail, formular_detail=formular_detail,
+        aktivitaeten=aktivitaeten, hotel_eintraege=hotel_eintraege, detail=detail, disp_detail=disp_detail, formular_detail=formular_detail,
         is_manager=is_manager, is_admin=is_admin)
     return jsonify({'html': html, 'hat_mehr': seite < seiten_gesamt, 'naechste_seite': seite + 1})
 

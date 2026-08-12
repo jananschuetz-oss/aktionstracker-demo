@@ -186,7 +186,7 @@
       </div>
 
       <!-- Aktivitätstyp (Multi-Select Checkbox) -->
-      {% set AT_LABELS = {'Aufbau': 'Aktivität', 'Bestellung': 'Bestellung', 'Besuch': 'Besuch'} %}
+      {% set AT_LABELS = {'Aufbau': 'Aktivität', 'Bestellung': 'Bestellung', 'Besuch': 'Besuch', 'Hotel': 'Hotel'} %}
       <div class="col-auto">
         <label class="form-label mb-1 small fw-bold">Aktivitätstyp</label>
         <div class="dropdown">
@@ -237,7 +237,7 @@
 </div>
 
 <!-- Aktivitäten-Liste -->
-{% if aktivitaeten %}
+{% if aktivitaeten or hotel_eintraege %}
 <div class="row g-3" id="aktListeContainer">
   {% include '_aktivitaeten_karten.html' %}
 </div>
