@@ -12186,7 +12186,11 @@ def _do_send_monatsbericht(force=False):
             ''', [erster_vorvorm.isoformat(), letzter_vorvorm.isoformat()] + t_p) or []
             vorvorm_map = {r['mitarbeiter_id']: dict(r) for r in _rs_vm}
 
+            abwesenheit_map = _bericht_abwesenheit_map([r['mitarbeiter_id'] for r in rs], erster_vormonat, letzter_vormonat)
+
             def _delta_m(val, mid, key):
+                if abwesenheit_map.get(mid, {}).get('voll'):
+                    return ''
                 prev = vorvorm_map.get(mid, {}).get(key, 0)
                 col = trend_col(val, prev)
                 ts  = trend_str(val, prev)
@@ -12243,7 +12247,7 @@ def _do_send_monatsbericht(force=False):
 
             rep_rows = ''.join(f'''
               <tr>
-                <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px">{r["name"]}</td>
+                <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px">{r["name"]}{_bericht_abwesenheit_badge(abwesenheit_map.get(r["mitarbeiter_id"], {}).get("typen", {}))}</td>
                 <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}{_delta_m(r["besuche"], r["mitarbeiter_id"], "besuche")}</td>
                 <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center">{_mplan_badge(mtp_map.get(r["mitarbeiter_id"],{}).get("geplant",0), mtp_map.get(r["mitarbeiter_id"],{}).get("erledigt",0))}</td>
                 <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["bestellungen"]}</td>
@@ -13000,6 +13004,9 @@ def monatsbericht_vorschau():
     erster_dieses    = heute.replace(day=1)
     letzter_vorvorm  = erster_dieses - timedelta(days=1)
     erster_vorvorm   = letzter_vorvorm.replace(day=1)
+    # Vormonat auf denselben Tages-Stand kappen wie der laufende (partielle) Monat,
+    # sonst vergleicht "bis heute" gegen den KOMPLETTEN Vormonat (irreführend große Deltas).
+    vorher_bis       = min(erster_vorvorm + timedelta(days=(heute - erster_dieses).days), letzter_vorvorm)
 
     _monat_namen = ['Januar','Februar','März','April','Mai','Juni',
                     'Juli','August','September','Oktober','November','Dezember']
@@ -13025,7 +13032,7 @@ def monatsbericht_vorschau():
         ''', (von.isoformat(), bis.isoformat()), one=True)
 
     dieser = _stats(erster_dieses, heute)
-    vorher = _stats(erster_vorvorm, letzter_vorvorm)
+    vorher = _stats(erster_vorvorm, vorher_bis)
 
     # Analog zu Arco (Bugreports 2026-07-29/30): s. Kommentar bei _do_send_wochenbericht.
     rep_stats = query('''
@@ -13068,8 +13075,10 @@ def monatsbericht_vorschau():
         LEFT JOIN biersorte bsg ON bsg.id = bp.biersorte_id
         WHERE a.datum BETWEEN ? AND ? AND (m.rolle='rep' OR (m.rolle='verkaufsleiter' AND EXISTS(SELECT 1 FROM mitarbeiter_verkaufsstelle mv WHERE mv.mitarbeiter_id=m.id)))
         GROUP BY m.id
-    ''', (erster_vorvorm.isoformat(), letzter_vorvorm.isoformat()))
+    ''', (erster_vorvorm.isoformat(), vorher_bis.isoformat()))
     letzte_map_m = {r['mitarbeiter_id']: r for r in rep_letzte_m}
+
+    abwesenheit_map = _bericht_abwesenheit_map([r['mitarbeiter_id'] for r in rep_stats], erster_dieses, heute)
 
     _mtp_team_v_row = query(
         "SELECT COUNT(*) AS geplant, COALESCE(SUM(tp.erledigt),0) AS erledigt "
@@ -13119,7 +13128,9 @@ def monatsbericht_vorschau():
     def trend_col(neu, alt):
         return '#2d8a4e' if neu > alt else '#c0392b' if neu < alt else '#888'
 
-    def _trend_cell_m(neu, alt):
+    def _trend_cell_m(neu, alt, mid=None):
+        if mid is not None and abwesenheit_map.get(mid, {}).get('voll'):
+            return ''
         d = neu - alt
         if d > 0:   return f'<span style="color:#2d8a4e;font-size:11px">&#x2191;+{d}</span>'
         if d < 0:   return f'<span style="color:#c0392b;font-size:11px">&#x2193;{d}</span>'
@@ -13136,18 +13147,18 @@ def monatsbericht_vorschau():
     _rep_0 = {'besuche': 0, 'kisten': 0}
     rep_rows = ''.join(f'''
         <tr>
-          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px">{r["name"]}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}<br>{_trend_cell_m(r["besuche"], letzte_map_m.get(r["mitarbeiter_id"], _rep_0)["besuche"])}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px">{r["name"]}{_bericht_abwesenheit_badge(abwesenheit_map.get(r["mitarbeiter_id"], {}).get("typen", {}))}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}<br>{_trend_cell_m(r["besuche"], letzte_map_m.get(r["mitarbeiter_id"], _rep_0)["besuche"], r["mitarbeiter_id"])}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center">{_mplan_badge_v(mtp_map_v.get(r["mitarbeiter_id"],{}).get("geplant",0), mtp_map_v.get(r["mitarbeiter_id"],{}).get("erledigt",0))}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["bestellungen"]}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}<br>{_trend_cell_m(r["kisten"], letzte_map_m.get(r["mitarbeiter_id"], _rep_0)["kisten"])}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}<br>{_trend_cell_m(r["kisten"], letzte_map_m.get(r["mitarbeiter_id"], _rep_0)["kisten"], r["mitarbeiter_id"])}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#5a3e9e">{_genehmigt_cell(r["genehmigt"], r["freigabepflichtig"])}</td>
         </tr>''' for r in rep_stats) or \
         '<tr><td colspan="7" style="padding:12px;color:#999;text-align:center">Noch keine Aktivitäten diesen Monat</td></tr>'
 
     tage_aktuell  = (heute - erster_dieses).days + 1
-    tage_vormonat = (letzter_vorvorm - erster_vorvorm).days + 1
+    tage_vormonat = (vorher_bis - erster_vorvorm).days + 1
 
     html = f'''<!DOCTYPE html>
 <html><head><meta charset="utf-8">
