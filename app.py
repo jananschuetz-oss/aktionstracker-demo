@@ -6181,11 +6181,16 @@ def api_aktivitaet_offline_sync():
     # 'Aufbau', das striktere Foto-Pflicht hat) – daher hier: Foto Pflicht außer bei
     # Homeoffice-Verkaufsstellen (einzige Sonderkategorie, die der Offline-Pfad kennt).
     _vs_check = query(
-        "SELECT homeoffice_mitarbeiter_id FROM verkaufsstelle WHERE id=?", (vs_id,), one=True
+        "SELECT homeoffice_mitarbeiter_id, typ FROM verkaufsstelle WHERE id=?", (vs_id,), one=True
     ) if str(vs_id).isdigit() else None
     if not _vs_check:
         return jsonify({'ok': False, 'error': 'Ungültige Verkaufsstelle'}), 400
     _is_homeoffice = bool(_vs_check['homeoffice_mitarbeiter_id'])
+    # Telefontermin (Review 2026-08-12, von Arco portiert): fehlte hier komplett - Foto war
+    # fälschlich Pflicht (Online-Formular erlaubt Telefontermin foto-frei, s. neue_aktivitaet())
+    # und der Tagesplan-Block unten hätte bei mehreren Anrufen am selben Tag denselben
+    # Anruf-Verlust erzeugt, den Arco am 2026-08-11 gefixt bekam (s. dedizierter Block unten).
+    _is_telefontermin = _vs_check['typ'] == 'Telefontermin'
 
     if session.get('rolle') == 'rep':
         _heute = date.today()
@@ -6193,7 +6198,7 @@ def api_aktivitaet_offline_sync():
         if datum < _min_datum:
             return jsonify({'ok': False, 'error': 'Nur die aktuelle Woche kann eingetragen werden.'}), 400
 
-    if not fotos_b64 and not _is_homeoffice:
+    if not fotos_b64 and not _is_homeoffice and not _is_telefontermin:
         return jsonify({'ok': False, 'error': 'Foto ist bei dieser Aktivität Pflicht.'}), 400
 
     # Fotos dekodieren, komprimieren und speichern (max. 3)
@@ -6272,15 +6277,42 @@ def api_aktivitaet_offline_sync():
     # (z.B. zwei Homeoffice-Zeitfenster) wurden bisher BEIDE auf erledigt=1 gesetzt und
     # keiner erhielt eine feste Verknüpfung zur Aktivität – nur noch den ältesten offenen
     # Stopp aktualisieren und direkt mit der neuen Aktivität verknüpfen (aktivitaet_id).
-    execute(
-        "UPDATE tagesplan SET erledigt=1, aktivitaet_id=? WHERE id = ("
-        "  SELECT id FROM tagesplan"
-        "  WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? AND erledigt=0 AND COALESCE(geloescht,0)=0"
-        "  ORDER BY reihenfolge, id LIMIT 1"
-        ")",
-        (akt_id, session['user_id'], vs_id, datum)
-    )
-    if datum == date.today().isoformat():
+    # Telefontermin (Review 2026-08-12, von Arco portiert) NICHT über den generischen
+    # Schritt laufen lassen - alle Telefontermine des Tages teilen sich dieselbe VS, sonst
+    # würde ein BELIEBIGER anderer offener Telefontermin-Platzhalter fälschlich erledigt.
+    if not _is_telefontermin:
+        execute(
+            "UPDATE tagesplan SET erledigt=1, aktivitaet_id=? WHERE id = ("
+            "  SELECT id FROM tagesplan"
+            "  WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? AND erledigt=0 AND COALESCE(geloescht,0)=0"
+            "  ORDER BY reihenfolge, id LIMIT 1"
+            ")",
+            (akt_id, session['user_id'], vs_id, datum)
+        )
+    if _is_telefontermin:
+        # Identische Logik wie neue_aktivitaet() (Bugreport 2026-08-11): zuerst den ältesten
+        # offenen Platzhalter ohne aktivitaet_id suchen und aktualisieren, nur wenn keiner
+        # existiert einen neuen erledigten Eintrag anlegen.
+        if datum == date.today().isoformat():
+            _offener_platzhalter = query(
+                "SELECT id FROM tagesplan WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? "
+                "AND erledigt=0 AND aktivitaet_id IS NULL AND COALESCE(geloescht,0)=0 "
+                "ORDER BY reihenfolge, id LIMIT 1",
+                (session['user_id'], vs_id, datum), one=True
+            )
+            if _offener_platzhalter:
+                execute(
+                    "UPDATE tagesplan SET erledigt=1, aktivitaet_id=?, notiz=?, "
+                    "von_uhrzeit=?, bis_uhrzeit=? WHERE id=?",
+                    (akt_id, notizen, von_uhrzeit, bis_uhrzeit, _offener_platzhalter['id'])
+                )
+            else:
+                execute(
+                    "INSERT INTO tagesplan (mitarbeiter_id, verkaufsstelle_id, datum, notiz, von_uhrzeit, bis_uhrzeit, "
+                    "erledigt, aktivitaet_id, erstellt_von) VALUES (?,?,?,?,?,?,1,?,?)",
+                    (session['user_id'], vs_id, datum, notizen, von_uhrzeit, bis_uhrzeit, akt_id, session['user_id'])
+                )
+    elif datum == date.today().isoformat():
         existing = query(
             "SELECT id FROM tagesplan WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? AND COALESCE(geloescht,0)=0",
             (session['user_id'], vs_id, datum), one=True
