@@ -6831,13 +6831,31 @@ def neue_aktivitaet():
         if datum == date.today().isoformat():
             if is_telefontermin:
                 # Telefontermin (2026-07-30, von Arco portiert): kann mehrfach am Tag erfasst
-                # werden – bewusst KEIN "schon vorhanden"-Check wie unten, jeder Anruf bekommt
-                # seine eigene Zeile im Tages-/Wochenplan (mit eigener Uhrzeit/Notiz).
-                execute(
-                    "INSERT INTO tagesplan (mitarbeiter_id, verkaufsstelle_id, datum, notiz, von_uhrzeit, bis_uhrzeit, "
-                    "erledigt, aktivitaet_id, erstellt_von) VALUES (?,?,?,?,?,?,1,?,?)",
-                    (session['user_id'], vs_id, datum, notizen, von_uhrzeit or None, bis_uhrzeit or None, akt_id, session['user_id'])
+                # werden – bewusst KEIN generischer "schon vorhanden"-Check wie unten, jeder
+                # Anruf bekommt seine eigene Zeile im Tages-/Wochenplan (mit eigener
+                # Uhrzeit/Notiz). Bugreport 2026-08-11 (von Arco portiert): wenn der Anruf
+                # zuvor manuell in die Besuchsplanung eingetragen wurde (offener Platzhalter
+                # ohne aktivitaet_id), entstand hier trotzdem eine ZWEITE, neue Zeile statt
+                # den Platzhalter zu übernehmen – zuerst den ältesten offenen Platzhalter
+                # suchen und aktualisieren, nur wenn keiner existiert neu anlegen.
+                _offener_platzhalter = query(
+                    "SELECT id FROM tagesplan WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? "
+                    "AND erledigt=0 AND aktivitaet_id IS NULL AND COALESCE(geloescht,0)=0 "
+                    "ORDER BY reihenfolge, id LIMIT 1",
+                    (session['user_id'], vs_id, datum), one=True
                 )
+                if _offener_platzhalter:
+                    execute(
+                        "UPDATE tagesplan SET erledigt=1, aktivitaet_id=?, notiz=?, "
+                        "von_uhrzeit=?, bis_uhrzeit=? WHERE id=?",
+                        (akt_id, notizen, von_uhrzeit or None, bis_uhrzeit or None, _offener_platzhalter['id'])
+                    )
+                else:
+                    execute(
+                        "INSERT INTO tagesplan (mitarbeiter_id, verkaufsstelle_id, datum, notiz, von_uhrzeit, bis_uhrzeit, "
+                        "erledigt, aktivitaet_id, erstellt_von) VALUES (?,?,?,?,?,?,1,?,?)",
+                        (session['user_id'], vs_id, datum, notizen, von_uhrzeit or None, bis_uhrzeit or None, akt_id, session['user_id'])
+                    )
             else:
                 existing = query(
                     "SELECT id FROM tagesplan WHERE mitarbeiter_id=? AND verkaufsstelle_id=? AND datum=? AND COALESCE(geloescht,0)=0",
