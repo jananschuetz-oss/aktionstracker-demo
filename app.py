@@ -754,6 +754,46 @@ def _arbeitszeit_abwesenheit_zeile_html(zaehlung: dict) -> str:
     return f'<div style="color:#888;font-size:10px;margin-top:2px">{badge}{text}</div>'
 
 
+def _bericht_abwesenheit_map(ma_ids, von: date, bis: date) -> dict:
+    """Für die 'Mitarbeiter diese Woche/dieser Monat'-Tabelle in Wochen-/Monatsbericht
+    (Mail + Vorschau, Nutzerwunsch 2026-08-12): liefert je mitarbeiter_id die Abwesenheitstyp-
+    Zählung im Zeitraum plus ob der/die Mitarbeiter:in an JEDEM Werktag (Mo-Fr) des Zeitraums
+    abwesend war ('voll'). Bei voller Abwesenheit zeigte das Vorwochen-/Vormonat-Delta bisher
+    einen irreführenden roten Pfeil (0 gegenüber der Vorperiode sieht wie ein Einbruch aus,
+    ist aber schlicht Urlaub/Krankheit) - wird dann durch ein Abwesenheits-Badge ersetzt.
+    Von Arco portiert (Commit 17eea75)."""
+    urlaub_map = _urlaub_daten_alle(ma_ids, von.isoformat(), bis.isoformat())
+    werktage = 0
+    d = von
+    while d <= bis:
+        if d.weekday() < 5:
+            werktage += 1
+        d += timedelta(days=1)
+    ergebnis = {}
+    for ma_id in ma_ids:
+        zaehlung = _arbeitszeit_tage_zaehlen(von, bis, set(), ma_id, urlaub_map)
+        typen = zaehlung['typen']
+        abwesend_tage = sum(typen.values())
+        ergebnis[ma_id] = {'typen': typen, 'voll': werktage > 0 and abwesend_tage >= werktage}
+    return ergebnis
+
+
+def _bericht_abwesenheit_badge(typen: dict) -> str:
+    """Kleines Badge für die auffälligste Abwesenheitsart eines Mitarbeiters im Berichtszeitraum
+    (gleiche Farb-/Label-Zuordnung wie die Arbeitszeit-Seite, s. _arbeitszeit_abwesenheit_zeile_html).
+    Von Arco portiert (Commit 17eea75)."""
+    if not typen:
+        return ''
+    fuehrend = next((t for t in _AZ_TYP_PRIORITAET if typen.get(t)), None)
+    if not fuehrend:
+        return ''
+    bg, fg = _AZ_TYP_BADGE_FARBE[fuehrend]
+    label = _AZ_TYP_BADGE_LABEL[fuehrend]
+    n = typen[fuehrend]
+    return (f'<div style="margin-top:2px"><span style="display:inline-block;padding:1px 6px;border-radius:8px;'
+            f'font-size:9px;font-weight:bold;background:{bg};color:{fg}">{label} ({n}T.)</span></div>')
+
+
 def _arbeitszeit_pdf_seite_html(von: date, bis: date, team_id: int | None = None, monatsmodus: bool = False) -> str:
     """Baut den HTML-Block für die Arbeitszeit-Seite (Seite 2) im Wochen-/Monatsbericht-PDF.
     Wochenmodus: eine Zeile je Mitarbeiter mit der Gesamtstundenzahl im Zeitraum. Monatsmodus:
@@ -11773,8 +11813,15 @@ def _do_send_wochenbericht(force=False):
                     GROUP BY m.id
                 ''', [montag_letzte.isoformat(), sonntag_letzte.isoformat()] + t_p) or []
                 letzte_map = {r['mitarbeiter_id']: dict(r) for r in _rs_vw}
+                abwesenheit_map = _bericht_abwesenheit_map([r['mitarbeiter_id'] for r in rs], montag_diese, sonntag_diese)
 
                 def _delta_w(val, mid, key):
+                    # War der/die Mitarbeiter:in die GANZE Woche abwesend, ist ein Vergleich zur
+                    # Vorwoche fachlich sinnlos (0 sieht wie ein Einbruch aus, ist aber Urlaub/
+                    # Krankheit) - Badge übernimmt stattdessen die Erklärung, s. Namenszelle.
+                    # Von Arco portiert (Commit 17eea75).
+                    if abwesenheit_map.get(mid, {}).get('voll'):
+                        return ''
                     prev = letzte_map.get(mid, {}).get(key, 0)
                     col = trend_col(val, prev)
                     ts  = trend_str(val, prev)
@@ -11843,7 +11890,7 @@ def _do_send_wochenbericht(force=False):
 
                 rep_rows = ''.join(f'''
                 <tr>
-                  <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px">{r["name"]}</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px">{r["name"]}{_bericht_abwesenheit_badge(abwesenheit_map.get(r["mitarbeiter_id"], {}).get("typen", {}))}</td>
                   <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}{_delta_w(r["besuche"], r["mitarbeiter_id"], "besuche")}</td>
                   <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center">{_plan_badge(tp_map.get(r["mitarbeiter_id"],{}).get("geplant",0), tp_map.get(r["mitarbeiter_id"],{}).get("erledigt",0))}</td>
                   <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["bestellungen"]}</td>
@@ -12765,6 +12812,7 @@ def wochenbericht_vorschau():
         GROUP BY m.id
     ''', (montag_letzte.isoformat(), sonntag_letzte.isoformat()))
     letzte_map_w = {r['mitarbeiter_id']: r for r in rep_letzte_w}
+    abwesenheit_map = _bericht_abwesenheit_map([r['mitarbeiter_id'] for r in rep_stats], montag_diese, sonntag_diese)
 
     # Nur bis heute laufen lassen (nicht bis Sonntag) – die "Besuchsplanung diese Woche"
     # zeigt den laufenden Fortschritt, spätere Wochentage sind noch nicht dran und sollen
@@ -12822,7 +12870,12 @@ def wochenbericht_vorschau():
     def trend_col(neu, alt):
         return '#2d8a4e' if neu > alt else ('#c0392b' if neu < alt else '#888')
 
-    def _trend_cell_w(neu, alt):
+    def _trend_cell_w(neu, alt, mid=None):
+        # War der/die Mitarbeiter:in die GANZE Woche abwesend, ist ein Vergleich zur Vorwoche
+        # fachlich sinnlos (0 sieht wie ein Einbruch aus, ist aber Urlaub/Krankheit) - Badge
+        # bei der Namenszelle übernimmt stattdessen die Erklärung. Von Arco portiert (Commit 17eea75).
+        if mid is not None and abwesenheit_map.get(mid, {}).get('voll'):
+            return ''
         d = neu - alt
         if d > 0:   return f'<span style="color:#2d8a4e;font-size:11px">&#x2191;+{d}</span>'
         if d < 0:   return f'<span style="color:#c0392b;font-size:11px">&#x2193;{d}</span>'
@@ -12842,11 +12895,11 @@ def wochenbericht_vorschau():
     _rep_0 = {'besuche': 0, 'kisten': 0}
     rep_rows = ''.join(f'''
         <tr>
-          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px">{r["name"]}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}<br>{_trend_cell_w(r["besuche"], letzte_map_w.get(r["mitarbeiter_id"], _rep_0)["besuche"])}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px">{r["name"]}{_bericht_abwesenheit_badge(abwesenheit_map.get(r["mitarbeiter_id"], {}).get("typen", {}))}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px">{r["besuche"]}<br>{_trend_cell_w(r["besuche"], letzte_map_w.get(r["mitarbeiter_id"], _rep_0)["besuche"], r["mitarbeiter_id"])}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center">{_plan_badge_v(tp_map_v.get(r["mitarbeiter_id"],{}).get("geplant",0), tp_map_v.get(r["mitarbeiter_id"],{}).get("erledigt",0))}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#2e6da4">{r["bestellungen"]}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}<br>{_trend_cell_w(r["kisten"], letzte_map_w.get(r["mitarbeiter_id"], _rep_0)["kisten"])}</td>
+          <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;font-weight:600;color:#c8860a">{r["kisten"]}<br>{_trend_cell_w(r["kisten"], letzte_map_w.get(r["mitarbeiter_id"], _rep_0)["kisten"], r["mitarbeiter_id"])}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#27ae60">{r["aufbauten"]}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #f0f0f0;text-align:center;font-size:13px;color:#5a3e9e">{_genehmigt_cell(r["genehmigt"], r["freigabepflichtig"])}</td>
         </tr>''' for r in rep_stats) or \
