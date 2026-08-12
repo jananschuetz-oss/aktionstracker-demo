@@ -1252,6 +1252,9 @@ def init_db():
             "ALTER TABLE biersorte ADD COLUMN ist_gratisware INTEGER DEFAULT 0",
             # Rauf/Runter-Sortierung der Biersorten-Liste im Admin (von Arco portiert).
             "ALTER TABLE biersorte ADD COLUMN sortierung INTEGER DEFAULT 0",
+            # Rauf/Runter-Sortierung der Aufbautypen (Display-Typen) im Admin, analog
+            # Biersorten (von Arco portiert, Commit 990a3f5).
+            "ALTER TABLE displaysorte ADD COLUMN sortierung INTEGER DEFAULT 0",
             # Urlaubsantrag-PDF: Antragsdatum wird für den "Datum"-Vermerk des Mitarbeiters
             # auf dem erzeugten PDF benötigt. Kein Default-Ausdruck möglich (SQLite erlaubt
             # bei ALTER TABLE ADD COLUMN keinen nicht-konstanten DEFAULT) – wird stattdessen
@@ -6467,7 +6470,7 @@ def neue_aktivitaet():
     biersorten      = query("SELECT * FROM biersorte      WHERE aktiv=1 ORDER BY sortierung, name")
     if not GRATISWARE_MODUS:
         biersorten = [b for b in biersorten if not b['ist_gratisware']]
-    displaysorte    = query("SELECT * FROM displaysorte   WHERE aktiv=1 ORDER BY name")
+    displaysorte    = query("SELECT * FROM displaysorte   WHERE aktiv=1 ORDER BY sortierung, name")
     # Von Arco portiert/produktisiert (2026-07-31): kundenweiter Ein/Aus-Schalter - eine leere
     # Liste hier deaktiviert das Feature durchgehend (Validierung, Speichern, Template-Anzeige
     # hängen alle an dieser Variable).
@@ -8650,7 +8653,7 @@ def admin():
         (VS_ADMIN_SEITENGROESSE,)
     )
     biersorten      = query("SELECT * FROM biersorte ORDER BY sortierung, name")
-    displaysorte    = query("SELECT * FROM displaysorte ORDER BY name")
+    displaysorte    = query("SELECT * FROM displaysorte ORDER BY sortierung, name")
     listungsprodukte_admin = query("SELECT * FROM listungsprodukt ORDER BY aktiv DESC, sortierung, name")
     # Formular-Baukasten (2026-08-02): vs_typen als Python-Liste vorparsen, damit das Template
     # nicht selbst JSON dekodieren muss (kein eingebauter "from_json"-Jinja-Filter vorhanden).
@@ -10472,7 +10475,8 @@ def admin_display_neu():
     name = request.form.get('name', '').strip()
     zaehlt = 1 if request.form.get('zaehlt_zur_zielerreichung') == '1' else 0
     if name:
-        execute("INSERT OR IGNORE INTO displaysorte (name, zaehlt_zur_zielerreichung) VALUES (?,?)", (name, zaehlt))
+        _max_sort = query("SELECT COALESCE(MAX(sortierung), -1) AS m FROM displaysorte", one=True)['m']
+        execute("INSERT OR IGNORE INTO displaysorte (name, zaehlt_zur_zielerreichung, sortierung) VALUES (?,?,?)", (name, zaehlt, _max_sort + 1))
         flash(f'Displaysorte "{name}" angelegt.', 'success')
     return redirect(url_for('admin'))
 
@@ -10536,6 +10540,32 @@ def admin_display_tier_umschalten(ds_id):
         execute("UPDATE displaysorte SET zaehlt_zur_zielerreichung=? WHERE id=?", (neu, ds_id))
         label = 'zählt zur Zielerreichung' if neu else 'zählt nicht zur Zielerreichung'
         flash(f'Aufbautyp „{d["name"]}" {label}.', 'info')
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/displaysorte/<int:ds_id>/verschieben', methods=['POST'])
+@admin_required
+def admin_display_verschieben(ds_id):
+    """Rauf/Runter-Sortierung der Aufbautypen-Liste im Admin, analog Biersorten
+    (admin_bier_verschieben). Von Arco portiert (Commit 990a3f5)."""
+    richtung = request.form.get('richtung')
+    if richtung not in ('hoch', 'runter'):
+        return redirect(url_for('admin'))
+    db = get_db()
+    alle = db.execute("SELECT id, sortierung FROM displaysorte ORDER BY sortierung, name").fetchall()
+    for i, row in enumerate(alle):
+        if row['sortierung'] != i:
+            db.execute("UPDATE displaysorte SET sortierung=? WHERE id=?", (i, row['id']))
+    alle = db.execute("SELECT id FROM displaysorte ORDER BY sortierung, name").fetchall()
+    ids = [r['id'] for r in alle]
+    if ds_id not in ids:
+        return redirect(url_for('admin'))
+    idx = ids.index(ds_id)
+    ziel = idx - 1 if richtung == 'hoch' else idx + 1
+    if 0 <= ziel < len(ids):
+        db.execute("UPDATE displaysorte SET sortierung=? WHERE id=?", (ziel, ids[idx]))
+        db.execute("UPDATE displaysorte SET sortierung=? WHERE id=?", (idx, ids[ziel]))
+        db.commit()
     return redirect(url_for('admin'))
 
 

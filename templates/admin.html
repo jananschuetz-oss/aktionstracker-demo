@@ -360,6 +360,22 @@
               </td>
               <td class="text-center">
                 {% if d.aktiv %}
+                <form method="POST" action="{{ url_for('admin_display_verschieben', ds_id=d.id) }}" style="display:inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="richtung" value="hoch">
+                  <button type="submit" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1" title="Nach oben"
+                          {% if loop.first %}disabled{% endif %}>
+                    <i class="bi bi-arrow-up"></i>
+                  </button>
+                </form>
+                <form method="POST" action="{{ url_for('admin_display_verschieben', ds_id=d.id) }}" style="display:inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="richtung" value="runter">
+                  <button type="submit" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1" title="Nach unten"
+                          {% if loop.last %}disabled{% endif %}>
+                    <i class="bi bi-arrow-down"></i>
+                  </button>
+                </form>
                 <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1"
                         title="Bearbeiten"
                         data-bs-toggle="modal"
