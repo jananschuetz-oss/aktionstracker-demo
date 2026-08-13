@@ -1134,6 +1134,20 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
 </script>
 
 <script>
+// Automatischer Retry bei Netzwerkfehler (schwaches Internet im Außendienst):
+// bis zu 2 Wiederholungsversuche mit wachsender Wartezeit (800 ms → 1200 ms).
+function fetchMitRetry(url, opts, versuche, delay) {
+    versuche = (versuche !== undefined) ? versuche : 2;
+    delay    = delay || 800;
+    return fetch(url, opts).catch(function(err) {
+        if (versuche > 0) {
+            return new Promise(function(r){ setTimeout(r, delay); })
+                .then(function(){ return fetchMitRetry(url, opts, versuche - 1, Math.round(delay * 1.5)); });
+        }
+        throw err;
+    });
+}
+
 // Lädt den Tagesplan-Abschnitt (#tagesplanListe) neu, ohne die ganze Seite neu zu
 // laden – nach dem Hinzufügen eines Stops per AJAX. Die Buttons innerhalb der Liste
 // hängen an document-weiten Click-Delegationen (siehe weiter unten sowie base.html),
@@ -1227,7 +1241,7 @@ document.addEventListener('DOMContentLoaded', function(){
         const orig   = this.innerHTML;
         this.disabled = true;
         this.innerHTML = '<i class="bi bi-hourglass-split"></i>';
-        fetch('{{ url_for("api_tagesplan_stopp_neu") }}', {
+        fetchMitRetry('{{ url_for("api_tagesplan_stopp_neu") }}', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({vs_id: vsId, datum: datum})
@@ -1340,7 +1354,7 @@ document.addEventListener('DOMContentLoaded', function(){
     const orig  = stopBtn.innerHTML;
     stopBtn.disabled  = true;
     stopBtn.innerHTML = '<i class="bi bi-hourglass-split"></i>';
-    fetch('{{ url_for("api_tagesplan_stopp_neu") }}', {
+    fetchMitRetry('{{ url_for("api_tagesplan_stopp_neu") }}', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({vs_id: vsId, datum: datum})

@@ -384,6 +384,19 @@
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
+// Automatischer Retry bei Netzwerkfehler (schwaches Internet im Außendienst):
+// bis zu 2 Wiederholungsversuche mit wachsender Wartezeit (800 ms → 1200 ms).
+function fetchMitRetry(url, opts, versuche, delay) {
+    versuche = (versuche !== undefined) ? versuche : 2;
+    delay    = delay || 800;
+    return fetch(url, opts).catch(function(err) {
+        if (versuche > 0) {
+            return new Promise(function(r){ setTimeout(r, delay); })
+                .then(function(){ return fetchMitRetry(url, opts, versuche - 1, Math.round(delay * 1.5)); });
+        }
+        throw err;
+    });
+}
 /* ── Konfiguration ─────────────────────────────────────────────────────────── */
 const IS_MANAGER = {{ 'true' if is_manager else 'false' }};
 const FARBEN = [
@@ -744,7 +757,7 @@ document.getElementById('btnMsStoppHinzufuegen')?.addEventListener('click', func
   btn.disabled = true;
   status.classList.remove('d-none', 'text-danger', 'text-success');
   status.textContent = 'Wird eingeplant…';
-  fetch('/api/tagesplan/stopp/neu', {
+  fetchMitRetry('/api/tagesplan/stopp/neu', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ vs_id: aktiverStelleId, datum: datum })
