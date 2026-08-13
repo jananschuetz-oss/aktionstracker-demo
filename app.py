@@ -228,6 +228,17 @@ _AZ_TYP_BADGE_FARBE = {'urlaub': ('#e8f5ec', '#2d8a4e'), 'sonderurlaub': ('#e8f5
                         'kein_arbeitstag': ('#eceff1', '#546e7a')}
 _AZ_TYP_PRIORITAET = ['krankheit', 'unbezahlt', 'urlaub', 'sonderurlaub', 'frei_sonderurlaub', 'hotel', 'kein_arbeitstag']
 
+# Farbliche Kennzeichnung pro Aufbautyp (2026-08-13, von Arco portiert): 10 feste Pastelltöne zur
+# Auswahl im Admin-Bereich, als Kartenhintergrund in "Neue Aktivität" übernommen. Bewusst
+# eine feste Liste statt freier Farbwahl – ein per <input type="color"> frei gewählter Ton
+# könnte auf hellem Kartenhintergrund den navy Text/Icon-Kontrast unlesbar machen.
+DISPLAYSORTE_FARBEN = [
+    ('#e3edf7', 'Blau'), ('#dcf3ea', 'Mint'), ('#fbe4e2', 'Koralle'), ('#fdecd2', 'Orange'),
+    ('#fdf6cd', 'Gelb'), ('#e7f5df', 'Hellgrün'), ('#dcf1f1', 'Türkis'), ('#e6e3f7', 'Lila'),
+    ('#f6e2f2', 'Pink'), ('#f0e6d2', 'Beige'),
+]
+_DISPLAYSORTE_FARBEN_SET = {f[0] for f in DISPLAYSORTE_FARBEN}
+
 
 @app.context_processor
 def inject_now():
@@ -1461,6 +1472,9 @@ def init_db():
             "ALTER TABLE verkaufsstelle ADD COLUMN kategorie_auto        TEXT",
             "ALTER TABLE verkaufsstelle ADD COLUMN kategorie_override    TEXT",
             "ALTER TABLE verkaufsstelle ADD COLUMN kategorie_berechnet_am TEXT",
+            # Farbliche Kennzeichnung pro Aufbautyp (2026-08-13, von Arco portiert): Hex-Wert einer
+            # von 10 vordefinierten Pastelltönen, NULL = weiß/kein Akzent wie bisher.
+            "ALTER TABLE displaysorte ADD COLUMN farbe TEXT",
         ]:
             try:
                 db.execute(migration)
@@ -8765,6 +8779,7 @@ def admin():
     )
     biersorten      = query("SELECT * FROM biersorte ORDER BY sortierung, name")
     displaysorte    = query("SELECT * FROM displaysorte ORDER BY sortierung, name")
+    displaysorte_farben = DISPLAYSORTE_FARBEN
     listungsprodukte_admin = query("SELECT * FROM listungsprodukt ORDER BY aktiv DESC, sortierung, name")
     # Formular-Baukasten (2026-08-02): vs_typen als Python-Liste vorparsen, damit das Template
     # nicht selbst JSON dekodieren muss (kein eingebauter "from_json"-Jinja-Filter vorhanden).
@@ -8873,6 +8888,7 @@ def admin():
         vs_admin_seitengroesse=VS_ADMIN_SEITENGROESSE,
         biersorten=biersorten,
         displaysorte=displaysorte,
+        displaysorte_farben=displaysorte_farben,
         listungsprodukte_admin=listungsprodukte_admin,
         listungsbild_modus=LISTUNGSBILD_MODUS,
         listungsbild_preispflicht=LISTUNGSBILD_PREISPFLICHT,
@@ -10585,9 +10601,12 @@ def admin_formularfeld_verschieben(ff_id):
 def admin_display_neu():
     name = request.form.get('name', '').strip()
     zaehlt = 1 if request.form.get('zaehlt_zur_zielerreichung') == '1' else 0
+    farbe = request.form.get('farbe', '').strip()
+    if farbe not in _DISPLAYSORTE_FARBEN_SET:
+        farbe = None
     if name:
         _max_sort = query("SELECT COALESCE(MAX(sortierung), -1) AS m FROM displaysorte", one=True)['m']
-        execute("INSERT OR IGNORE INTO displaysorte (name, zaehlt_zur_zielerreichung, sortierung) VALUES (?,?,?)", (name, zaehlt, _max_sort + 1))
+        execute("INSERT OR IGNORE INTO displaysorte (name, zaehlt_zur_zielerreichung, sortierung, farbe) VALUES (?,?,?,?)", (name, zaehlt, _max_sort + 1, farbe))
         flash(f'Displaysorte "{name}" angelegt.', 'success')
     return redirect(url_for('admin'))
 
@@ -10636,8 +10655,11 @@ def admin_display_reaktivieren(ds_id):
 def admin_display_bearbeiten(ds_id):
     name = request.form.get('name', '').strip()
     zaehlt = 1 if request.form.get('zaehlt_zur_zielerreichung') == '1' else 0
+    farbe = request.form.get('farbe', '').strip()
+    if farbe not in _DISPLAYSORTE_FARBEN_SET:
+        farbe = None
     if name:
-        execute("UPDATE displaysorte SET name=?, zaehlt_zur_zielerreichung=? WHERE id=?", (name, zaehlt, ds_id))
+        execute("UPDATE displaysorte SET name=?, zaehlt_zur_zielerreichung=?, farbe=? WHERE id=?", (name, zaehlt, farbe, ds_id))
         flash(f'Display-Typ „{name}" aktualisiert.', 'success')
     return redirect(url_for('admin'))
 

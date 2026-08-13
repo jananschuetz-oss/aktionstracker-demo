@@ -325,6 +325,9 @@
             {% for d in displaysorte %}
             <tr>
               <td>
+                {% if d.farbe %}
+                <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:{{ d.farbe }};margin-right:5px" title="Kartenfarbe"></span>
+                {% endif %}
                 {% if d.zaehlt_zur_zielerreichung %}
                   <i class="bi bi-display me-1" style="color:#2e6da4"></i>
                 {% else %}
@@ -1874,6 +1877,24 @@ function vsAdminSucheAusfuehren(q) {
               Typen im oberen Bereich fließen in die Zielkurve ein. Typen im unteren Bereich werden nur erfasst.
             </div>
           </div>
+          <div class="mb-3">
+            <label class="form-label d-block">Farbe</label>
+            <div class="d-flex flex-wrap gap-2">
+              {% for hex, label in displaysorte_farben %}
+              <label class="farb-swatch" title="{{ label }}"
+                     style="width:28px;height:28px;border-radius:50%;background:{{ hex }};cursor:pointer;display:flex;align-items:center;justify-content:center">
+                <input type="radio" name="farbe" value="{{ hex }}" class="visually-hidden"
+                       onclick="this.closest('.modal-body').querySelectorAll('.farb-swatch').forEach(function(s){s.style.boxShadow='none'}); this.closest('.farb-swatch').style.boxShadow='0 0 0 2px #fff, 0 0 0 3.5px #1a3a5c'">
+              </label>
+              {% endfor %}
+              <label class="farb-swatch" title="Keine Farbe"
+                     style="width:28px;height:28px;border-radius:50%;border:1.5px dashed #adb5bd;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 2px #fff, 0 0 0 3.5px #1a3a5c">
+                <input type="radio" name="farbe" value="" class="visually-hidden" checked
+                       onclick="this.closest('.modal-body').querySelectorAll('.farb-swatch').forEach(function(s){s.style.boxShadow='none'}); this.closest('.farb-swatch').style.boxShadow='0 0 0 2px #fff, 0 0 0 3.5px #1a3a5c'">
+                <i class="bi bi-x" style="color:#adb5bd"></i>
+              </label>
+            </div>
+          </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
@@ -2150,6 +2171,24 @@ function ffTypUpdate(suffix) {
               <option value="1" {% if d.zaehlt_zur_zielerreichung %}selected{% endif %}>Aufbau – zählt zur Zielerreichung</option>
               <option value="0" {% if not d.zaehlt_zur_zielerreichung %}selected{% endif %}>Auffüllen/Bestücken – zählt nicht zur Zielerreichung</option>
             </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label d-block">Farbe</label>
+            <div class="d-flex flex-wrap gap-2">
+              {% for hex, label in displaysorte_farben %}
+              <label class="farb-swatch" title="{{ label }}"
+                     style="width:28px;height:28px;border-radius:50%;background:{{ hex }};cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:{{ '0 0 0 2px #fff, 0 0 0 3.5px #1a3a5c' if d.farbe == hex else 'none' }}">
+                <input type="radio" name="farbe" value="{{ hex }}" class="visually-hidden" {% if d.farbe == hex %}checked{% endif %}
+                       onclick="this.closest('.modal-body').querySelectorAll('.farb-swatch').forEach(function(s){s.style.boxShadow='none'}); this.closest('.farb-swatch').style.boxShadow='0 0 0 2px #fff, 0 0 0 3.5px #1a3a5c'">
+              </label>
+              {% endfor %}
+              <label class="farb-swatch" title="Keine Farbe"
+                     style="width:28px;height:28px;border-radius:50%;border:1.5px dashed #adb5bd;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:{{ '0 0 0 2px #fff, 0 0 0 3.5px #1a3a5c' if not d.farbe else 'none' }}">
+                <input type="radio" name="farbe" value="" class="visually-hidden" {% if not d.farbe %}checked{% endif %}
+                       onclick="this.closest('.modal-body').querySelectorAll('.farb-swatch').forEach(function(s){s.style.boxShadow='none'}); this.closest('.farb-swatch').style.boxShadow='0 0 0 2px #fff, 0 0 0 3.5px #1a3a5c'">
+                <i class="bi bi-x" style="color:#adb5bd"></i>
+              </label>
+            </div>
           </div>
         </div>
         <div class="modal-footer">
