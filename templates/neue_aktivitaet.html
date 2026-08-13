@@ -1214,16 +1214,13 @@ function uebernehmenBestellung(bid) {
   const b = window._offeneBest[bid];
   if (!b) return;
   setTyp('Aufbau');
-  if (b.bier) Object.entries(b.bier).forEach(([id, m]) => {
-    const el = document.getElementById('bier_' + id);
-    if (el) { el.value = m || ''; el.dispatchEvent(new Event('input')); }
-  });
-  if (b.displays) Object.entries(b.displays).forEach(([id, m]) => {
-    const el = document.getElementById('disp_' + id);
-    if (el) { el.value = m || ''; el.dispatchEvent(new Event('input')); }
-  });
+  // Bewusst KEINE Mengen aus der alten Bestellung ins Formular übernehmen (Nutzerwunsch
+  // 2026-08-13): die alte Bestellung wird beim Speichern ohnehin geschlossen, unabhängig
+  // davon was hier eingetragen wird – ein unverändert übernommener Wert hätte sonst beim
+  // Speichern eine komplett NEUE Bestellung mit derselben Menge erzeugt, statt einfach nur
+  // den Aufbau zu erfassen, für den die Bestellung ursprünglich gedacht war.
   updateGesamt(); updateDispGesamt(); updateMobileSummary();
-  // Bestellung-ID merken → wird beim Speichern als 'aufgebaut' geschlossen
+  // Bestellung-ID merken → wird beim Speichern geschlossen (unabhängig vom finalen Aktivitätstyp)
   const ids = document.getElementById('erledigtIds');
   const set = new Set(ids.value.split(',').filter(Boolean));
   set.add(String(bid));
@@ -1231,7 +1228,7 @@ function uebernehmenBestellung(bid) {
   // Markieren in der Box
   const card = document.querySelector(`#offeneBestellungen [onclick="uebernehmenBestellung(${bid})"]`);
   if (card) { card.innerHTML = '<i class="bi bi-check2"></i> Übernommen'; card.classList.remove('btn-warning'); card.classList.add('btn-success'); card.disabled = true; }
-  document.querySelector('.bier-input')?.closest('.card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  document.querySelector('.disp-input')?.closest('.card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function stornoToggle(bid) {

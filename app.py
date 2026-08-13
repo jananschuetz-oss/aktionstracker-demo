@@ -5794,18 +5794,27 @@ def verkaufsstelle_historie(vs_id):
           "JOIN biersorte bs ON bs.id=bp.biersorte_id WHERE COALESCE(bs.ist_gratisware,0)=0 GROUP BY bp.aktivitaet_id)")
     GRAT = ("(SELECT bp.aktivitaet_id, SUM(bp.kisten_anzahl) AS gratis_total FROM bestellposition bp "
             "JOIN biersorte bs ON bs.id=bp.biersorte_id WHERE COALESCE(bs.ist_gratisware,0)=1 GROUP BY bp.aktivitaet_id)")
+    # "Aufbauten" ist als Besuchs-ANZAHL definiert (s. monatsreihen()-Docstring unten), zählt
+    # daher bewusst über echte displayposition-Mengen statt über aktionstyp='Aufbau' allein
+    # (Bugreport 2026-08-13: eine als "Aufbau" typisierte, aber leer gespeicherte Aktivität –
+    # z.B. nach Übernehmen einer offenen Bestellung ohne tatsächliche Eintragung – zählte
+    # bislang trotzdem als vollwertiger Aufbau-Besuch mit).
+    DP = ("(SELECT dp.aktivitaet_id, SUM(dp.anzahl) AS anzahl_total FROM displayposition dp "
+          "JOIN displaysorte ds ON ds.id=dp.displaysorte_id WHERE ds.zaehlt_zur_zielerreichung=1 "
+          "GROUP BY dp.aktivitaet_id)")
 
     def jahres_kpis(jahr):
         return query(f"""
             SELECT COUNT(a.id) AS besuche,
                    SUM(CASE WHEN a.aktionstyp='Bestellung' THEN 1 ELSE 0 END) AS bestellungen,
-                   SUM(CASE WHEN a.aktionstyp='Aufbau' THEN 1 ELSE 0 END) AS aufbauten,
+                   SUM(CASE WHEN COALESCE(d.anzahl_total,0) > 0 THEN 1 ELSE 0 END) AS aufbauten,
                    COALESCE(SUM(b.kisten_total), 0) AS kisten,
                    COALESCE(SUM(g.gratis_total), 0) AS gratisware,
                    MIN(a.datum) AS erster, MAX(a.datum) AS letzter
             FROM aktivitaet a
             LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
             LEFT JOIN {GRAT} g ON g.aktivitaet_id = a.id
+            LEFT JOIN {DP} d ON d.aktivitaet_id = a.id
             WHERE a.verkaufsstelle_id=? AND strftime('%Y', a.datum)=?
         """, (vs_id, str(jahr)), one=True)
 
@@ -5851,12 +5860,13 @@ def verkaufsstelle_historie(vs_id):
             SELECT CAST(strftime('%m', a.datum) AS INTEGER) AS monat,
                    COUNT(a.id) AS besuche,
                    SUM(CASE WHEN a.aktionstyp='Bestellung' THEN 1 ELSE 0 END) AS bestellungen,
-                   SUM(CASE WHEN a.aktionstyp='Aufbau' THEN 1 ELSE 0 END) AS aufbauten,
+                   SUM(CASE WHEN COALESCE(d.anzahl_total,0) > 0 THEN 1 ELSE 0 END) AS aufbauten,
                    COALESCE(SUM(b.kisten_total), 0) AS kisten,
                    COALESCE(SUM(g.gratis_total), 0) AS gratisware
             FROM aktivitaet a
             LEFT JOIN {BP} b ON b.aktivitaet_id = a.id
             LEFT JOIN {GRAT} g ON g.aktivitaet_id = a.id
+            LEFT JOIN {DP} d ON d.aktivitaet_id = a.id
             WHERE a.verkaufsstelle_id=? AND strftime('%Y', a.datum)=?
             GROUP BY monat
         """, (vs_id, str(jahr)))
@@ -6882,15 +6892,17 @@ def neue_aktivitaet():
                 (vs_id, session['user_id'], akt_id, admin_hinweis)
             )
 
-        # KONZEPT-V2: aus offenen Bestellungen aufgebaut → diese Bestellungen schließen
-        if aktionstyp == 'Aufbau':
-            erledigt = request.form.get('erledigt_bestellung_ids', '')
-            for bid in [x.strip() for x in erledigt.split(',') if x.strip().isdigit()]:
-                execute(
-                    "UPDATE aktivitaet SET bestell_status='aufgebaut', realisiert_am=datetime('now','localtime') "
-                    "WHERE id=? AND aktionstyp='Bestellung' AND COALESCE(bestell_status,'offen')='offen'",
-                    (bid,)
-                )
+        # KONZEPT-V2: über "Erfassen" übernommene offene Bestellungen schließen. Bewusst
+        # UNABHÄNGIG vom finalen aktionstyp (Nutzerwunsch 2026-08-13) - der Rep kann nach dem
+        # Klick auf "Erfassen" durchaus auf "Besuch" wechseln (z.B. "nichts aufgebaut, aber
+        # die Bestellung ist angekommen") und die Bestellung soll trotzdem als erledigt gelten.
+        erledigt = request.form.get('erledigt_bestellung_ids', '')
+        for bid in [x.strip() for x in erledigt.split(',') if x.strip().isdigit()]:
+            execute(
+                "UPDATE aktivitaet SET bestell_status='aufgebaut', realisiert_am=datetime('now','localtime') "
+                "WHERE id=? AND aktionstyp='Bestellung' AND COALESCE(bestell_status,'offen')='offen'",
+                (bid,)
+            )
 
         if foto_pfad:
             cleanup_alte_fotos()
@@ -14525,8 +14537,16 @@ def api_karte_heatmap():
             join_conds.append(f"a.mitarbeiter_id IN ({ph})")
             join_params.extend(ma_ids)
         if ebene == 'aufbauten':
-            metric     = "COUNT(CASE WHEN COALESCE(a.aktionstyp,'Aufbau')='Aufbau' THEN 1 END) AS anzahl"
-            extra_join = ""
+            # Zählt Besuche mit ECHTEN Display-Mengen, nicht allein über aktionstyp='Aufbau'
+            # (Bugreport 2026-08-13: eine als "Aufbau" typisierte, aber leer gespeicherte
+            # Aktivität zählte bislang trotzdem mit – gleicher Fix wie in der Kundenhistorie).
+            # DISTINCT CASE WHEN ... THEN a.id (nicht 1!): bei Stationen ohne Aktivität liefert
+            # der LEFT JOIN eine Phantom-Zeile mit a.id=NULL, dp.aktivitaet_id bleibt dabei
+            # ebenfalls NULL – „THEN a.id" liefert dort NULL, COUNT ignoriert NULLs korrekt.
+            metric     = "COUNT(DISTINCT CASE WHEN dp.aktivitaet_id IS NOT NULL THEN a.id END) AS anzahl"
+            extra_join = ("LEFT JOIN displayposition dp ON dp.aktivitaet_id = a.id "
+                          "AND dp.anzahl > 0 "
+                          "AND dp.displaysorte_id IN (SELECT id FROM displaysorte WHERE zaehlt_zur_zielerreichung=1)")
         elif ebene == 'volumen':
             # Gratisware ausgeschlossen – gleiche Definition wie Kundenauswertung/VS-Vergleich
             # (Review 2026-08-10, von Arco portiert)
