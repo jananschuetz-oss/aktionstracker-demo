@@ -1951,7 +1951,7 @@ def init_db():
         # obigen Demo-Produkte-Seedung laufen, sonst würde die "Tabelle leer?"-Prüfung dort
         # durch diese beiden Zeilen fälschlich als "schon befüllt" erkannt und die
         # Demo-Produkte (A–F) würden nie angelegt.
-        for _gw_name in ('Gratisware Verleger', 'Gratisware Kofferraum'):
+        for _gw_name in ('Gratisware Verleger', 'Gratisware Kofferraum', 'Gratisware MHD'):
             if not db.execute("SELECT 1 FROM biersorte WHERE name=?", (_gw_name,)).fetchone():
                 db.execute(
                     "INSERT INTO biersorte (name, einheit, ist_gratisware) VALUES (?, 'Kiste', 1)",
@@ -8340,10 +8340,11 @@ def _build_gratisware_report_excel(von_str: str, bis_str: str) -> bytes:
     """Eine Zeile je Besuch mit Gratisware Verleger und/oder Kofferraum im gegebenen
     Zeitraum."""
     rows = query('''
-        SELECT a.datum, m.name AS mitarbeiter,
+        SELECT a.datum, m.name AS mitarbeiter, a.notizen,
                v.name AS verkaufsstelle, v.strasse, v.plz, v.ort, v.lieferant, v.kundennummer,
                COALESCE(SUM(CASE WHEN bs.name='Gratisware Verleger'   THEN bp.kisten_anzahl ELSE 0 END), 0) AS verleger,
                COALESCE(SUM(CASE WHEN bs.name='Gratisware Kofferraum' THEN bp.kisten_anzahl ELSE 0 END), 0) AS kofferraum,
+               COALESCE(SUM(CASE WHEN bs.name='Gratisware MHD'        THEN bp.kisten_anzahl ELSE 0 END), 0) AS mhd,
                GROUP_CONCAT(
                    CASE WHEN COALESCE(bs.ist_gratisware,0)=0 THEN bs.name || ' × ' || bp.kisten_anzahl END,
                    ', '
@@ -8357,7 +8358,7 @@ def _build_gratisware_report_excel(von_str: str, bis_str: str) -> bytes:
         -- auch an einem Aufbau-Kombi-Besuch hängen und muss mitzählen.
         WHERE a.datum BETWEEN ? AND ?
         GROUP BY a.id
-        HAVING verleger > 0 OR kofferraum > 0
+        HAVING verleger > 0 OR kofferraum > 0 OR mhd > 0
         ORDER BY a.datum, m.name
     ''', (von_str, bis_str))
 
@@ -8375,9 +8376,10 @@ def _build_gratisware_report_excel(von_str: str, bis_str: str) -> bytes:
 
     headers = ['Besuchstag', 'Mitarbeiter', 'Verkaufsstelle', 'Straße', 'PLZ', 'Ort',
                 'Lieferant', 'Kundennummer',
-                'Gratisware Verleger', 'Gratisware Kofferraum', 'Bestellung (Produkt × Kisten)',
-                'Rechnung']
-    widths  = [12, 20, 28, 26, 8, 18, 18, 14, 16, 18, 45, 16]
+                'Gratisware Verleger', 'Gratisware Kofferraum', 'Gratisware MHD',
+                'Bestellung (Produkt × Kisten)', 'Notiz / Bemerkung', 'Rechnung']
+    widths  = [12, 20, 28, 26, 8, 18, 18, 14, 16, 16, 14, 45, 35, 16]
+    MENGEN_SPALTEN = (9, 10, 11)   # Verleger, Kofferraum, MHD - zentriert + Summenzeile
     for col, (h, w) in enumerate(zip(headers, widths), 1):
         cell = ws.cell(row=1, column=col, value=h)
         cell.fill = HEADER_FILL
@@ -8393,17 +8395,39 @@ def _build_gratisware_report_excel(von_str: str, bis_str: str) -> bytes:
             _excel_formel_sicher(row['strasse'] or ''), row['plz'] or '',
             _excel_formel_sicher(row['ort'] or ''), _excel_formel_sicher(row['lieferant'] or ''),
             _excel_formel_sicher(row['kundennummer'] or ''),
-            row['verleger'], row['kofferraum'], _excel_formel_sicher(row['bestellung'] or ''),
+            row['verleger'], row['kofferraum'], row['mhd'], _excel_formel_sicher(row['bestellung'] or ''),
+            _excel_formel_sicher(row['notizen'] or ''),
             '',  # Rechnung – manuell nachzutragen, keine Datenquelle in der App
         ]
         for col, wert in enumerate(werte, 1):
             cell = ws.cell(row=r, column=col, value=wert)
             cell.border = BORDER
-            if col in (9, 10):
+            if col in MENGEN_SPALTEN:
                 cell.alignment = CENTER
 
     if not rows:
         ws.cell(row=2, column=1, value="Keine Besuche mit Gratisware im gewählten Zeitraum.")
+
+    # Filter-Pfeile in der Kopfzeile automatisch aktiv (Nutzerwunsch 2026-08-27), gleiches
+    # Muster wie beim Excel-Jahresexport - auch bei leerem Report (nur Hinweiszeile) gesetzt,
+    # schadet dort nicht.
+    letzte_datenzeile = max(len(rows), 1) + 1
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{letzte_datenzeile}"
+
+    # Summenzeile (Nutzerwunsch 2026-08-27) direkt unter den Daten, außerhalb des Filter-
+    # Bereichs (sonst ließe sie sich selbst mit ausblenden). SUBTOTAL(9,...) statt SUMME(),
+    # damit die Summe automatisch nur die gerade sichtbaren/gefilterten Zeilen zählt.
+    if rows:
+        summen_zeile = letzte_datenzeile + 1
+        label_cell = ws.cell(row=summen_zeile, column=1, value="Gesamt (sichtbare Zeilen)")
+        label_cell.font = Font(bold=True)
+        for col in MENGEN_SPALTEN:
+            spalte = get_column_letter(col)
+            cell = ws.cell(row=summen_zeile, column=col,
+                            value=f"=SUBTOTAL(9,{spalte}2:{spalte}{letzte_datenzeile})")
+            cell.font = Font(bold=True)
+            cell.alignment = CENTER
+            cell.border = BORDER
 
     buf = io.BytesIO()
     wb.save(buf)
