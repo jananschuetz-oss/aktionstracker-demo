@@ -1917,6 +1917,15 @@ function vsAdminSucheAusfuehren(q) {
   </div>
 </div>
 
+<!-- Vorschlagsliste für das Einheit-Freitextfeld (Neue Produkt + Bearbeiten-Modals) -->
+<datalist id="einheitenVorschlaege">
+  <option value="Karton (12 Stück)">
+  <option value="Karton (24 Stück)">
+  <option value="Palette (100 Stück)">
+  <option value="Palette (50 Stück)">
+  <option value="Stück">
+</datalist>
+
 <!-- Modal: Produkt -->
 <div class="modal fade" id="modalBier" tabindex="-1">
   <div class="modal-dialog">
@@ -1934,13 +1943,8 @@ function vsAdminSucheAusfuehren(q) {
           </div>
           <div class="mb-3">
             <label class="form-label">Einheit</label>
-            <select name="einheit" class="form-select">
-              <option value="Karton (12 Stück)">Karton (12 Stück)</option>
-              <option value="Karton (24 Stück)">Karton (24 Stück)</option>
-              <option value="Palette (100 Stück)">Palette (100 Stück)</option>
-              <option value="Palette (50 Stück)">Palette (50 Stück)</option>
-              <option value="Stück">Stück</option>
-            </select>
+            <input type="text" name="einheit" class="form-control" list="einheitenVorschlaege"
+                   value="Karton (12 Stück)" placeholder="z.B. Karton (12 Stück) oder eigene Bezeichnung">
           </div>
           <hr>
           <div class="mb-3">
@@ -2246,12 +2250,7 @@ function ffTypUpdate(suffix) {
           </div>
           <div class="mb-3">
             <label class="form-label">Einheit</label>
-            <select name="einheit" class="form-select">
-              {% set einheiten = ['Kiste (20x0.5L)', 'Kiste (24x0.33L)', 'Kiste (12x0.5L)', 'Fass (30L)', 'Fass (50L)'] %}
-              {% for e in einheiten %}
-              <option value="{{ e }}" {% if b.einheit == e %}selected{% endif %}>{{ e }}</option>
-              {% endfor %}
-            </select>
+            <input type="text" name="einheit" class="form-control" list="einheitenVorschlaege" value="{{ b.einheit }}">
           </div>
           <hr>
           <div class="mb-3">
