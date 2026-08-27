@@ -6486,6 +6486,13 @@ def api_aktivitaet_offline_sync():
     if not fotos_b64 and not _is_homeoffice and not _is_telefontermin:
         return jsonify({'ok': False, 'error': 'Foto ist bei dieser Aktivität Pflicht.'}), 400
 
+    # Notizen-Pflicht (2026-08-27) ebenfalls hier durchsetzen, analog zur Foto-Pflicht oben -
+    # sonst würde dieser Endpunkt dieselbe neue Regel wie das Online-Formular umgehen.
+    _is_tanken = _vs_check['typ'] == 'Firmenwagen-Tanken'
+    _is_verleger = _vs_check['typ'] == 'Verleger'
+    if not notizen.strip() and not _is_homeoffice and not _is_tanken and not _is_verleger and not _is_telefontermin:
+        return jsonify({'ok': False, 'error': 'Bitte eine Notiz / Bemerkung eintragen.'}), 400
+
     # Fotos dekodieren, komprimieren und speichern (max. 3)
     foto_pfade = [None, None, None]
     for i, foto_b64 in enumerate(fotos_b64):
@@ -6844,6 +6851,21 @@ def neue_aktivitaet():
             else:
                 _foto_meldung = 'Bitte ein Foto hochladen – beim Aufbau ist das Foto Pflicht.'
             flash(_foto_meldung, 'danger')
+            return render_template('neue_aktivitaet.html',
+                verkaufsstellen=verkaufsstellen, biersorten=biersorten, gtin_ebenen=gtin_ebenen, produkt_daten=produkt_daten,
+                displaysorte=displaysorte, vertretungs_gruppen=vertretungs_gruppen,
+                heute=date.today().isoformat(), min_datum=min_datum,
+                homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
+                verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids,
+                listungsprodukte=listungsprodukte, listungsbild_preispflicht=(LISTUNGSBILD_PREISPFLICHT == 'an'),
+                formular_felder=formular_felder)
+
+        # Notizen/Bemerkungen: Pflicht bei normalen Aktivitäten an einer echten Verkaufsstelle
+        # (Nutzerwunsch 2026-08-27). Die reduzierten Sonderformulare bleiben ausgenommen –
+        # die dokumentieren sich bereits über eigene Pflichtfelder (Tankbeleg, abgeholte Menge
+        # etc.), analog zur bestehenden Foto-Pflicht-Ausnahme oben.
+        if not notizen.strip() and not is_homeoffice and not is_tanken and not is_verleger and not is_telefontermin:
+            flash('Bitte eine Notiz / Bemerkung eintragen.', 'danger')
             return render_template('neue_aktivitaet.html',
                 verkaufsstellen=verkaufsstellen, biersorten=biersorten, gtin_ebenen=gtin_ebenen, produkt_daten=produkt_daten,
                 displaysorte=displaysorte, vertretungs_gruppen=vertretungs_gruppen,

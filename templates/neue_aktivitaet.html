@@ -223,8 +223,9 @@
       </div>
 
       <div class="mt-3">
-        <label class="form-label"><i class="bi bi-chat-text me-1"></i>Notizen / Bemerkungen</label>
-        <textarea name="notizen" class="form-control" rows="2"
+        <label class="form-label"><i class="bi bi-chat-text me-1"></i>Notizen / Bemerkungen
+          <span id="notizenPflichtStern" class="text-danger">*</span></label>
+        <textarea name="notizen" class="form-control" rows="2" required
                   placeholder="z.B. Sonderaktion vereinbart, Rückgabe alter Displays, Kundengespräch..."></textarea>
       </div>
 
@@ -931,6 +932,21 @@ function hatFoto() {
   return fotoSlotsBelegt().length > 0;
 }
 
+// Notizen/Bemerkungen sind Pflicht bei normalen Aktivitäten an einer echten Verkaufsstelle,
+// aber optional bei den reduzierten Sonderformularen (Nutzerwunsch 2026-08-27) - die
+// dokumentieren sich bereits über eigene Pflichtfelder (Tankbeleg, abgeholte Menge etc.).
+function notizenIstPflicht() {
+  return !(isHomeofficeAktiv() || isTankenAktiv() || isVerlegerAktiv() || isTelefonterminAktiv());
+}
+function updateNotizenUI() {
+  const ta = document.querySelector('[name="notizen"]');
+  const stern = document.getElementById('notizenPflichtStern');
+  if (!ta) return;
+  const pflicht = notizenIstPflicht();
+  ta.required = pflicht;
+  if (stern) stern.style.display = pflicht ? '' : 'none';
+}
+
 // ── Homeoffice: automatischer VS-Stopp pro Mitarbeiter ─────────────────────────
 const HOMEOFFICE_VS_IDS = {{ homeoffice_vs_ids | tojson }};
 function isHomeofficeAktiv() {
@@ -1471,6 +1487,7 @@ function vsSelect(id, label) {
   updateTankenUI();
   updateVerlegerUI();
   updateTelefonterminUI();
+  updateNotizenUI();
   updateFormularfelderUI();
   if (isHomeofficeAktiv() || isVerlegerAktiv() || isTelefonterminAktiv()) {
     document.getElementById('vsZonenContainer').style.display = 'none';
@@ -1494,6 +1511,7 @@ function vsClearSelection() {
   updateTankenUI();
   updateVerlegerUI();
   updateTelefonterminUI();
+  updateNotizenUI();
   updateFormularfelderUI();
   vsSearch.focus();
 }
@@ -1745,6 +1763,14 @@ document.getElementById('aktivForm').addEventListener('submit', async function(e
     return;
   }
 
+  const notizenFeld = document.querySelector('[name="notizen"]');
+  if (notizenIstPflicht() && !notizenFeld.value.trim()) {
+    notizenFeld.classList.add('is-invalid');
+    notizenFeld.focus();
+    notizenFeld.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+
   // Fotos komprimieren (Canvas, max 1600px, JPEG 80%)
   const saveBtn = document.querySelector('#aktivForm button[type=submit]');
   if (saveBtn) { saveBtn.disabled = true; saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Wird gespeichert…'; }
@@ -1812,6 +1838,7 @@ updateHomeofficeUI();
 updateTankenUI();
 updateVerlegerUI();
 updateTelefonterminUI();
+updateNotizenUI();
 
 // Uhrzeiten auf 5-Minuten-Schritte runden (iOS ignoriert step="300")
 (function() {
