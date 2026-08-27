@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, send_file, g, flash, jsonify, abort
+from flask import Flask, render_template, request, redirect, url_for, session, send_file, g, flash, jsonify, abort, make_response
 import sqlite3
 import os
 import math
@@ -950,11 +950,170 @@ def _arbeitszeit_pdf_seite_html(von: date, bis: date, team_id: int | None = None
     </div>'''
 
 
+# ─── GTIN / Barcode (von Arco portiert) ──────────────────────────────────────
+# Erzeugt Strichcodes als SVG, ohne zusätzliche Bibliothek. Hintergrund: In der Bestellmaske
+# soll ein Tipp aufs Produkt Bild + Barcode groß und kontrastreich zeigen, damit der Kunde im
+# Markt direkt vom Handydisplay scannen kann.
+# SVG statt PNG, weil es in jeder Größe scharf bleibt – für Scanner ist die Kantenschärfe der
+# Balken entscheidend, ein skaliertes Pixelbild wird an den Übergängen unscharf.
+
+# EAN-13: Die erste Ziffer wird nicht als Balken codiert, sondern über das Muster, nach dem
+# die Ziffern 2-7 aus Zeichensatz A oder B gewählt werden.
+_EAN_A = ('0001101','0011001','0010011','0111101','0100011',
+          '0110001','0101111','0111011','0110111','0001011')
+_EAN_B = ('0100111','0110011','0011011','0100001','0011101',
+          '0111001','0000101','0010001','0001001','0010111')
+_EAN_C = ('1110010','1100110','1101100','1000010','1011100',
+          '1001110','1010000','1000100','1001000','1110100')
+_EAN_PARITAET = ('AAAAAA','AABABB','AABBAB','AABBBA','ABAABB',
+                 'ABBAAB','ABBBAA','ABABAB','ABABBA','ABBABA')
+
+# ITF-14: Ziffernpaare, je Ziffer 5 Striche/Lücken, davon 2 breit ('W') und 3 schmal ('N').
+_ITF_MUSTER = ('NNWWN','WNNNW','NWNNW','WWNNN','NNWNW',
+               'WNWNN','NWWNN','NNNWW','WNNWN','NWNWN')
+
+
+def gtin_pruefziffer(ziffern: str) -> int:
+    """Berechnet die GTIN-Prüfziffer (Modulo-10) über die Ziffern OHNE Prüfziffer.
+    Gilt einheitlich für GTIN-8/12/13/14: von rechts abwechselnd ×3 und ×1."""
+    summe = 0
+    for i, z in enumerate(reversed(ziffern)):
+        summe += int(z) * (3 if i % 2 == 0 else 1)
+    return (10 - summe % 10) % 10
+
+
+def gtin_pruefen(gtin: str) -> tuple[str | None, str | None]:
+    """Normalisiert und validiert eine GTIN. Gibt (gtin, None) zurück oder (None, fehler).
+    Leereingabe ist erlaubt und liefert (None, None) – das Feld ist optional."""
+    roh = re.sub(r'\D', '', gtin or '')
+    if not roh:
+        return None, None
+    if len(roh) not in (8, 12, 13, 14):
+        return None, ('GTIN muss 8, 12, 13 oder 14 Ziffern haben '
+                      f'(eingegeben: {len(roh)}).')
+    if int(roh[-1]) != gtin_pruefziffer(roh[:-1]):
+        return None, ('Prüfziffer stimmt nicht – bitte Zahlendreher prüfen. '
+                      f'Erwartet wäre {gtin_pruefziffer(roh[:-1])} als letzte Ziffer.')
+    return roh, None
+
+
+def _svg_barcode(module: list[int], text: str, modul_breite: float = 3.0,
+                 hoehe: float = 190.0, ruhezone: int = 10) -> str:
+    """Baut aus einer 0/1-Modulliste das SVG. ruhezone in Modulen – die hellen Ränder links
+    und rechts sind Teil der Spezifikation, ohne sie findet der Scanner den Code nicht."""
+    gesamt = (len(module) + 2 * ruhezone) * modul_breite
+    balken = []
+    i = 0
+    while i < len(module):
+        if not module[i]:
+            i += 1
+            continue
+        j = i
+        while j < len(module) and module[j]:
+            j += 1
+        # Zusammenhängende Module als EIN Rechteck: weniger Elemente und vor allem keine
+        # Haarlinien zwischen benachbarten Balken, an denen Scanner sonst hängenbleiben.
+        balken.append(f'<rect x="{(ruhezone + i) * modul_breite:.2f}" y="0" '
+                      f'width="{(j - i) * modul_breite:.2f}" height="{hoehe:.2f}"/>')
+        i = j
+    gesamthoehe = hoehe + 34
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {gesamt:.2f} {gesamthoehe:.2f}" '
+        f'width="100%" role="img" aria-label="Barcode {text}" '
+        f'style="display:block;background:#fff">'
+        f'<rect width="100%" height="100%" fill="#fff"/>'
+        f'<g fill="#000">{"".join(balken)}</g>'
+        f'<text x="{gesamt / 2:.2f}" y="{gesamthoehe - 8:.2f}" text-anchor="middle" '
+        f'font-family="monospace" font-size="26" letter-spacing="2" fill="#000">{text}</text>'
+        f'</svg>'
+    )
+
+
+def _ean13_module(gtin13: str) -> list[int]:
+    muster = _EAN_PARITAET[int(gtin13[0])]
+    bits = '101'
+    for i, zeichen in enumerate(muster):
+        bits += (_EAN_A if zeichen == 'A' else _EAN_B)[int(gtin13[1 + i])]
+    bits += '01010'
+    for z in gtin13[7:]:
+        bits += _EAN_C[int(z)]
+    bits += '101'
+    return [int(b) for b in bits]
+
+
+def _itf14_module(gtin14: str) -> list[int]:
+    """ITF-14 (Interleaved 2 of 5): zwei Ziffern werden ineinander verschränkt – die erste
+    liefert die Striche, die zweite die Lücken."""
+    module = [1, 0, 1, 0]  # Startzeichen
+    for paar in (gtin14[i:i + 2] for i in range(0, len(gtin14), 2)):
+        strich, luecke = _ITF_MUSTER[int(paar[0])], _ITF_MUSTER[int(paar[1])]
+        for s, l in zip(strich, luecke):
+            module += [1] * (3 if s == 'W' else 1)
+            module += [0] * (3 if l == 'W' else 1)
+    module += [1, 1, 1, 0, 1]  # Stoppzeichen
+    return module
+
+
+def gtin_barcode_svg(gtin: str) -> str | None:
+    """Barcode-SVG zu einer GTIN – EAN-13 für 8/12/13 Ziffern, ITF-14 für 14.
+    None bei ungültiger GTIN, damit der Aufrufer einfach nichts anzeigt.
+    GTIN-8 und GTIN-12 werden auf 13 Stellen linksbündig mit Nullen aufgefüllt; das ist die
+    übliche Darstellung und bleibt scannerseitig dieselbe Artikelnummer."""
+    sauber, fehler = gtin_pruefen(gtin)
+    if not sauber or fehler:
+        return None
+    if len(sauber) == 14:
+        return _svg_barcode(_itf14_module(sauber), sauber, modul_breite=2.4, hoehe=150.0)
+    return _svg_barcode(_ean13_module(sauber.zfill(13)), sauber.zfill(13))
+
+
+def _verpackungsebenen_map() -> dict:
+    """{biersorte_id: [Verpackungsebene, ...]} für Bestellmaske und Admin.
+    Eine Abfrage für alle Sorten statt einer je Produkt – die Bestellmaske zeigt sie alle."""
+    ebenen = {}
+    for r in query("SELECT id, biersorte_id, bezeichnung, gtin, bild_pfad "
+                   "FROM biersorte_gtin ORDER BY biersorte_id, sortierung, id"):
+        ebenen.setdefault(r['biersorte_id'], []).append(dict(r))
+    return ebenen
+
+
+def _produkt_popup_daten(biersorten, ebenen: dict) -> dict:
+    """Alles, was das Scan-Pop-up der Bestellmaske braucht, als ein JSON-Block.
+    Bewusst hier gebaut und nicht im Template zusammengesetzt: Werte in HTML-Attributen
+    sind eine Fehlerquelle (tojson escapet keine doppelten Anführungszeichen), und ein
+    einzelner JSON-Block im Script-Kontext ist eindeutig escapet."""
+    return {
+        str(b['id']): {
+            'name': b['name'],
+            'einheit': b['einheit'] or '',
+            'bild': b['bild_pfad'] or '',
+            # Ebene ohne GTIN darf bleiben (z.B. nur ein Bild hinterlegt) – das Pop-up
+            # zeigt dann Bild ohne Barcode statt die Ebene zu verschlucken.
+            'ebenen': [
+                {'id': z['id'], 'bez': z['bezeichnung'],
+                 'gtin': z['gtin'] or '', 'bild': z['bild_pfad'] or ''}
+                for z in ebenen.get(b['id'], [])
+            ],
+        }
+        for b in biersorten
+    }
+
+
 def komprimiere_foto(quelle, ziel_pfad: str, max_px: int = 1200, qualitaet: int = 75):
     """Öffnet Foto aus Datei-Objekt oder bytes-Puffer, skaliert auf max_px (längste Seite)
     und speichert als JPEG mit gegebener Qualität. Gibt Dateipfad zurück."""
     img = Image.open(quelle)
-    img = img.convert("RGB")          # HEIC/PNG/WEBP → JPEG-kompatibel
+    # Transparenz auf Weiß legen statt sie wegzuwerfen (von Arco portiert): convert("RGB")
+    # allein färbt transparente Bereiche SCHWARZ, weshalb freigestellte Produktbilder (PNG mit
+    # Alphakanal, wie sie aus der Grafik kommen) mit schwarzen Balken im Pop-up standen.
+    # Für Kamerafotos ohne Alphakanal ändert der Zweig nichts.
+    if img.mode in ('RGBA', 'LA', 'P'):
+        img = img.convert('RGBA')
+        _weiss = Image.new('RGB', img.size, (255, 255, 255))
+        _weiss.paste(img, mask=img.split()[-1])
+        img = _weiss
+    else:
+        img = img.convert("RGB")      # HEIC/PNG/WEBP → JPEG-kompatibel
     img.thumbnail((max_px, max_px), Image.LANCZOS)
     img.save(ziel_pfad, format="JPEG", quality=qualitaet, optimize=True)
     return ziel_pfad
@@ -986,6 +1145,23 @@ def init_db():
                 einheit TEXT DEFAULT 'Kiste (20x0.5L)',
                 aktiv INTEGER DEFAULT 1
             );
+
+            -- Verpackungsebenen je Produkt (von Arco portiert): Kiste, 6er-Träger,
+            -- Einzelflasche … Eine GTIN gehört zur Handelseinheit, nicht zum bestellbaren
+            -- Artikel. Diese Ebenen als eigene Produkte anzulegen wäre falsch: bestellt wird
+            -- nur das Produkt selbst, zusätzliche Mengenfelder in der Bestellmaske laden nur
+            -- zu Fehleingaben ein. Sie dienen ausschließlich der Anzeige im Scan-Pop-up.
+            -- bild_pfad ist optional – fehlt es, greift biersorte.bild_pfad.
+            CREATE TABLE IF NOT EXISTS biersorte_gtin (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                biersorte_id INTEGER NOT NULL REFERENCES biersorte(id) ON DELETE CASCADE,
+                bezeichnung TEXT NOT NULL,
+                gtin        TEXT,
+                bild_pfad   TEXT,
+                sortierung  INTEGER DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_biersorte_gtin_sorte
+                ON biersorte_gtin(biersorte_id, sortierung);
 
             CREATE TABLE IF NOT EXISTS aktivitaet (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1320,6 +1496,14 @@ def init_db():
             "ALTER TABLE biersorte ADD COLUMN ist_gratisware INTEGER DEFAULT 0",
             # Rauf/Runter-Sortierung der Biersorten-Liste im Admin (von Arco portiert).
             "ALTER TABLE biersorte ADD COLUMN sortierung INTEGER DEFAULT 0",
+            # Produktbild + GTIN/EAN (von Arco portiert): In der Bestellmaske öffnet ein Tipp
+            # auf das Produkt ein Pop-up mit Bild und Barcode, damit der Außendienst den
+            # Artikel im Markt direkt vom Handy scannen kann. Beide Felder pflegt der Admin
+            # selbst, beide sind optional – fehlt eines, zeigt das Pop-up nur das jeweils
+            # andere. Je Verpackungsebene (biersorte_gtin) kann zusätzlich eine eigene GTIN
+            # und ein eigenes Bild hinterlegt werden.
+            "ALTER TABLE biersorte ADD COLUMN gtin TEXT",
+            "ALTER TABLE biersorte ADD COLUMN bild_pfad TEXT",
             # Rauf/Runter-Sortierung der Aufbautypen (Display-Typen) im Admin, analog
             # Biersorten (von Arco portiert, Commit 990a3f5).
             "ALTER TABLE displaysorte ADD COLUMN sortierung INTEGER DEFAULT 0",
@@ -6568,6 +6752,8 @@ def neue_aktivitaet():
     biersorten      = query("SELECT * FROM biersorte      WHERE aktiv=1 ORDER BY sortierung, name")
     if not GRATISWARE_MODUS:
         biersorten = [b for b in biersorten if not b['ist_gratisware']]
+    gtin_ebenen     = _verpackungsebenen_map()
+    produkt_daten   = _produkt_popup_daten(biersorten, gtin_ebenen)
     displaysorte    = query("SELECT * FROM displaysorte   WHERE aktiv=1 ORDER BY sortierung, name")
     # Von Arco portiert/produktisiert (2026-07-31): kundenweiter Ein/Aus-Schalter - eine leere
     # Liste hier deaktiviert das Feature durchgehend (Validierung, Speichern, Template-Anzeige
@@ -6659,7 +6845,7 @@ def neue_aktivitaet():
                 _foto_meldung = 'Bitte ein Foto hochladen – beim Aufbau ist das Foto Pflicht.'
             flash(_foto_meldung, 'danger')
             return render_template('neue_aktivitaet.html',
-                verkaufsstellen=verkaufsstellen, biersorten=biersorten,
+                verkaufsstellen=verkaufsstellen, biersorten=biersorten, gtin_ebenen=gtin_ebenen, produkt_daten=produkt_daten,
                 displaysorte=displaysorte, vertretungs_gruppen=vertretungs_gruppen,
                 heute=date.today().isoformat(), min_datum=min_datum,
                 homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
@@ -6696,7 +6882,7 @@ def neue_aktivitaet():
         if tank_felder_fehlen:
             flash('Bitte alle Tankbeleg-Daten vollständig ausfüllen (Tankdatum, Kennzeichen, Kraftstoffsorte, Menge, Kilometerstand).', 'danger')
             return render_template('neue_aktivitaet.html',
-                verkaufsstellen=verkaufsstellen, biersorten=biersorten,
+                verkaufsstellen=verkaufsstellen, biersorten=biersorten, gtin_ebenen=gtin_ebenen, produkt_daten=produkt_daten,
                 displaysorte=displaysorte, vertretungs_gruppen=vertretungs_gruppen,
                 heute=date.today().isoformat(), min_datum=min_datum,
                 homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
@@ -6721,7 +6907,7 @@ def neue_aktivitaet():
         if verleger_kisten_fehlt:
             flash('Bitte die abgeholte Menge „Gratisware Verleger" eintragen.', 'danger')
             return render_template('neue_aktivitaet.html',
-                verkaufsstellen=verkaufsstellen, biersorten=biersorten,
+                verkaufsstellen=verkaufsstellen, biersorten=biersorten, gtin_ebenen=gtin_ebenen, produkt_daten=produkt_daten,
                 displaysorte=displaysorte, vertretungs_gruppen=vertretungs_gruppen,
                 heute=date.today().isoformat(), min_datum=min_datum,
                 homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
@@ -6732,7 +6918,7 @@ def neue_aktivitaet():
         if not datum or not vs_id:
             flash('Datum und Verkaufsstelle sind Pflichtfelder.', 'danger')
             return render_template('neue_aktivitaet.html',
-                verkaufsstellen=verkaufsstellen, biersorten=biersorten,
+                verkaufsstellen=verkaufsstellen, biersorten=biersorten, gtin_ebenen=gtin_ebenen, produkt_daten=produkt_daten,
                 displaysorte=displaysorte, heute=date.today().isoformat(),
                 min_datum=min_datum, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
                 verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids,
@@ -6742,7 +6928,7 @@ def neue_aktivitaet():
         if is_rep and min_datum and datum < min_datum:
             flash('Aktivitäten können nur für die aktuelle Woche eingetragen werden.', 'danger')
             return render_template('neue_aktivitaet.html',
-                verkaufsstellen=verkaufsstellen, biersorten=biersorten,
+                verkaufsstellen=verkaufsstellen, biersorten=biersorten, gtin_ebenen=gtin_ebenen, produkt_daten=produkt_daten,
                 displaysorte=displaysorte, heute=date.today().isoformat(),
                 min_datum=min_datum, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
                 verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids,
@@ -6752,7 +6938,7 @@ def neue_aktivitaet():
         if listung_fehlt:
             flash('Bitte für jedes Produkt im Listungsbild „vorhanden" oder „nicht vorhanden" auswählen.', 'danger')
             return render_template('neue_aktivitaet.html',
-                verkaufsstellen=verkaufsstellen, biersorten=biersorten,
+                verkaufsstellen=verkaufsstellen, biersorten=biersorten, gtin_ebenen=gtin_ebenen, produkt_daten=produkt_daten,
                 displaysorte=displaysorte, heute=date.today().isoformat(),
                 min_datum=min_datum, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
                 verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids,
@@ -6764,7 +6950,7 @@ def neue_aktivitaet():
         if listung_preis_fehlt:
             flash('Bitte für jedes vorhandene Listungsbild-Produkt einen Preis eintragen.', 'danger')
             return render_template('neue_aktivitaet.html',
-                verkaufsstellen=verkaufsstellen, biersorten=biersorten,
+                verkaufsstellen=verkaufsstellen, biersorten=biersorten, gtin_ebenen=gtin_ebenen, produkt_daten=produkt_daten,
                 displaysorte=displaysorte, heute=date.today().isoformat(),
                 min_datum=min_datum, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
                 verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids,
@@ -6788,7 +6974,7 @@ def neue_aktivitaet():
         if formular_fehlt:
             flash('Bitte alle Pflicht-Zusatzfragen ausfüllen.', 'danger')
             return render_template('neue_aktivitaet.html',
-                verkaufsstellen=verkaufsstellen, biersorten=biersorten,
+                verkaufsstellen=verkaufsstellen, biersorten=biersorten, gtin_ebenen=gtin_ebenen, produkt_daten=produkt_daten,
                 displaysorte=displaysorte, heute=date.today().isoformat(),
                 min_datum=min_datum, homeoffice_vs_ids=homeoffice_vs_ids, tanken_vs_ids=tanken_vs_ids,
                 verleger_vs_ids=verleger_vs_ids, telefontermin_vs_ids=telefontermin_vs_ids,
@@ -7048,7 +7234,7 @@ def neue_aktivitaet():
 
     return render_template('neue_aktivitaet.html',
         min_datum=min_datum,
-        verkaufsstellen=verkaufsstellen, biersorten=biersorten,
+        verkaufsstellen=verkaufsstellen, biersorten=biersorten, gtin_ebenen=gtin_ebenen, produkt_daten=produkt_daten,
         displaysorte=displaysorte, vertretungs_gruppen=vertretungs_gruppen,
         heute=date.today().isoformat(), preselect_vs=preselect_vs,
         preselect_typ=preselect_typ,
@@ -8824,6 +9010,7 @@ def admin():
         (VS_ADMIN_SEITENGROESSE,)
     )
     biersorten      = query("SELECT * FROM biersorte ORDER BY sortierung, name")
+    gtin_ebenen     = _verpackungsebenen_map()
     displaysorte    = query("SELECT * FROM displaysorte ORDER BY sortierung, name")
     displaysorte_farben = DISPLAYSORTE_FARBEN
     listungsprodukte_admin = query("SELECT * FROM listungsprodukt ORDER BY aktiv DESC, sortierung, name")
@@ -8933,6 +9120,7 @@ def admin():
         vs_admin_gesamt=vs_admin_gesamt,
         vs_admin_seitengroesse=VS_ADMIN_SEITENGROESSE,
         biersorten=biersorten,
+        gtin_ebenen=gtin_ebenen,
         displaysorte=displaysorte,
         displaysorte_farben=displaysorte_farben,
         listungsprodukte_admin=listungsprodukte_admin,
@@ -10377,7 +10565,20 @@ def admin_bier_loeschen(b_id):
             'warning'
         )
     else:
+        # Bilder VOR dem Löschen einsammeln – die Ebenen verschwinden per ON DELETE CASCADE.
+        _bilder = [z['bild_pfad'] for z in
+                   query("SELECT bild_pfad FROM biersorte_gtin WHERE biersorte_id=?", (b_id,))
+                   if z['bild_pfad']]
         execute("DELETE FROM biersorte WHERE id=?", (b_id,))
+        # Produktbilder mitentfernen, sonst bleiben sie als Karteileichen im UPLOAD_FOLDER
+        # liegen. Nur beim echten Löschen – beim Deaktivieren oben bleibt die Sorte bestehen.
+        if b['bild_pfad']:
+            _bilder.append(b['bild_pfad'])
+        for _datei in _bilder:
+            try:
+                os.remove(os.path.join(UPLOAD_FOLDER, _datei))
+            except OSError:
+                pass
         flash(f'Biersorte „{b["name"]}" wurde gelöscht.', 'success')
     return redirect(url_for('admin'))
 
@@ -10392,14 +10593,133 @@ def admin_bier_reaktivieren(b_id):
     return redirect(url_for('admin'))
 
 
+def _produktbild_speichern(datei, alt_pfad: str | None = None) -> tuple[str | None, str | None]:
+    """Speichert ein hochgeladenes Produktbild komprimiert unter UPLOAD_FOLDER (von Arco
+    portiert). Gibt (dateiname, fehler) zurück; (None, None) wenn gar keine Datei geschickt
+    wurde. Kleiner als Aktivitätsfotos (600px): das Bild wird nur als Vorschau im
+    Bestell-Pop-up gezeigt, mehr Auflösung kostet im Außendienst nur Ladezeit über
+    Mobilfunk. Dateipräfix produkt_, damit der Foto-Cleanup-Job (der nur Dateien über
+    aktivitaet.foto_pfad(_2/_3) kennt) diese Dateien nicht anfassen kann."""
+    if not (datei and datei.filename):
+        return None, None
+    if not allowed_file(datei.filename):
+        return None, 'Produktbild: nur Bilddateien erlaubt.'
+    dateiname = f"produkt_{uuid.uuid4().hex}.jpg"
+    try:
+        komprimiere_foto(datei, os.path.join(UPLOAD_FOLDER, dateiname), max_px=600, qualitaet=80)
+    except Exception as exc:
+        app.logger.warning(f"Produktbild-Upload abgelehnt (keine gültige Bilddatei): {exc}")
+        return None, 'Produktbild konnte nicht gelesen werden – bitte anderes Bild wählen.'
+    if alt_pfad:
+        try:
+            os.remove(os.path.join(UPLOAD_FOLDER, alt_pfad))
+        except OSError:
+            pass  # Altbild schon weg: kein Grund, den Upload scheitern zu lassen
+    return dateiname, None
+
+
+def _verpackungsebenen_speichern(b_id: int) -> str | None:
+    """Übernimmt die Verpackungsebenen (Kiste, 6er, Flasche …) einer Biersorte aus dem
+    Formular (von Arco portiert). Gibt eine Fehlermeldung zurück oder None.
+
+    Feldschema – bestehende Zeile mit id X: bez_X / nr_X / bild_X / bildweg_X / del_X,
+    neue Zeile mit laufendem Index N: neu_bez_N / neu_nr_N / neu_bild_N. Bewusst indizierte
+    Einzelfelder statt Arrays: bei parallelen Listen aus Text- und Datei-Feldern lässt sich
+    sonst nicht zuverlässig zuordnen, welche Datei zu welcher Zeile gehört.
+    Die Zeilenzahl ist nicht begrenzt."""
+    # 1) Bestehende Zeilen aktualisieren oder löschen
+    for zeile in query("SELECT id, bild_pfad FROM biersorte_gtin WHERE biersorte_id=?", (b_id,)):
+        zid = zeile['id']
+        if request.form.get(f'del_{zid}'):
+            if zeile['bild_pfad']:
+                try:
+                    os.remove(os.path.join(UPLOAD_FOLDER, zeile['bild_pfad']))
+                except OSError:
+                    pass
+            execute("DELETE FROM biersorte_gtin WHERE id=?", (zid,))
+            continue
+        if f'bez_{zid}' not in request.form:
+            continue  # Zeile war nicht Teil des Formulars – unverändert lassen
+        bez = request.form.get(f'bez_{zid}', '').strip()
+        nr, fehler = gtin_pruefen(request.form.get(f'nr_{zid}', ''))
+        if fehler:
+            return f'{bez or "Verpackungsebene"}: {fehler}'
+        if not bez:
+            return 'Jede Verpackungsebene braucht eine Bezeichnung.'
+        bild, bild_fehler = _produktbild_speichern(request.files.get(f'bild_{zid}'), zeile['bild_pfad'])
+        if bild_fehler:
+            return bild_fehler
+        if request.form.get(f'bildweg_{zid}') and zeile['bild_pfad'] and not bild:
+            try:
+                os.remove(os.path.join(UPLOAD_FOLDER, zeile['bild_pfad']))
+            except OSError:
+                pass
+            execute("UPDATE biersorte_gtin SET bezeichnung=?, gtin=?, bild_pfad=NULL WHERE id=?",
+                    (bez, nr, zid))
+        elif bild:
+            execute("UPDATE biersorte_gtin SET bezeichnung=?, gtin=?, bild_pfad=? WHERE id=?",
+                    (bez, nr, bild, zid))
+        else:
+            execute("UPDATE biersorte_gtin SET bezeichnung=?, gtin=? WHERE id=?", (bez, nr, zid))
+
+    # 2) Neue Zeilen anhängen
+    _max = query("SELECT COALESCE(MAX(sortierung), -1) AS m FROM biersorte_gtin WHERE biersorte_id=?",
+                 (b_id,), one=True)['m']
+    neue_indizes = sorted(int(k[8:]) for k in request.form if re.fullmatch(r'neu_bez_\d+', k))
+    for n in neue_indizes:
+        bez = request.form.get(f'neu_bez_{n}', '').strip()
+        roh = request.form.get(f'neu_nr_{n}', '').strip()
+        datei = request.files.get(f'neu_bild_{n}')
+        if not bez and not roh and not (datei and datei.filename):
+            continue  # leere Zeile: der Nutzer hat sie hinzugefügt und nicht ausgefüllt
+        if not bez:
+            return 'Jede Verpackungsebene braucht eine Bezeichnung.'
+        nr, fehler = gtin_pruefen(roh)
+        if fehler:
+            return f'{bez}: {fehler}'
+        # Dedupe (von Arco portiert): wird dasselbe Formular zweimal abgeschickt (auf dem
+        # Handy ein schneller Doppeltipp), landeten die neuen Ebenen sonst ein zweites Mal
+        # in der DB und standen doppelt in der Umschaltleiste. Eine identische Ebene wird
+        # daher übersprungen statt erneut angelegt; gleiche Bezeichnung mit ABWEICHENDER
+        # Nummer ist dagegen ein echter Konflikt, den nur der Nutzer auflösen kann.
+        vorhanden = query(
+            "SELECT gtin FROM biersorte_gtin WHERE biersorte_id=? AND LOWER(TRIM(bezeichnung))=?",
+            (b_id, bez.lower()), one=True
+        )
+        if vorhanden:
+            if (vorhanden['gtin'] or '') == (nr or ''):
+                continue
+            return (f'„{bez}" ist für dieses Produkt bereits mit einer anderen GTIN '
+                    f'hinterlegt. Bitte die bestehende Ebene bearbeiten oder anders benennen.')
+        bild, bild_fehler = _produktbild_speichern(datei)
+        if bild_fehler:
+            return bild_fehler
+        _max += 1
+        execute("INSERT INTO biersorte_gtin (biersorte_id, bezeichnung, gtin, bild_pfad, sortierung) "
+                "VALUES (?,?,?,?,?)", (b_id, bez, nr, bild, _max))
+    return None
+
+
 @app.route('/admin/biersorte/neu', methods=['POST'])
 @admin_required
 def admin_bier_neu():
-    name   = request.form.get('name', '').strip()
+    name    = request.form.get('name', '').strip()
     einheit = request.form.get('einheit', 'Kiste (20x0.5L)').strip()
-    if name:
-        execute("INSERT OR IGNORE INTO biersorte (name, einheit) VALUES (?,?)", (name, einheit))
-        flash(f'Biersorte "{name}" angelegt.', 'success')
+    if not name:
+        return redirect(url_for('admin'))
+    bild, bild_fehler = _produktbild_speichern(request.files.get('bild'))
+    if bild_fehler:
+        flash(bild_fehler, 'danger')
+        return redirect(url_for('admin'))
+    execute("INSERT OR IGNORE INTO biersorte (name, einheit, bild_pfad) VALUES (?,?,?)",
+            (name, einheit, bild))
+    neu = query("SELECT id FROM biersorte WHERE name=?", (name,), one=True)
+    if neu:
+        fehler = _verpackungsebenen_speichern(neu['id'])
+        if fehler:
+            flash(fehler, 'danger')
+            return redirect(url_for('admin'))
+    flash(f'Biersorte "{name}" angelegt.', 'success')
     return redirect(url_for('admin'))
 
 
@@ -10408,10 +10728,49 @@ def admin_bier_neu():
 def admin_bier_bearbeiten(b_id):
     name    = request.form.get('name', '').strip()
     einheit = request.form.get('einheit', '').strip()
-    if name:
+    if not name:
+        return redirect(url_for('admin'))
+    alt = query("SELECT bild_pfad FROM biersorte WHERE id=?", (b_id,), one=True)
+    bild, bild_fehler = _produktbild_speichern(request.files.get('bild'),
+                                               alt['bild_pfad'] if alt else None)
+    if bild_fehler:
+        flash(bild_fehler, 'danger')
+        return redirect(url_for('admin'))
+    if request.form.get('bild_entfernen') and alt and alt['bild_pfad'] and not bild:
+        try:
+            os.remove(os.path.join(UPLOAD_FOLDER, alt['bild_pfad']))
+        except OSError:
+            pass
+        execute("UPDATE biersorte SET name=?, einheit=?, bild_pfad=NULL WHERE id=?", (name, einheit, b_id))
+    elif bild:
+        execute("UPDATE biersorte SET name=?, einheit=?, bild_pfad=? WHERE id=?", (name, einheit, bild, b_id))
+    else:
+        # Kein neues Bild hochgeladen: bestehendes behalten
         execute("UPDATE biersorte SET name=?, einheit=? WHERE id=?", (name, einheit, b_id))
-        flash(f'Biersorte „{name}" aktualisiert.', 'success')
+    fehler = _verpackungsebenen_speichern(b_id)
+    if fehler:
+        flash(fehler, 'danger')
+        return redirect(url_for('admin'))
+    flash(f'Biersorte „{name}" aktualisiert.', 'success')
     return redirect(url_for('admin'))
+
+
+@app.route('/produkt/gtin/<int:g_id>/barcode.svg')
+@login_required
+def produkt_barcode(g_id):
+    """Barcode einer Verpackungsebene als SVG (von Arco portiert) – wird im Bestell-Pop-up
+    angezeigt, damit der Außendienst im Markt direkt vom Handydisplay scannen kann. Kein
+    Admin-Recht nötig (jeder Rep braucht es im Außendienst), aber login_required: die GTIN
+    ist Stammdatum des Kunden."""
+    z = query("SELECT gtin FROM biersorte_gtin WHERE id=?", (g_id,), one=True)
+    svg = gtin_barcode_svg(z['gtin']) if z and z['gtin'] else None
+    if not svg:
+        abort(404)
+    resp = make_response(svg)
+    resp.headers['Content-Type'] = 'image/svg+xml'
+    # Stammdatum, ändert sich praktisch nie – im Außendienst spart der Cache Mobilfunk.
+    resp.headers['Cache-Control'] = 'private, max-age=86400'
+    return resp
 
 
 @app.route('/admin/biersorte/<int:b_id>/verschieben', methods=['POST'])
@@ -11669,11 +12028,20 @@ def service_worker():
 @app.route('/uploads/<path:filename>')
 @login_required
 def serve_upload(filename):
-    """Fotos sind ausschließlich an aktivitaet.foto_pfad(_2/_3) verknüpft – Zugriff daher
-    auf die zugehörige Aktivität geprüft: Rep nur eigene, VKL nur Team, Admin alles. Vorher
-    ohne jede Prüfung abrufbar, sobald der (vorhersehbare) Dateiname bekannt war
-    (Bugreport 2026-07-20, von Arco portiert)."""
+    """Aktivitätsfotos hängen an aktivitaet.foto_pfad(_2/_3) – Zugriff daher auf die
+    zugehörige Aktivität geprüft: Rep nur eigene, VKL nur Team, Admin alles. Vorher ohne
+    jede Prüfung abrufbar, sobald der (vorhersehbare) Dateiname bekannt war (Bugreport
+    2026-07-20, von Arco portiert).
+
+    Produktbilder (biersorte.bild_pfad und biersorte_gtin.bild_pfad, Präfix produkt_) sind
+    dagegen Stammdaten und für jeden angemeldeten Nutzer freigegeben – der Außendienst
+    braucht sie im Bestell-Pop-up (von Arco portiert, Bugreport dort 2026-08-26: ohne
+    diesen Zweig lief jeder Produktbild-Abruf in den 404 unten)."""
     from flask import send_from_directory, abort
+    if query("SELECT 1 FROM biersorte WHERE bild_pfad=? "
+             "UNION ALL SELECT 1 FROM biersorte_gtin WHERE bild_pfad=?",
+             (filename, filename), one=True):
+        return send_from_directory(UPLOAD_FOLDER, filename)
     akt = query(
         "SELECT mitarbeiter_id FROM aktivitaet WHERE foto_pfad=? OR foto_pfad_2=? OR foto_pfad_3=?",
         (filename, filename, filename), one=True

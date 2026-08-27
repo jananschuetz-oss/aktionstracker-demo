@@ -527,9 +527,28 @@
               <div class="bier-card rounded-3 p-2 border" id="bierCard_{{ bier.id }}"
                    style="transition:all .2s">
                 <div class="d-flex justify-content-between align-items-center mb-1">
+                  {% if gtin_ebenen.get(bier.id) or bier.bild_pfad %}
+                  {# Nur die id im data-Attribut, alles Weitere kommt aus dem JSON-Block am
+                     Seitenende: Jinjas tojson escapet keine doppelten Anführungszeichen und
+                     bricht damit ein onclick-/data-Attribut auf (von Arco portiert). #}
+                  <button type="button" class="btn btn-link p-0 text-start text-decoration-none fw-semibold produkt-info"
+                          style="color:#1a3a5c;font-size:.9rem"
+                          data-id="{{ bier.id }}">
+                    {% if bier.bild_pfad %}
+                    <img src="{{ url_for('serve_upload', filename=bier.bild_pfad) }}" alt=""
+                         style="width:24px;height:24px;object-fit:contain;border-radius:3px;vertical-align:-6px"
+                         class="me-1">
+                    {% else %}
+                    <i class="bi bi-box-seam me-1" style="color:#c8860a"></i>
+                    {% endif %}{{ bier.name }}
+                    <i class="bi bi-upc-scan ms-1" style="color:#c8860a;font-size:.85rem"
+                       title="Bild und Barcode anzeigen"></i>
+                  </button>
+                  {% else %}
                   <span class="fw-semibold" style="color:#1a3a5c;font-size:.9rem">
                     <i class="bi bi-box-seam me-1" style="color:#c8860a"></i>{{ bier.name }}
                   </span>
+                  {% endif %}
                   <small class="text-muted" style="font-size:.75rem">{{ bier.einheit }}</small>
                 </div>
                 <div class="input-group input-group-sm">
@@ -678,6 +697,165 @@
     </div>
   </div>
 </div>
+
+<!-- Produkt-Pop-up: Bild + Barcode zum Scannen im Markt (von Arco portiert).
+     Bewusst hart auf weißem Grund und schwarzer Schrift, unabhängig vom übrigen
+     Farbschema – ein Barcode muss maximalen Kontrast haben, sonst liest ihn der
+     Scanner vom Display nicht. -->
+<div class="modal fade" id="modalProdukt" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content" style="background:#fff">
+      <div class="modal-header py-2" style="background:#fff;border-bottom:1px solid #eee">
+        <h5 class="modal-title" style="color:#1a3a5c;font-size:1rem" id="prodTitel"></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+      </div>
+      <div class="modal-body text-center" style="background:#fff">
+        <div id="prodEinheit" class="text-muted mb-2" style="font-size:.8rem"></div>
+        <!-- Umschaltleiste: nur EIN Barcode gleichzeitig, dafür in voller Breite.
+             Gestapelt wäre jeder Code schmaler, und die Balkenbreite entscheidet
+             darüber, ob ältere Scanner ihn noch lesen.
+             Eigener Block-Wrapper, weil .btn-group als inline-flex rendert – ohne ihn
+             fließt das Produktbild je nach Beschriftungslänge daneben statt darunter. -->
+        <div id="prodEbenenWrap" class="mb-3" style="display:none">
+          <div id="prodEbenen" class="btn-group btn-group-sm flex-wrap" role="group"></div>
+        </div>
+        <img id="prodBild" alt="" class="mb-3"
+             style="max-width:190px;max-height:190px;object-fit:contain;display:none;margin-left:auto;margin-right:auto">
+        <div id="prodBarcodeBox">
+          <img id="prodBarcode" alt="Barcode" style="width:100%;max-width:340px;display:none">
+          <div id="prodHinweis" class="text-muted mt-2" style="font-size:.78rem"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Produktdaten als JSON-Block statt in Attributen – im Script-Kontext escapet tojson
+   korrekt, in einem doppelt gequoteten HTML-Attribut nicht (von Arco portiert). #}
+<script type="application/json" id="produktDaten">{{ produkt_daten | tojson }}</script>
+
+<script>
+var PRODUKTE = JSON.parse(document.getElementById('produktDaten').textContent);
+
+/* Klick auf ein Produkt öffnet das Pop-up. Delegiert am document, damit es auch für
+   Produktzeilen greift, die erst nachträglich in den DOM kommen. */
+document.addEventListener('click', function (ev) {
+  var btn = ev.target.closest('.produkt-info');
+  if (!btn) return;
+  ev.preventDefault();
+  zeigeProdukt(btn.dataset.id);
+});
+
+/* Wake Lock: hält das Display an, solange ein Barcode gezeigt wird. Die Helligkeit selbst
+   kann eine Webseite nicht setzen – dafür gibt es keine Browser-Schnittstelle. Das Abdunkeln
+   kurz vor der Displaysperre ist beim Scannen aber ohnehin das größere Problem: der Kunde
+   holt den Scanner, und inzwischen ist der Bildschirm zu dunkel zum Lesen.
+   Verfügbar auf Android und ab iOS 16.4; wo nicht, passiert einfach nichts. */
+var _wakeLock = null;
+
+function _wakeLockAn() {
+  if (!('wakeLock' in navigator) || _wakeLock) return;
+  navigator.wakeLock.request('screen').then(function (sperre) {
+    _wakeLock = sperre;
+    // Der Browser gibt die Sperre von sich aus frei, z.B. beim Tabwechsel.
+    sperre.addEventListener('release', function () { _wakeLock = null; });
+  }).catch(function () {
+    /* Akkusparmodus oder fehlende Nutzergeste: kein Grund, das Pop-up scheitern zu lassen. */
+  });
+}
+
+function _wakeLockAus() {
+  if (!_wakeLock) return;
+  _wakeLock.release().catch(function () {});
+  _wakeLock = null;
+}
+
+/* Kommt das Handy aus dem Hintergrund zurück, während das Pop-up noch offen ist, ist die
+   Sperre weg – dann neu anfordern, sonst dimmt das Display doch wieder weg. */
+document.addEventListener('visibilitychange', function () {
+  if (document.visibilityState !== 'visible') return;
+  var el = document.getElementById('modalProdukt');
+  if (el && el.classList.contains('show') &&
+      document.getElementById('prodBarcode').style.display !== 'none') {
+    _wakeLockAn();
+  }
+});
+
+/* Zeigt EINE Verpackungsebene: Bild und Barcode wechseln immer gemeinsam, damit nie
+   ein Flaschencode neben einem Kistenbild steht. Ohne eigenes Ebenenbild greift das
+   Produktbild als Rückfall. */
+function _ebeneZeigen(produkt, ebene) {
+  var bild    = document.getElementById('prodBild');
+  var code    = document.getElementById('prodBarcode');
+  var hinweis = document.getElementById('prodHinweis');
+
+  var bildPfad = (ebene && ebene.bild) || produkt.bild || '';
+  if (bildPfad) {
+    bild.src = '/uploads/' + bildPfad;
+    bild.style.display = 'block';   // block + auto-Ränder: immer mittig unter der Leiste
+  } else {
+    bild.removeAttribute('src');
+    bild.style.display = 'none';
+  }
+
+  if (ebene && ebene.gtin) {
+    code.src = '/produkt/gtin/' + ebene.id + '/barcode.svg';
+    code.style.display = 'inline-block';
+    hinweis.textContent = 'Zum Scannen Displayhelligkeit hochdrehen.';
+    _wakeLockAn();
+  } else {
+    code.removeAttribute('src');
+    code.style.display = 'none';
+    hinweis.textContent = ebene
+      ? 'Für „' + ebene.bez + '" ist keine GTIN hinterlegt.'
+      : 'Für dieses Produkt ist keine GTIN hinterlegt.';
+    _wakeLockAus();
+  }
+}
+
+/* Öffnet das Produkt-Pop-up. */
+function zeigeProdukt(id) {
+  var produkt = PRODUKTE[String(id)];
+  if (!produkt) return;
+
+  document.getElementById('prodTitel').textContent = produkt.name;
+  document.getElementById('prodEinheit').textContent = produkt.einheit || '';
+
+  // Umschaltleiste nur bei mehr als einer Ebene – bei genau einer wäre ein Schalter
+  // mit einem einzigen Knopf nur Ballast.
+  var leiste = document.getElementById('prodEbenen');
+  var leisteWrap = document.getElementById('prodEbenenWrap');
+  leiste.innerHTML = '';
+  var ebenen = produkt.ebenen || [];
+  if (ebenen.length > 1) {
+    ebenen.forEach(function (eb, i) {
+      var k = document.createElement('button');
+      k.type = 'button';
+      k.className = 'btn btn-outline-secondary' + (i === 0 ? ' active' : '');
+      k.textContent = eb.bez;
+      k.addEventListener('click', function () {
+        leiste.querySelectorAll('button').forEach(function (a) { a.classList.remove('active'); });
+        k.classList.add('active');
+        _ebeneZeigen(produkt, eb);
+      });
+      leiste.appendChild(k);
+    });
+    leisteWrap.style.display = '';
+  } else {
+    leisteWrap.style.display = 'none';
+  }
+  _ebeneZeigen(produkt, ebenen[0] || null);
+
+  var el = document.getElementById('modalProdukt');
+  // Beim Schließen die Sperre wieder freigeben – sonst bliebe das Display dauerhaft an
+  // und würde im Außendienst unnötig Akku ziehen.
+  if (!el.dataset.wakeGebunden) {
+    el.addEventListener('hidden.bs.modal', _wakeLockAus);
+    el.dataset.wakeGebunden = '1';
+  }
+  (bootstrap.Modal.getInstance(el) || new bootstrap.Modal(el)).show();
+}
+</script>
 
 {% endblock %}
 
