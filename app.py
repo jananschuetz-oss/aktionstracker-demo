@@ -292,11 +292,12 @@ def inject_now():
             # Zähler offener Urlaubsanträge (für Navbar-Markierung der Manager)
             if session.get('rolle') in ('admin', 'verkaufsleiter'):
                 _tc, _tp = _team_m_clause('m')
+                _ec, _ep = _vertretung_entscheidbar_clause('v', 'm')
                 _cnt = query(
                     f'''SELECT COUNT(*) AS n FROM vertretung v
                         JOIN mitarbeiter m ON m.id = v.abwesender_id
-                        WHERE v.status = 'angefragt'{_tc}''',
-                    _tp, one=True)
+                        WHERE v.status = 'angefragt'{_tc}{_ec}''',
+                    _tp + _ep, one=True)
                 ctx['offene_urlaubsantraege'] = _cnt['n'] if _cnt else 0
             # Zähler offener Termin-Einladungen (für alle Rollen – jeder kann Empfänger sein)
             _tt_cnt = query(
@@ -677,8 +678,16 @@ def _arbeitszeit_tage_zaehlen(von: date, bis: date, gearbeitete_tage: set, ma_id
     erfasster Arbeitszeit zählt immer als Arbeitstag, auch wenn er zufällig in einen
     Abwesenheitszeitraum fällt. Bei mehreren gleichzeitigen Abwesenheiten an einem Tag zählt
     jeder Typ einzeln mit. Wochenenden fließen bewusst nicht ein, da an ihnen ohnehin nicht
-    gearbeitet wird. Von Arco portiert."""
+    gearbeitet wird.
+
+    'anrechenbare_tage' zählt dagegen jeden Tag mit mindestens einer anrechenbaren
+    Abwesenheit nur EINMAL – unabhängig davon, wie viele Anträge sich dort überschneiden.
+    Bugreport 2026-08-26 (von Arco portiert): die Wochensumme wurde bislang aus 'typen'
+    aufaddiert, wodurch ein Tag mit z.B. Urlaub + Sonderurlaub doppelt anrechnete (komplette
+    Urlaubswoche zeigte 90h statt 45h). Für die Kontextzeile bleibt 'typen' die richtige
+    Quelle, für die Zeitsumme ausschließlich 'anrechenbare_tage'. Von Arco portiert."""
     arbeitstage = 0
+    anrechenbare_tage = 0
     typ_counts = {}
     d = von
     while d <= bis:
@@ -689,10 +698,14 @@ def _arbeitszeit_tage_zaehlen(von: date, bis: date, gearbeitete_tage: set, ma_id
             else:
                 info = urlaub_map.get((ma_id, ds))
                 if info:
-                    for eintrag in ([info] if isinstance(info, dict) else info):
+                    eintraege = [info] if isinstance(info, dict) else info
+                    for eintrag in eintraege:
                         typ_counts[eintrag['typ']] = typ_counts.get(eintrag['typ'], 0) + 1
+                    if any(e['typ'] in _AZ_TYP_ANRECHENBAR for e in eintraege):
+                        anrechenbare_tage += 1
         d += timedelta(days=1)
-    return {'arbeitstage': arbeitstage, 'typen': typ_counts}
+    return {'arbeitstage': arbeitstage, 'typen': typ_counts,
+            'anrechenbare_tage': anrechenbare_tage}
 
 
 # Standard-Tagesstunden für Abwesenheitstage: Hotel zählt bewusst NICHT dazu – eine
@@ -730,15 +743,19 @@ def _az_tag_anrechnung_minuten(datum_iso: str, ma_id: int, urlaub_map: dict, woc
     return tag_minuten
 
 
-def _az_anrechnung_minuten(zaehlung_typen: dict, wochenarbeitszeit_stunden) -> int:
-    """Anrechenbare Gesamtminuten für einen Zeitraum, aus den Typ-Zählungen von
+def _az_anrechnung_minuten(zaehlung: dict, wochenarbeitszeit_stunden) -> int:
+    """Anrechenbare Gesamtminuten für einen Zeitraum, aus dem Ergebnis von
     _arbeitszeit_tage_zaehlen(). Für Wochen-/Monatssummen (PDF, Team-Monatsansicht), wo keine
-    tagesgenaue Anzeige nötig ist – zählt jeden anrechenbaren Abwesenheitstag einmal."""
+    tagesgenaue Anzeige nötig ist – zählt jeden anrechenbaren Abwesenheitstag genau einmal.
+
+    Nimmt bewusst das komplette zaehlung-Dict und nicht mehr nur dessen 'typen': aus den
+    Typ-Zählungen allein lässt sich ein Tag mit mehreren überschneidenden Anträgen nicht von
+    mehreren Abwesenheitstagen unterscheiden (Bugreport 2026-08-26, doppelte Anrechnung, von
+    Arco portiert)."""
     tag_minuten = _az_standard_tag_minuten(wochenarbeitszeit_stunden)
     if not tag_minuten:
         return 0
-    anzahl = sum(n for typ, n in zaehlung_typen.items() if typ in _AZ_TYP_ANRECHENBAR)
-    return anzahl * tag_minuten
+    return zaehlung.get('anrechenbare_tage', 0) * tag_minuten
 
 
 def _arbeitszeit_abwesenheit_zeile_html(zaehlung: dict) -> str:
@@ -881,7 +898,7 @@ def _arbeitszeit_pdf_seite_html(von: date, bis: date, team_id: int | None = None
             for i, kw in enumerate(aktive_kws):
                 kw_start, kw_ende = wochen_zaehlung[kw]
                 zaehlung = _arbeitszeit_tage_zaehlen(kw_start, kw_ende, gearbeitete_tage, m['id'], urlaub_map)
-                kw_stunden = sum(wochen_stunden[kw]) + _az_anrechnung_minuten(zaehlung['typen'], m['wochenarbeitszeit_stunden'])
+                kw_stunden = sum(wochen_stunden[kw]) + _az_anrechnung_minuten(zaehlung, m['wochenarbeitszeit_stunden'])
                 gesamt_stunden += kw_stunden
                 gesamt_zaehlung['arbeitstage'] += zaehlung['arbeitstage']
                 for typ, n in zaehlung['typen'].items():
@@ -906,7 +923,7 @@ def _arbeitszeit_pdf_seite_html(von: date, bis: date, team_id: int | None = None
                 if netto:
                     netto_je_tag[r['datum']] = netto_je_tag.get(r['datum'], 0) + netto
             zaehlung = _arbeitszeit_tage_zaehlen(von, bis, set(netto_je_tag.keys()), m['id'], urlaub_map)
-            summe = sum(netto_je_tag.values()) + _az_anrechnung_minuten(zaehlung['typen'], m['wochenarbeitszeit_stunden'])
+            summe = sum(netto_je_tag.values()) + _az_anrechnung_minuten(zaehlung, m['wochenarbeitszeit_stunden'])
             gesamt_alle += summe
             hat_kontext = zaehlung['arbeitstage'] or zaehlung['typen']
             wert = _az_fmt_std(summe) if hat_kontext else '–'
@@ -2647,6 +2664,22 @@ def _team_m_clause(alias='m'):
     return '', ()
 
 
+def _vertretung_entscheidbar_clause(v_alias='v', m_alias='m'):
+    """(sql_fragment, params) für Listen/Zähler offener Urlaubsanträge: grenzt auf die
+    Anträge ein, über die der aktuelle Nutzer auch tatsächlich entscheiden darf – das
+    SQL-Gegenstück zu _vertretung_team_ok(). Ein VKL sieht seit Einführung der
+    Genehmigungspflicht für VKL-Urlaube weder den eigenen Antrag noch die anderer
+    VKLs/Admins in seiner Liste, sonst stünden dort Anträge, die er ohnehin nicht
+    bestätigen kann. Ergänzt _team_m_clause(), ersetzt sie nicht. Von Arco portiert."""
+    rolle = session.get('rolle')
+    if rolle == 'admin':
+        return '', ()
+    if rolle == 'verkaufsleiter':
+        return (f" AND {m_alias}.rolle = 'rep' AND {v_alias}.abwesender_id != ?",
+                (session.get('user_id'),))
+    return ' AND 1=0', ()
+
+
 # ─── Historische Werte: Fallback für Vorjahresvergleiche ─────────────────────
 # (portiert aus Arco 2026-07-25) vs_historische_werte enthält Backfill-Monatswerte für
 # Jahre vor der digitalen Erfassung. In Kundenhistorie/Kunden-Vergleich soll das Vorjahr
@@ -3915,7 +3948,7 @@ def _kpi_werte_berechnen(aktive_keys, jahr, is_manager):
         for m in mitarbeiter_rows:
             _ist_minuten = _by_ma_minuten.get(m['id'], 0)
             _zaehlung = _arbeitszeit_tage_zaehlen(woche_start_d, _zaehlung_bis, _by_ma_tage.get(m['id'], set()), m['id'], _urlaub_map)
-            _ist_minuten += _az_anrechnung_minuten(_zaehlung['typen'], m['wochenarbeitszeit_stunden'])
+            _ist_minuten += _az_anrechnung_minuten(_zaehlung, m['wochenarbeitszeit_stunden'])
             rows.append({'id': m['id'], 'name': m['name'], 'wochenarbeitszeit_stunden': m['wochenarbeitszeit_stunden'], 'ist_minuten': _ist_minuten})
         if rows:
             ist_h = sum(r['ist_minuten'] for r in rows) / 60 / len(rows)
@@ -4371,15 +4404,16 @@ def dashboard():
     urlaubsantraege = []
     if is_manager and not ma_filter:
         _ta_sql, _ta_p = _team_m_clause('m')
+        _te_sql, _te_p = _vertretung_entscheidbar_clause('v', 'm')
         urlaubsantraege = query(
             f"""SELECT v.id, v.von, v.bis, v.status,
                        m.name AS abwesender, r.name AS vertreter
                 FROM vertretung v
                 JOIN mitarbeiter m ON m.id = v.abwesender_id
                 LEFT JOIN mitarbeiter r ON r.id = v.vertreter_id
-                WHERE v.status = 'angefragt' {_ta_sql}
+                WHERE v.status = 'angefragt' {_ta_sql}{_te_sql}
                 ORDER BY v.von""",
-            _ta_p
+            _ta_p + _te_p
         )
 
     # Offene Termin-Einladungen (Nutzerwunsch 2026-07-28, analog zu Arco: VKL/Admin
@@ -9536,19 +9570,30 @@ def admin_vertretung_loeschen(vtr_id):
 
 def _vertretung_team_ok(vtr_id):
     """True wenn der aktuelle Manager diesen Vertretungs-/Urlaubseintrag bearbeiten darf.
-    Admin: immer. VKL: nur wenn der Abwesende im eigenen Team ist – hat der VKL selbst
-    kein Team zugeordnet, gilt wie überall sonst in der App keine Einschränkung (statt
-    fälschlich jeden Antrag zu blockieren)."""
+    Admin: immer. VKL: nur für Reps im eigenen Team – hat der VKL selbst kein Team
+    zugeordnet, gilt wie überall sonst in der App keine Team-Einschränkung (statt
+    fälschlich jeden Antrag zu blockieren).
+
+    Zwei Einschränkungen für VKLs (mit Einführung der Genehmigungspflicht für VKL-Urlaube,
+    von Arco portiert): niemand entscheidet über den eigenen Antrag, und Anträge von
+    VKLs/Admins entscheidet ausschließlich die Leitung. Ohne diese Prüfungen könnte ein VKL
+    seinen eigenen Urlaub bestätigen (gleiches Team) bzw. ohne Team-Zuordnung sogar jeden."""
     if session.get('rolle') == 'admin':
         return True
     if session.get('rolle') == 'verkaufsleiter':
+        row = query('''SELECT v.abwesender_id, m.team_id, m.rolle FROM vertretung v
+                       JOIN mitarbeiter m ON m.id = v.abwesender_id
+                       WHERE v.id = ?''', (vtr_id,), one=True)
+        if not row:
+            return False
+        if row['abwesender_id'] == session.get('user_id'):
+            return False
+        if row['rolle'] != 'rep':
+            return False
         tid = session.get('team_id')
         if not tid:
             return True
-        row = query('''SELECT m.team_id FROM vertretung v
-                       JOIN mitarbeiter m ON m.id = v.abwesender_id
-                       WHERE v.id = ?''', (vtr_id,), one=True)
-        return bool(row and row['team_id'] == tid)
+        return row['team_id'] == tid
     return False
 
 
@@ -9854,13 +9899,16 @@ def profil_vertretung_neu():
     if vertreter_id and vertreter_id == session['user_id']:
         flash('Sie können sich nicht selbst als Vertreter eintragen.', 'danger')
         return redirect(request.referrer or url_for('dashboard'))
-    # VKL/GF tragen ihren eigenen Urlaub direkt bestätigt ein; Reps müssen anfragen.
+    # Nur die Leitung (admin) trägt ihren eigenen Urlaub direkt bestätigt ein. VKLs müssen
+    # wie Reps anfragen und werden vom Admin bestätigt (von Arco portiert): vorher liefen
+    # ihre Urlaube am Genehmigungsvorgang vorbei und es ging deshalb NIE eine
+    # Bestätigungsmail raus – weder an den VKL noch ans Lohnbüro/den Innendienst.
     # "Kein Arbeitstag" ist keine Abwesenheit im eigentlichen Sinn (kein Vertretungsbedarf,
     # keine Genehmigung nötig) – für jede Rolle direkt bestätigt (von Arco portiert).
     if typ == 'kein_arbeitstag':
         _status = 'bestätigt'
     else:
-        _status = 'bestätigt' if session.get('rolle') in ('admin', 'verkaufsleiter') else 'angefragt'
+        _status = 'bestätigt' if session.get('rolle') == 'admin' else 'angefragt'
     execute(
         "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis, status, typ, grund, erstellt_am, "
         "hotel_name_adresse, hotel_kosten_pro_nacht) VALUES (?,?,?,?,?,?,?,?,?,?)",
@@ -9868,17 +9916,21 @@ def profil_vertretung_neu():
          hotel_name_adresse, hotel_kosten_pro_nacht)
     )
     _typ_label = {'urlaub': 'Urlaub', 'krankheit': 'Krankheit', 'sonderurlaub': 'Sonderurlaub', 'frei_sonderurlaub': 'Frei/Sonderurlaub', 'unbezahlt': 'Unbezahlter Urlaub', 'hotel': 'Hotelübernachtung', 'kein_arbeitstag': 'Kein Arbeitstag'}[typ]
+    # VKL-Anträge entscheidet ausschließlich die Leitung (s. _vertretung_team_ok), Reps
+    # können zusätzlich von ihrem VKL bestätigt werden – Hinweistext entsprechend.
+    _wartet_auf = ('die Leitung' if session.get('rolle') == 'verkaufsleiter'
+                   else 'Verkaufsleiter oder Leitung')
     if typ == 'urlaub':
         _tage = _werktage_zaehlen(von, bis, query("SELECT bundesland FROM mitarbeiter WHERE id=?", (session['user_id'],), one=True)['bundesland'])
         _konto = _urlaub_konto(session['user_id'], date.fromisoformat(von).year)
         _rest_info = f' {_konto["verfuegbar"]} Tage verbleiben {date.fromisoformat(von).year}.' if _konto else ''
         if _status == 'angefragt':
-            flash(f'{_typ_label} angefragt ({_tage} Werktage) – wartet auf Bestätigung durch Verkaufsleiter oder Leitung.{_rest_info}', 'success')
+            flash(f'{_typ_label} angefragt ({_tage} Werktage) – wartet auf Bestätigung durch {_wartet_auf}.{_rest_info}', 'success')
         else:
             flash(f'{_typ_label} eingetragen ({_tage} Werktage).{_rest_info}', 'success')
     else:
         if _status == 'angefragt':
-            flash(f'{_typ_label} angefragt – wartet auf Bestätigung durch Verkaufsleiter oder Leitung.', 'success')
+            flash(f'{_typ_label} angefragt – wartet auf Bestätigung durch {_wartet_auf}.', 'success')
         else:
             flash(f'{_typ_label} eingetragen.', 'success')
     return redirect(request.referrer or url_for('dashboard'))
