@@ -5956,7 +5956,7 @@ def api_vs_aktivitaeten(vs_id):
     rows = query('''
         SELECT a.datum, m.name AS mitarbeiter, m.kuerzel,
                COALESCE(a.aktionstyp, 'Besuch') AS aktionstyp,
-               a.anzahl_displays, a.notizen,
+               a.anzahl_displays, a.notizen, a.von_uhrzeit, a.bis_uhrzeit,
                COALESCE(
                    (SELECT GROUP_CONCAT(bs.name||' '||bp.kisten_anzahl, ', ')
                     FROM bestellposition bp
@@ -6109,7 +6109,7 @@ def verkaufsstelle_historie(vs_id):
     aktivitaeten = query('''
         SELECT a.datum, m.name AS mitarbeiter, m.kuerzel,
                COALESCE(a.aktionstyp, 'Besuch') AS aktionstyp,
-               a.anzahl_displays, a.notizen,
+               a.anzahl_displays, a.notizen, a.von_uhrzeit, a.bis_uhrzeit,
                COALESCE(
                    (SELECT GROUP_CONCAT(bs.name||' '||bp.kisten_anzahl, ', ')
                     FROM bestellposition bp JOIN biersorte bs ON bs.id = bp.biersorte_id

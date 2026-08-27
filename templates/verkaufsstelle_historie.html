@@ -157,6 +157,9 @@
               {{ a.aktionstyp }} <span style="color:#888;font-weight:400">· {{ a.mitarbeiter }}</span>
             </div>
             <div class="d-flex gap-3 flex-wrap mt-1">
+              {% if a.von_uhrzeit %}
+              <span style="font-size:.78rem;color:#6c757d"><i class="bi bi-clock me-1"></i>{{ a.von_uhrzeit }}{% if a.bis_uhrzeit %}–{{ a.bis_uhrzeit }}{% endif %}</span>
+              {% endif %}
               {% if a.anzahl_displays %}
               <span style="font-size:.78rem;color:#6c757d"><i class="bi bi-display me-1"></i>{{ a.anzahl_displays }} Aktivität{{ 'en' if a.anzahl_displays != 1 else '' }}</span>
               {% endif %}
