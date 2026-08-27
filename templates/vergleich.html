@@ -120,27 +120,27 @@
         {% if akt_mon %}
         <div class="mb-3">
           <div class="d-flex justify-content-between mb-1">
-            <span class="small fw-semibold" style="color:#c8860a"><i class="bi bi-box-seam me-1"></i>{{ unit_label }}</span>
-            <span class="small">
-              <strong style="color:#c8860a">{{ akt_mon.kisten_ist }}</strong> / {{ akt_mon.kisten_ziel }}
-              {% if akt_mon.kisten_pct is not none %}
-              <span class="badge ms-1 {% if akt_mon.kisten_pct >= 100 %}bg-success{% elif akt_mon.kisten_pct >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}">{{ akt_mon.kisten_pct }}%</span>
-              {% endif %}
-            </span>
-          </div>
-          {% if akt_mon.kisten_ziel %}<div class="progress" style="height:8px"><div class="progress-bar {% if (akt_mon.kisten_pct or 0) >= 100 %}bg-success{% elif (akt_mon.kisten_pct or 0) >= 70 %}bg-warning{% else %}bg-danger{% endif %}" style="width:{{ [akt_mon.kisten_pct or 0, 100]|min }}%"></div></div>{% endif %}
-        </div>
-        <div>
-          <div class="d-flex justify-content-between mb-1">
             <span class="small fw-semibold" style="color:#1a3a5c"><i class="bi bi-display me-1"></i>Displays</span>
             <span class="small">
               <strong>{{ akt_mon.displays_ist }}</strong> / {{ akt_mon.displays_ziel }}
               {% if akt_mon.displays_pct is not none %}
-              <span class="badge ms-1 {% if akt_mon.displays_pct >= 100 %}bg-success{% elif akt_mon.displays_pct >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}">{{ akt_mon.displays_pct }}%</span>
+              <span class="badge ms-1 {% if akt_mon.displays_pct >= 100 %}bg-success{% elif akt_mon.displays_pct >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}">{{ akt_mon.displays_pct }}% · {% if akt_mon.displays_pct >= 100 %}<i class="bi bi-check-circle me-1"></i>Ziel erreicht{% elif akt_mon.displays_pct >= 95 %}<i class="bi bi-arrow-up-right me-1"></i>Auf Kurs{% elif akt_mon.displays_pct >= 80 %}<i class="bi bi-dash-circle me-1"></i>Leicht hinter Plan{% else %}<i class="bi bi-exclamation-circle me-1"></i>Gefährdet{% endif %}</span>
               {% endif %}
             </span>
           </div>
           {% if akt_mon.displays_ziel %}<div class="progress" style="height:8px"><div class="progress-bar {% if (akt_mon.displays_pct or 0) >= 100 %}bg-success{% elif (akt_mon.displays_pct or 0) >= 70 %}bg-warning{% else %}bg-danger{% endif %}" style="width:{{ [akt_mon.displays_pct or 0, 100]|min }}%"></div></div>{% endif %}
+        </div>
+        <div>
+          <div class="d-flex justify-content-between mb-1">
+            <span class="small fw-semibold" style="color:#c8860a"><i class="bi bi-box-seam me-1"></i>{{ unit_label }}</span>
+            <span class="small">
+              <strong style="color:#c8860a">{{ akt_mon.kisten_ist }}</strong> / {{ akt_mon.kisten_ziel }}
+              {% if akt_mon.kisten_pct is not none %}
+              <span class="badge ms-1 {% if akt_mon.kisten_pct >= 100 %}bg-success{% elif akt_mon.kisten_pct >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}">{{ akt_mon.kisten_pct }}% · {% if akt_mon.kisten_pct >= 100 %}<i class="bi bi-check-circle me-1"></i>Ziel erreicht{% elif akt_mon.kisten_pct >= 95 %}<i class="bi bi-arrow-up-right me-1"></i>Auf Kurs{% elif akt_mon.kisten_pct >= 80 %}<i class="bi bi-dash-circle me-1"></i>Leicht hinter Plan{% else %}<i class="bi bi-exclamation-circle me-1"></i>Gefährdet{% endif %}</span>
+              {% endif %}
+            </span>
+          </div>
+          {% if akt_mon.kisten_ziel %}<div class="progress" style="height:8px"><div class="progress-bar {% if (akt_mon.kisten_pct or 0) >= 100 %}bg-success{% elif (akt_mon.kisten_pct or 0) >= 70 %}bg-warning{% else %}bg-danger{% endif %}" style="width:{{ [akt_mon.kisten_pct or 0, 100]|min }}%"></div></div>{% endif %}
         </div>
         {% else %}
         <p class="text-muted text-center py-3 mb-0">Keine Aktivitäten in {{ m_namen[aktueller_monat-1] }}</p>
@@ -158,16 +158,6 @@
       <div class="card-body">
         <div class="mb-3">
           <div class="d-flex justify-content-between mb-1">
-            <span class="small fw-semibold" style="color:#c8860a"><i class="bi bi-box-seam me-1"></i>{{ unit_label }}</span>
-            <span class="small">
-              <strong style="color:#c8860a">{{ selected_rep.kisten_ist }}</strong> / {{ k_jz or '–' }}
-              {% if k_pct_j is not none %}<span class="badge ms-1 {% if k_pct_j >= 100 %}bg-success{% elif k_pct_j >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}">{{ k_pct_j }}%</span>{% endif %}
-            </span>
-          </div>
-          {% if k_jz %}<div class="progress" style="height:8px"><div class="progress-bar {% if (k_pct_j or 0) >= 100 %}bg-success{% elif (k_pct_j or 0) >= 70 %}bg-warning{% else %}bg-danger{% endif %}" style="width:{{ [k_pct_j or 0, 100]|min }}%"></div></div>{% endif %}
-        </div>
-        <div>
-          <div class="d-flex justify-content-between mb-1">
             <span class="small fw-semibold" style="color:#1a3a5c"><i class="bi bi-display me-1"></i>Displays</span>
             <span class="small">
               <strong>{{ selected_rep.displays_ist }}</strong> / {{ d_jz or '–' }}
@@ -175,6 +165,16 @@
             </span>
           </div>
           {% if d_jz %}<div class="progress" style="height:8px"><div class="progress-bar {% if (d_pct_j or 0) >= 100 %}bg-success{% elif (d_pct_j or 0) >= 70 %}bg-warning{% else %}bg-danger{% endif %}" style="width:{{ [d_pct_j or 0, 100]|min }}%"></div></div>{% endif %}
+        </div>
+        <div>
+          <div class="d-flex justify-content-between mb-1">
+            <span class="small fw-semibold" style="color:#c8860a"><i class="bi bi-box-seam me-1"></i>{{ unit_label }}</span>
+            <span class="small">
+              <strong style="color:#c8860a">{{ selected_rep.kisten_ist }}</strong> / {{ k_jz or '–' }}
+              {% if k_pct_j is not none %}<span class="badge ms-1 {% if k_pct_j >= 100 %}bg-success{% elif k_pct_j >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}">{{ k_pct_j }}%</span>{% endif %}
+            </span>
+          </div>
+          {% if k_jz %}<div class="progress" style="height:8px"><div class="progress-bar {% if (k_pct_j or 0) >= 100 %}bg-success{% elif (k_pct_j or 0) >= 70 %}bg-warning{% else %}bg-danger{% endif %}" style="width:{{ [k_pct_j or 0, 100]|min }}%"></div></div>{% endif %}
         </div>
         {% if k_jz %}
         <div class="text-muted mt-2" style="font-size:.72rem">
@@ -184,19 +184,30 @@
         {% endif %}
 
         <!-- Jahres-Status-Badge -->
+        {% if not k_jz and not d_jz %}
         <div class="text-center mt-3">
-          {% if not k_jz and not d_jz %}
-            <span class="badge bg-secondary px-3">Kein Ziel hinterlegt</span>
-          {% elif (k_pct_j is not none and k_pct_j >= 100) and (d_pct_j is not none and d_pct_j >= 100) %}
-            <span class="badge bg-success px-3"><i class="bi bi-check-circle me-1"></i>Ziel erreicht!</span>
-          {% elif (kk is not none and kk >= 95) or (dk is not none and dk >= 95) %}
-            <span class="badge bg-success px-3"><i class="bi bi-arrow-up-right me-1"></i>Auf Zielkurs</span>
-          {% elif (kk is not none and kk >= 80) or (dk is not none and dk >= 80) %}
-            <span class="badge bg-warning text-dark px-3"><i class="bi bi-dash-circle me-1"></i>Leicht hinter Plan</span>
-          {% else %}
-            <span class="badge bg-danger px-3"><i class="bi bi-exclamation-circle me-1"></i>Ziel gefährdet</span>
+          <span class="badge bg-secondary px-3">Kein Ziel hinterlegt</span>
+        </div>
+        {% else %}
+        <div class="mt-3 d-flex flex-column gap-1">
+          {% if d_jz and dk is not none %}
+          <div class="d-flex justify-content-between align-items-center">
+            <small style="color:#1a3a5c"><i class="bi bi-display me-1"></i>Displays</small>
+            <span class="badge {% if d_pct_j is not none and d_pct_j >= 100 %}bg-success{% elif dk >= 95 %}bg-success{% elif dk >= 80 %}bg-warning text-dark{% else %}bg-danger{% endif %}" style="font-size:.72rem">
+              {% if d_pct_j is not none and d_pct_j >= 100 %}<i class="bi bi-check-circle me-1"></i>Ziel erreicht{% elif dk >= 95 %}<i class="bi bi-arrow-up-right me-1"></i>Auf Zielkurs{% elif dk >= 80 %}<i class="bi bi-dash-circle me-1"></i>Leicht hinter Plan{% else %}<i class="bi bi-exclamation-circle me-1"></i>Gefährdet{% endif %}
+            </span>
+          </div>
+          {% endif %}
+          {% if k_jz and kk is not none %}
+          <div class="d-flex justify-content-between align-items-center">
+            <small style="color:#c8860a"><i class="bi bi-box-seam me-1"></i>{{ unit_label }}</small>
+            <span class="badge {% if k_pct_j is not none and k_pct_j >= 100 %}bg-success{% elif kk >= 95 %}bg-success{% elif kk >= 80 %}bg-warning text-dark{% else %}bg-danger{% endif %}" style="font-size:.72rem">
+              {% if k_pct_j is not none and k_pct_j >= 100 %}<i class="bi bi-check-circle me-1"></i>Ziel erreicht{% elif kk >= 95 %}<i class="bi bi-arrow-up-right me-1"></i>Auf Zielkurs{% elif kk >= 80 %}<i class="bi bi-dash-circle me-1"></i>Leicht hinter Plan{% else %}<i class="bi bi-exclamation-circle me-1"></i>Gefährdet{% endif %}
+            </span>
+          </div>
           {% endif %}
         </div>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -210,23 +221,23 @@
       <div class="card-body">
         <div class="mb-3">
           <div class="d-flex justify-content-between mb-1">
-            <span class="small fw-semibold" style="color:#c8860a"><i class="bi bi-box-seam me-1"></i>{{ unit_label }}</span>
-            <span class="small">
-              <strong style="color:#c8860a">{{ kurs.kum_k_ist }}</strong> / {{ kurs.kum_k_ziel }}
-              {% if kk is not none %}<span class="badge ms-1 {% if kk >= 100 %}bg-success{% elif kk >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}">{{ kk }}%</span>{% endif %}
-            </span>
-          </div>
-          {% if kurs.kum_k_ziel %}<div class="progress" style="height:8px"><div class="progress-bar {% if (kk or 0) >= 100 %}bg-success{% elif (kk or 0) >= 70 %}bg-warning{% else %}bg-danger{% endif %}" style="width:{{ [kk or 0, 100]|min }}%"></div></div>{% endif %}
-        </div>
-        <div>
-          <div class="d-flex justify-content-between mb-1">
             <span class="small fw-semibold" style="color:#1a3a5c"><i class="bi bi-display me-1"></i>Displays</span>
             <span class="small">
               <strong>{{ kurs.kum_d_ist }}</strong> / {{ kurs.kum_d_ziel }}
-              {% if dk is not none %}<span class="badge ms-1 {% if dk >= 100 %}bg-success{% elif dk >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}">{{ dk }}%</span>{% endif %}
+              {% if dk is not none %}<span class="badge ms-1 {% if dk >= 100 %}bg-success{% elif dk >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}">{{ dk }}% · {% if dk >= 100 %}<i class="bi bi-check-circle me-1"></i>Ziel erreicht{% elif dk >= 95 %}<i class="bi bi-arrow-up-right me-1"></i>Auf Kurs{% elif dk >= 80 %}<i class="bi bi-dash-circle me-1"></i>Leicht hinter Plan{% else %}<i class="bi bi-exclamation-circle me-1"></i>Gefährdet{% endif %}</span>{% endif %}
             </span>
           </div>
           {% if kurs.kum_d_ziel %}<div class="progress" style="height:8px"><div class="progress-bar {% if (dk or 0) >= 100 %}bg-success{% elif (dk or 0) >= 70 %}bg-warning{% else %}bg-danger{% endif %}" style="width:{{ [dk or 0, 100]|min }}%"></div></div>{% endif %}
+        </div>
+        <div>
+          <div class="d-flex justify-content-between mb-1">
+            <span class="small fw-semibold" style="color:#c8860a"><i class="bi bi-box-seam me-1"></i>{{ unit_label }}</span>
+            <span class="small">
+              <strong style="color:#c8860a">{{ kurs.kum_k_ist }}</strong> / {{ kurs.kum_k_ziel }}
+              {% if kk is not none %}<span class="badge ms-1 {% if kk >= 100 %}bg-success{% elif kk >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}">{{ kk }}% · {% if kk >= 100 %}<i class="bi bi-check-circle me-1"></i>Ziel erreicht{% elif kk >= 95 %}<i class="bi bi-arrow-up-right me-1"></i>Auf Kurs{% elif kk >= 80 %}<i class="bi bi-dash-circle me-1"></i>Leicht hinter Plan{% else %}<i class="bi bi-exclamation-circle me-1"></i>Gefährdet{% endif %}</span>{% endif %}
+            </span>
+          </div>
+          {% if kurs.kum_k_ziel %}<div class="progress" style="height:8px"><div class="progress-bar {% if (kk or 0) >= 100 %}bg-success{% elif (kk or 0) >= 70 %}bg-warning{% else %}bg-danger{% endif %}" style="width:{{ [kk or 0, 100]|min }}%"></div></div>{% endif %}
         </div>
         <div class="text-muted mt-2" style="font-size:.72rem">
           <i class="bi bi-sun me-1" style="color:#c8860a"></i>Saisonal erwartet laut Sonnenschlüssel
@@ -530,29 +541,31 @@
         {% set dk = kurs.get('disp_kurs') %}
         {% set kk = kurs.get('kist_kurs') %}
         {% if dk is not none or kk is not none %}
-        <div class="mb-2 p-2 rounded"
-             style="background:#f0f4f8;border-left:3px solid {% if (kk or 0) >= 100 or (dk or 0) >= 100 %}#27ae60{% elif (kk or 0) >= 70 or (dk or 0) >= 70 %}#f5a623{% else %}#e74c3c{% endif %}">
-          <div class="d-flex justify-content-between align-items-center mb-1">
-            <small class="fw-semibold" style="color:#1a3a5c;font-size:.73rem">
-              <i class="bi bi-sun me-1" style="color:#c8860a"></i>Saisonkurs Jan–{{ m_namen[aktueller_monat-1] }}
-            </small>
-            <div class="d-flex gap-1">
-              {% if dk is not none %}
-              <span class="badge {% if dk >= 100 %}bg-success{% elif dk >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}" style="font-size:.68rem">
-                <i class="bi bi-display"></i> {{ dk }}%
-              </span>
-              {% endif %}
-              {% if kk is not none %}
-              <span class="badge {% if kk >= 100 %}bg-success{% elif kk >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}" style="font-size:.68rem">
-                <i class="bi bi-box-seam"></i> {{ kk }}%
-              </span>
-              {% endif %}
-            </div>
+        <div class="mb-2 p-2 rounded" style="background:#f0f4f8;border-left:3px solid #c8860a">
+          <small class="fw-semibold d-block mb-2" style="color:#1a3a5c;font-size:.73rem">
+            <i class="bi bi-sun me-1" style="color:#c8860a"></i>Saisonkurs Jan–{{ m_namen[aktueller_monat-1] }}
+          </small>
+
+          {% if dk is not none %}
+          <div class="d-flex justify-content-between align-items-center" style="font-size:.68rem;color:#666">
+            <span><i class="bi bi-display me-1" style="color:#1a3a5c"></i>{{ kurs.kum_d_ist }} / {{ kurs.kum_d_ziel }} Displays saisonal erwartet</span>
+            <span class="badge {% if dk >= 100 %}bg-success{% elif dk >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}" style="font-size:.65rem">
+              {{ dk|round(0)|int }}% · {% if dk >= 95 %}<i class="bi bi-arrow-up-right me-1"></i>Auf Kurs{% elif dk >= 80 %}<i class="bi bi-dash-circle me-1"></i>Leicht hinter Plan{% else %}<i class="bi bi-exclamation-circle me-1"></i>Gefährdet{% endif %}
+            </span>
           </div>
-          <div class="d-flex justify-content-between" style="font-size:.68rem;color:#666">
-            <span>{{ kurs.kum_k_ist }} / {{ kurs.kum_k_ziel }} {{ unit_label }} saisonal erwartet</span>
+          <div class="progress mt-1 mb-2" style="height:3px">
+            <div class="progress-bar {% if dk >= 100 %}bg-success{% elif dk >= 70 %}bg-warning{% else %}bg-danger{% endif %}"
+                 style="width:{{ [dk, 100]|min }}%"></div>
           </div>
+          {% endif %}
+
           {% if kk is not none %}
+          <div class="d-flex justify-content-between align-items-center" style="font-size:.68rem;color:#666">
+            <span><i class="bi bi-box-seam me-1" style="color:#c8860a"></i>{{ kurs.kum_k_ist }} / {{ kurs.kum_k_ziel }} {{ unit_label }} saisonal erwartet</span>
+            <span class="badge {% if kk >= 100 %}bg-success{% elif kk >= 70 %}bg-warning text-dark{% else %}bg-danger{% endif %}" style="font-size:.65rem">
+              {{ kk|round(0)|int }}% · {% if kk >= 95 %}<i class="bi bi-arrow-up-right me-1"></i>Auf Kurs{% elif kk >= 80 %}<i class="bi bi-dash-circle me-1"></i>Leicht hinter Plan{% else %}<i class="bi bi-exclamation-circle me-1"></i>Gefährdet{% endif %}
+            </span>
+          </div>
           <div class="progress mt-1" style="height:3px">
             <div class="progress-bar {% if kk >= 100 %}bg-success{% elif kk >= 70 %}bg-warning{% else %}bg-danger{% endif %}"
                  style="width:{{ [kk, 100]|min }}%"></div>
