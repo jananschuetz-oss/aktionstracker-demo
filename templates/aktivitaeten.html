@@ -396,13 +396,13 @@ function filterAnwenden() {
           </div>
           <div class="mb-3">
             <label class="form-label small fw-semibold">Verkaufsstelle</label>
-            <select class="form-select" name="verkaufsstelle_id" id="edit_vs">
-              {% for vs in alle_vs %}
-              <option value="{{ vs.id }}" {% if not vs.aktiv %}style="color:#aaa"{% endif %}>
-                {{ vs.name }}{% if vs.ort %} – {{ vs.ort }}{% endif %}{% if not vs.aktiv %} (inaktiv){% endif %}
-              </option>
-              {% endfor %}
-            </select>
+            <div class="position-relative">
+              <input type="text" class="form-control" id="edit_vs_search" autocomplete="off"
+                     placeholder="Verkaufsstelle suchen (Name, Straße, Ort, Landkreis)…">
+              <input type="hidden" name="verkaufsstelle_id" id="edit_vs_id">
+              <div id="edit_vs_dropdown" class="dropdown-menu shadow-lg w-100 py-1"
+                   style="max-height:280px;overflow-y:auto;display:none;position:absolute;z-index:1056"></div>
+            </div>
           </div>
           <div class="mb-3">
             <label class="form-label small fw-semibold">Typ</label>
@@ -446,8 +446,15 @@ document.getElementById('editModal').addEventListener('show.bs.modal', function(
   document.getElementById('edit_notizen').value  = btn.dataset.notizen;
   const typSel = document.getElementById('edit_typ');
   typSel.value = btn.dataset.typ || 'Aufbau';
-  const vsSel = document.getElementById('edit_vs');
-  vsSel.value = btn.dataset.vs;
+  // Verkaufsstelle (2026-08-28, von Arco portiert): vormals ein <select> aus einer
+  // gedeckelten Liste (VS_DASHBOARD_SEITENGROESSE, alphabetisch) – lag die tatsächliche
+  // VS der Aktivität dahinter, war sie im Dropdown gar nicht wählbar. Jetzt wie bei
+  // Neue Aktivität ein serverseitig durchsuchbares Suchfeld (/api/verkaufsstellen,
+  // inkl. Straße) statt einer festen Liste.
+  document.getElementById('edit_vs_id').value = btn.dataset.vs || '';
+  document.getElementById('edit_vs_search').value = btn.dataset.vsName || (btn.dataset.vs ? ('Verkaufsstelle #' + btn.dataset.vs) : '');
+  document.getElementById('edit_vs_search').dataset.typ = btn.dataset.vsTyp || '';
+  document.getElementById('edit_vs_dropdown').style.display = 'none';
   const statusSel = document.getElementById('edit_status');
   statusSel.value = btn.dataset.status || 'offen';
   toggleEditFields();
@@ -457,6 +464,70 @@ function toggleEditFields() {
   document.getElementById('edit_displays_row').style.display = typ === 'Aufbau' ? '' : 'none';
   document.getElementById('edit_status_row').style.display   = typ === 'Bestellung' ? '' : 'none';
 }
+
+// Verkaufsstellen-Suche im Bearbeiten-Modal (2026-08-28, von Arco portiert) – dieselbe
+// serverseitige Suche wie in Neue Aktivität, nur ohne die dortigen Zusatzbereiche
+// (offene Bestellungen/Verlauf), die im Bearbeiten-Kontext nicht gebraucht werden.
+let editVsSucheTimer = null;
+function editVsRenderDropdown(list) {
+  const dd = document.getElementById('edit_vs_dropdown');
+  if (!list.length) {
+    dd.innerHTML = '<div class="dropdown-item text-muted">Keine Treffer</div>';
+    dd.style.display = 'block';
+    return;
+  }
+  dd.innerHTML = list.map(function(v) {
+    const plzort = (v.plz ? v.plz + ' ' : '') + (v.ort || '');
+    const adresse = v.strasse ? v.strasse + (plzort ? ', ' + plzort : '') : plzort;
+    const label = v.name + (adresse ? ' – ' + adresse : '') + (v.typ ? ' (' + v.typ + ')' : '');
+    return '<button type="button" class="dropdown-item edit-vs-opt" data-vs-id="' + v.id +
+      '" data-vs-label="' + label.replace(/"/g, '&quot;') + '" data-vs-typ="' + (v.typ || '') + '">' +
+      label + '</button>';
+  }).join('');
+  dd.style.display = 'block';
+}
+document.getElementById('edit_vs_search').addEventListener('input', function() {
+  const t = this.value.trim();
+  document.getElementById('edit_vs_id').value = '';
+  clearTimeout(editVsSucheTimer);
+  if (t.length < 2) {
+    document.getElementById('edit_vs_dropdown').style.display = 'none';
+    return;
+  }
+  editVsSucheTimer = setTimeout(function() {
+    fetch('/api/verkaufsstellen?q=' + encodeURIComponent(t))
+      .then(function(r) { return r.json(); })
+      .then(editVsRenderDropdown)
+      .catch(function() {});
+  }, 250);
+});
+document.getElementById('edit_vs_dropdown').addEventListener('click', function(e) {
+  const btn = e.target.closest('.edit-vs-opt');
+  if (!btn) return;
+  document.getElementById('edit_vs_id').value = btn.dataset.vsId;
+  const searchEl = document.getElementById('edit_vs_search');
+  searchEl.value = btn.dataset.vsLabel;
+  searchEl.dataset.typ = btn.dataset.vsTyp || '';
+  document.getElementById('edit_vs_dropdown').style.display = 'none';
+});
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('#edit_vs_search') && !e.target.closest('#edit_vs_dropdown')) {
+    document.getElementById('edit_vs_dropdown').style.display = 'none';
+  }
+});
+// Ohne Auswahl aus dem Dropdown bleibt edit_vs_id leer – Server würde das dann still
+// auf die ursprüngliche VS zurückfallen (siehe aktivitaet_bearbeiten() in app.py). Statt
+// unbemerkt zu verwerfen, hier aktiv blocken und den Nutzer auf die fehlende Auswahl hinweisen.
+document.getElementById('editForm').addEventListener('submit', function(e) {
+  if (!document.getElementById('edit_vs_id').value) {
+    e.preventDefault();
+    document.getElementById('edit_vs_search').classList.add('is-invalid');
+    document.getElementById('edit_vs_search').focus();
+  }
+});
+document.getElementById('edit_vs_search').addEventListener('focus', function() {
+  this.classList.remove('is-invalid');
+});
 </script>
 {% endif %}
 <script>

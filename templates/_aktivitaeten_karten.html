@@ -98,6 +98,8 @@
                     data-id="{{ a.id }}"
                     data-datum="{{ a.datum }}"
                     data-vs="{{ a.verkaufsstelle_id }}"
+                    data-vs-name="{{ a.verkaufsstelle }}"
+                    data-vs-typ="{{ a.typ or '' }}"
                     data-typ="{{ a.aktionstyp or 'Aufbau' }}"
                     data-displays="{{ a.anzahl_displays or 0 }}"
                     data-notizen="{{ a.notizen or '' }}"
