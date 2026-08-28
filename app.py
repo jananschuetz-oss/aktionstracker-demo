@@ -8373,6 +8373,9 @@ def _build_gratisware_report_excel(von_str: str, bis_str: str) -> bytes:
         top=Side(style='thin', color='CCCCCC'), bottom=Side(style='thin', color='CCCCCC'),
     )
     CENTER = Alignment(horizontal='center', vertical='center')
+    # Notiz/Bemerkung kann lang werden – Zeilenumbruch statt visuellem Überlauf in die
+    # (meist leere) Rechnung-Spalte daneben (Nutzerwunsch, von Arco portiert 2026-08-28).
+    WRAP   = Alignment(horizontal='left', vertical='top', wrap_text=True)
 
     headers = ['Besuchstag', 'Mitarbeiter', 'Verkaufsstelle', 'Straße', 'PLZ', 'Ort',
                 'Lieferant', 'Kundennummer',
@@ -8380,6 +8383,7 @@ def _build_gratisware_report_excel(von_str: str, bis_str: str) -> bytes:
                 'Bestellung (Produkt × Kisten)', 'Notiz / Bemerkung', 'Rechnung']
     widths  = [12, 20, 28, 26, 8, 18, 18, 14, 16, 16, 14, 45, 35, 16]
     MENGEN_SPALTEN = (9, 10, 11)   # Verleger, Kofferraum, MHD - zentriert + Summenzeile
+    NOTIZ_SPALTE   = 13
     for col, (h, w) in enumerate(zip(headers, widths), 1):
         cell = ws.cell(row=1, column=col, value=h)
         cell.fill = HEADER_FILL
@@ -8404,6 +8408,8 @@ def _build_gratisware_report_excel(von_str: str, bis_str: str) -> bytes:
             cell.border = BORDER
             if col in MENGEN_SPALTEN:
                 cell.alignment = CENTER
+            elif col == NOTIZ_SPALTE:
+                cell.alignment = WRAP
 
     if not rows:
         ws.cell(row=2, column=1, value="Keine Besuche mit Gratisware im gewählten Zeitraum.")
@@ -14009,14 +14015,17 @@ def verkaufsstelle_kontakt_aktualisieren(vs_id):
 @admin_required
 def api_admin_verkaufsstellen_suche():
     """Serverseitige Suche für die Admin-Verkaufsstellen-Verwaltung (ersetzt reines
-    Client-Filtering, das bei vielen Zeilen den Browser einfrieren ließe)."""
+    Client-Filtering, das bei vielen Zeilen den Browser einfrieren ließe).
+    Straße seit 2026-08-28 mit durchsuchbar (Nutzerwunsch, von Arco portiert) – half sonst
+    nicht, wenn dieselbe Filiale abgekürzt ("Karlstr.") und ausgeschrieben ("Karlstraße")
+    als zwei Datensätze im System steht und man gezielt danach sucht."""
     suche = request.args.get('q', '').strip()
     where_sql = " WHERE homeoffice_mitarbeiter_id IS NULL"
     params = []
     if suche:
         like = f'%{suche}%'
-        where_sql += " AND (name LIKE ? OR ort LIKE ? OR landkreis LIKE ? OR typ LIKE ? OR lieferant LIKE ?)"
-        params = [like, like, like, like, like]
+        where_sql += " AND (name LIKE ? OR ort LIKE ? OR landkreis LIKE ? OR typ LIKE ? OR lieferant LIKE ? OR strasse LIKE ?)"
+        params = [like, like, like, like, like, like]
     rows = query(
         f"SELECT * FROM verkaufsstelle{where_sql} ORDER BY aktiv DESC, name LIMIT ?",
         tuple(params) + (VS_ADMIN_SEITENGROESSE,)
