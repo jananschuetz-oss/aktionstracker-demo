@@ -60,6 +60,10 @@
              min="{{ today_str }}"
              title="Eigenes Datum wählen"
              style="font-size:.78rem;padding:4px 8px;height:36px;border:1px solid #dee2e6;border-radius:.375rem;min-width:130px;cursor:pointer;color:#555">
+      <button type="button" class="cal-icon-btn" style="width:36px;height:36px" title="Kalender mit Terminübersicht"
+              onclick="AktKalender.oeffnen({zielInput:'planungsDatumCustom', minDatum:'{{ today_str }}'})">
+        <i class="bi bi-calendar3"></i>
+      </button>
       <span class="d-flex align-items-center gap-2 ms-2">
         <a href="{{ url_for('karte', km_woche=km_prev_woche) }}" class="btn btn-sm btn-outline-secondary py-0 px-2" title="Vorherige Woche">
           <i class="bi bi-chevron-left"></i>

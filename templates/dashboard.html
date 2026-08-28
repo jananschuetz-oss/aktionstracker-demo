@@ -593,7 +593,13 @@ document.addEventListener('DOMContentLoaded', function(){
         <div class="modal-body py-3 px-3">
           <div class="fw-semibold mb-3" id="besuchPlanenName" style="color:#1a3a5c;font-size:.88rem"></div>
           <label class="form-label" style="font-size:.82rem;color:#6c757d">Tag auswählen</label>
-          <input type="date" name="datum" id="besuchPlanenDatum" class="form-control form-control-sm" required>
+          <div class="d-flex gap-1">
+            <input type="date" name="datum" id="besuchPlanenDatum" class="form-control form-control-sm" required>
+            <button type="button" class="cal-icon-btn" style="width:32px;height:32px" title="Kalender mit Terminübersicht"
+                    onclick="AktKalender.oeffnen({zielInput:'besuchPlanenDatum', minDatum: document.getElementById('besuchPlanenDatum').min})">
+              <i class="bi bi-calendar3"></i>
+            </button>
+          </div>
           <input type="hidden" name="mitarbeiter_id" value="{{ session.user_id }}">
           <input type="hidden" name="verkaufsstelle_id" id="besuchPlanenVsId">
         </div>
@@ -850,6 +856,10 @@ document.getElementById('besuchPlanenModal')?.addEventListener('show.bs.modal', 
                  min="{{ today_str }}"
                  title="Eigenes Datum wählen"
                  style="font-size:.78rem;padding:4px 8px;height:36px;border:1px solid #dee2e6;border-radius:.375rem;min-width:130px;cursor:pointer;color:#555">
+          <button type="button" class="cal-icon-btn" style="width:36px;height:36px" title="Kalender mit Terminübersicht"
+                  onclick="AktKalender.oeffnen({zielInput:'repDatumCustom', minDatum:'{{ today_str }}'})">
+            <i class="bi bi-calendar3"></i>
+          </button>
         </div>
       </div>
 

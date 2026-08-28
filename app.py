@@ -2909,6 +2909,48 @@ def _chat_kontakt_ids():
     return set()
 
 
+def _kalender_mitarbeiter_erlaubt(ma_id):
+    """Prüft, ob der aktuell eingeloggte Nutzer den Tagesplan-Kalender (Punkt-Kalender bei
+    Folgetermin/Besuchsplanung/Karte) von ma_id sehen darf. Rep: nur sich selbst. VKL: sich
+    selbst + eigenes Team (kein Team = alle, gleiches Muster wie _team_m_clause()). Admin:
+    uneingeschränkt. Portiert von Arco b8a3d00."""
+    rolle = session.get('rolle')
+    uid = session.get('user_id')
+    if rolle == 'admin':
+        return True
+    if ma_id == uid:
+        return True
+    if rolle == 'verkaufsleiter':
+        tid = session.get('team_id')
+        if not tid:
+            return True
+        return bool(query("SELECT 1 FROM mitarbeiter WHERE id=? AND team_id=?", (ma_id, tid), one=True))
+    return False
+
+
+def _monatsraster(jahr, monat, counts):
+    """6 Wochen à 7 Tage (Montag-Start) für den Monats-Punkt-Kalender, inkl. Terminanzahl
+    je Tag (aus counts, einem {datum_iso: anzahl}-Dict) – gedeckelt bei 3 Punkten, mehr
+    Termine an einem Tag zeigen laut Nutzerwunsch trotzdem nur 3 Punkte ("mehrere").
+    Portiert von Arco b8a3d00."""
+    erster = date(jahr, monat, 1)
+    start = erster - timedelta(days=erster.weekday())
+    heute = date.today().isoformat()
+    wochen = []
+    cur = start
+    for _w in range(6):
+        woche = []
+        for _t in range(7):
+            iso = cur.isoformat()
+            woche.append({
+                'datum': iso, 'tag': cur.day, 'other_month': cur.month != monat,
+                'punkte': min(counts.get(iso, 0), 3), 'is_today': iso == heute,
+            })
+            cur += timedelta(days=1)
+        wochen.append(woche)
+    return wochen
+
+
 def _vertretung_entscheidbar_clause(v_alias='v', m_alias='m'):
     """(sql_fragment, params) für Listen/Zähler offener Urlaubsanträge: grenzt auf die
     Anträge ein, über die der aktuelle Nutzer auch tatsächlich entscheiden darf – das
@@ -5404,6 +5446,34 @@ def tourenplanung():
         if tag in _feiertage_set(date.fromisoformat(tag).year, r['bundesland'] or 'BY')
     } if modus == 'woche' else set()
 
+    # Monat-Modus (Nutzerwunsch: Monatsübersicht neben Tag/Woche) – Punkte zeigen die
+    # TEAMWEITE Terminanzahl je Tag (Summe aller Reps im Scope), nicht pro einzelnem
+    # Mitarbeiter, analog zu Tag-/Wochenansicht, die ebenfalls das ganze Team zeigen.
+    # Ein Tag-Klick springt direkt in die Tagesansicht für dieses Datum. Portiert von
+    # Arco b8a3d00.
+    _monat_namen = ['Januar','Februar','März','April','Mai','Juni',
+                     'Juli','August','September','Oktober','November','Dezember']
+    monat_str = request.args.get('monat', None)
+    try:
+        monat_bezug = date.fromisoformat(monat_str + '-01') if monat_str else today
+    except ValueError:
+        monat_bezug = today
+    monat_jahr, monat_monat = monat_bezug.year, monat_bezug.month
+    monat_counts = {}
+    if modus == 'monat':
+        _mvon = date(monat_jahr, monat_monat, 1)
+        _mnaechster = date(monat_jahr + 1, 1, 1) if monat_monat == 12 else date(monat_jahr, monat_monat + 1, 1)
+        _mbis = _mnaechster - timedelta(days=1)
+        _monat_rows = query(f'''
+            SELECT tp.datum, COUNT(*) AS n FROM tagesplan tp
+            JOIN mitarbeiter m ON m.id = tp.mitarbeiter_id
+            WHERE tp.datum BETWEEN ? AND ? AND COALESCE(tp.geloescht,0)=0 {_tm_sql}
+            GROUP BY tp.datum
+        ''', (_mvon.isoformat(), _mbis.isoformat()) + _tm_p)
+        monat_counts = {r['datum']: r['n'] for r in _monat_rows}
+    _monat_prev = (date(monat_jahr, monat_monat, 1) - timedelta(days=1)).strftime('%Y-%m')
+    _monat_next_bezug = date(monat_jahr + 1, 1, 1) if monat_monat == 12 else date(monat_jahr, monat_monat + 1, 1)
+
     return render_template('tourenplanung.html',
         reps=reps,
         modus=modus,
@@ -5432,6 +5502,14 @@ def tourenplanung():
         feiertag_woche=feiertag_woche,
         prev_woche=(woche_start - timedelta(days=7)).isoformat(),
         next_woche=(woche_start + timedelta(days=7)).isoformat(),
+        # Monat
+        monat_wochen=_monatsraster(monat_jahr, monat_monat, monat_counts) if modus == 'monat' else [],
+        monat_jahr=monat_jahr,
+        monat_monat=monat_monat,
+        monat_bezug=monat_bezug.strftime('%Y-%m'),
+        monat_prev=_monat_prev,
+        monat_next=_monat_next_bezug.strftime('%Y-%m'),
+        monat_name=_monat_namen[monat_monat - 1],
     )
 
 
@@ -12208,6 +12286,54 @@ def serve_upload(filename):
             if akt['mitarbeiter_id'] != session.get('user_id'):
                 abort(403)
     return send_from_directory(UPLOAD_FOLDER, filename)
+
+
+# ─── Punkt-Kalender (Termin-Übersicht bei Datumsauswahl) ──────────────────────
+# Gemeinsamer Baustein (AktKalender in base.html) für jedes Datumsfeld, mit dem ein
+# Besuch geplant wird (Folgebesuch in Neue Aktivität, Besuch-planen-Dialoge in Dashboard/
+# Karte, Neuer-Stopp in der Besuchsplanung) – zeigt beim Öffnen Punkte je Tag (1/2/3+
+# bereits geplante Termine), Antippen/Hover zeigt eine Vorschau der Termine, erst
+# "Übernehmen" schreibt das Datum ins Feld. Portiert von Arco b8a3d00.
+
+@app.route('/api/kalender/monat')
+@login_required
+def api_kalender_monat():
+    ma_id = request.args.get('mitarbeiter_id', session.get('user_id'), type=int)
+    if not _kalender_mitarbeiter_erlaubt(ma_id):
+        abort(403)
+    jahr = request.args.get('jahr', type=int)
+    monat = request.args.get('monat', type=int)
+    if not jahr or not monat or not (1 <= monat <= 12):
+        abort(400)
+    von = date(jahr, monat, 1)
+    naechster = date(jahr + 1, 1, 1) if monat == 12 else date(jahr, monat + 1, 1)
+    bis = naechster - timedelta(days=1)
+    rows = query(
+        "SELECT datum, COUNT(*) AS n FROM tagesplan WHERE mitarbeiter_id=? AND datum BETWEEN ? AND ? "
+        "AND COALESCE(geloescht,0)=0 GROUP BY datum",
+        (ma_id, von.isoformat(), bis.isoformat())
+    )
+    return jsonify({r['datum']: r['n'] for r in rows})
+
+
+@app.route('/api/kalender/tag')
+@login_required
+def api_kalender_tag():
+    ma_id = request.args.get('mitarbeiter_id', session.get('user_id'), type=int)
+    if not _kalender_mitarbeiter_erlaubt(ma_id):
+        abort(403)
+    datum = request.args.get('datum', '')
+    try:
+        date.fromisoformat(datum)
+    except ValueError:
+        abort(400)
+    rows = query('''
+        SELECT tp.von_uhrzeit, v.name AS station
+        FROM tagesplan tp JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
+        WHERE tp.mitarbeiter_id=? AND tp.datum=? AND COALESCE(tp.geloescht,0)=0
+        ORDER BY (tp.von_uhrzeit IS NULL), tp.von_uhrzeit, tp.reihenfolge, tp.id
+    ''', (ma_id, datum))
+    return jsonify([{'zeit': r['von_uhrzeit'] or '', 'station': r['station']} for r in rows])
 
 
 # ─── Chat (VKL ↔ Mitarbeiter, VKL ↔ VKL, Mitarbeiter ↔ Mitarbeiter) ───────────

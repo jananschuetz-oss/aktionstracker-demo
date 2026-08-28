@@ -239,6 +239,61 @@
       background: rgba(255,255,255,.08);
     }
     @media (max-width: 991.98px) { #vkl-subnav { display: none !important; } }
+
+    /* ── Punkt-Kalender (AktKalender, siehe Script unten) ─────────────────
+       Gemeinsamer Baustein für jedes Datumsfeld, mit dem ein Besuch geplant wird
+       (Nutzerwunsch). Öffnet als zentriertes Overlay statt als Dropdown
+       unterm Feld – ein Dropdown kann bei viel Seiteninhalt/eingebetteten Kontexten
+       unerreichbar werden, ein zentriertes Overlay nicht. Portiert von Arco b8a3d00. */
+    .cal-icon-btn {
+      width: 38px; height: 38px; flex-shrink: 0; border: 1px solid #dee2e6; border-radius: .375rem;
+      background: var(--brand-light); color: var(--brand-mid); display: inline-flex;
+      align-items: center; justify-content: center; cursor: pointer;
+    }
+    .cal-icon-btn:hover { border-color: var(--brand-mid); }
+    .cal-backdrop {
+      position: fixed; inset: 0; background: rgba(15,25,40,.45); z-index: 1200;
+      display: flex; align-items: center; justify-content: center; padding: 1rem;
+    }
+    .cal-card { background: #fff; border-radius: .75rem; box-shadow: 0 10px 30px rgba(20,35,55,.25); overflow: hidden; width: 320px; max-width: 100%; }
+    .cal-head { display: flex; align-items: center; justify-content: space-between; padding: .7rem .9rem; background: var(--brand-dark); color: #fff; }
+    .cal-head .cal-month { font-size: .88rem; font-weight: 700; }
+    .cal-nav {
+      border: none; background: rgba(255,255,255,.15); color: #fff; width: 26px; height: 26px;
+      border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    }
+    .cal-nav:hover { background: rgba(255,255,255,.3); }
+    .cal-grid { padding: .7rem .6rem .9rem; }
+    .cal-weekdays { display: grid; grid-template-columns: repeat(7,1fr); font-size: .65rem; font-weight: 700; text-transform: uppercase; color: #97a2b1; letter-spacing: .04em; margin-bottom: .3rem; }
+    .cal-weekdays span { text-align: center; padding: .2rem 0; }
+    .cal-days { display: grid; grid-template-columns: repeat(7,1fr); gap: 2px; }
+    .cal-day {
+      aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      border-radius: .5rem; cursor: pointer; font-size: .8rem; color: #212529; border: 1px solid transparent;
+      background: none; font: inherit; position: relative; gap: 2px;
+    }
+    .cal-day:hover { background: var(--brand-light); }
+    .cal-day.other-month { color: #97a2b1; opacity: .45; }
+    .cal-day.today { border-color: var(--brand-mid); font-weight: 700; }
+    .cal-day.selected { background: var(--brand-dark); color: #fff; }
+    .cal-day.selected .cal-dots span { background: #fff; }
+    .cal-day.vorschau { border-color: var(--brand-gold); background: var(--brand-light); }
+    .cal-day.past { opacity: .5; }
+    .cal-dots { display: flex; gap: 2px; height: 5px; }
+    .cal-dots span { width: 4px; height: 4px; border-radius: 50%; background: var(--brand-mid); }
+    .cal-legend { display: flex; align-items: center; gap: 1rem; padding: .6rem .9rem .8rem; font-size: .68rem; color: #97a2b1; border-top: 1px solid #dee2e6; flex-wrap: wrap; }
+    .cal-legend .lg-item { display: flex; align-items: center; gap: .3rem; }
+    .cal-legend .cal-dots span { background: #97a2b1; }
+    .cal-detail { border-top: 1px solid #dee2e6; padding: .7rem .9rem; min-height: 2.4rem; }
+    .cal-detail .cd-empty { font-size: .76rem; color: #97a2b1; font-style: italic; }
+    .cal-detail .cd-heading { font-size: .74rem; font-weight: 700; color: var(--brand-dark); margin-bottom: .35rem; }
+    .cd-entry { display: flex; gap: .5rem; font-size: .76rem; color: #6b7789; margin-bottom: .2rem; }
+    .cd-entry .cd-time { font-weight: 700; color: var(--brand-mid); min-width: 2.6rem; }
+    .cal-confirm-btn {
+      width: 100%; margin-top: .6rem; border: none; border-radius: .5rem; padding: .5rem;
+      background: var(--brand-dark); color: #fff; font: inherit; font-size: .8rem; font-weight: 600; cursor: pointer;
+    }
+    .cal-confirm-btn:hover { background: var(--brand-mid); }
   </style>
 </head>
 <body>
@@ -1274,6 +1329,168 @@ async function installApp() {
   const modal = new bootstrap.Modal(document.getElementById('modalPwaAnleitung'));
   modal.show();
 }
+
+// ── Punkt-Kalender (AktKalender) ────────────────────────────────────────────
+// Gemeinsamer Baustein für jedes Datumsfeld, mit dem ein Besuch geplant wird
+// (Folgebesuch in Neue Aktivität, Besuch-planen-Dialoge in Dashboard/Karte,
+// Neuer-Stopp in der Besuchsplanung) – Nutzerwunsch. Zeigt beim Öffnen
+// Punkte je Tag (1/2/3+ bereits geplante Termine, aus /api/kalender/monat), Antippen
+// oder Drüberfahren zeigt eine Vorschau der Termine (/api/kalender/tag), erst
+// "Übernehmen" schreibt das Datum ins Ziel-Feld. Baut sein Markup bei jedem Aufruf
+// frisch und hängt es an document.body – kein vorbereitetes HTML pro Einsatzstelle
+// nötig, nur AktKalender.oeffnen({...}) aufrufen. Portiert von Arco b8a3d00.
+window.AktKalender = (function () {
+  var WOCHENTAGE = ['Mo','Di','Mi','Do','Fr','Sa','So'];
+  var MONATE = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+
+  function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+
+  function oeffnen(opts) {
+    var zielInput = typeof opts.zielInput === 'string' ? document.getElementById(opts.zielInput) : opts.zielInput;
+    if (!zielInput) return;
+    var mitarbeiterId = opts.mitarbeiterId || null;
+    var minDatum = opts.minDatum || null;
+    var onConfirm = opts.onConfirm || null;
+
+    var start = null;
+    if (zielInput.value) { try { start = new Date(zielInput.value + 'T00:00:00'); } catch (e) {} }
+    if (!start || isNaN(start)) start = new Date();
+    var state = { jahr: start.getFullYear(), monat: start.getMonth(), ausgewaehlt: zielInput.value || null, vorschauTag: null, counts: {} };
+
+    var backdrop = document.createElement('div');
+    backdrop.className = 'cal-backdrop';
+    backdrop.innerHTML = '<div class="cal-card"></div>';
+    document.body.appendChild(backdrop);
+    var card = backdrop.querySelector('.cal-card');
+
+    function schliessen() {
+      document.removeEventListener('keydown', escHandler);
+      backdrop.remove();
+    }
+    function escHandler(e) { if (e.key === 'Escape') schliessen(); }
+    document.addEventListener('keydown', escHandler);
+    backdrop.addEventListener('click', function (e) { if (e.target === backdrop) schliessen(); });
+
+    function aktuellerMaParam() {
+      var id = typeof mitarbeiterId === 'function' ? mitarbeiterId() : mitarbeiterId;
+      return id ? '&mitarbeiter_id=' + encodeURIComponent(id) : '';
+    }
+
+    function ladeMonat() {
+      fetch('/api/kalender/monat?jahr=' + state.jahr + '&monat=' + (state.monat + 1) + aktuellerMaParam())
+        .then(function (r) { return r.ok ? r.json() : {}; })
+        .then(function (data) { state.counts = data || {}; render(); })
+        .catch(function () { state.counts = {}; render(); });
+    }
+
+    function detailInnerHtml(tag) {
+      if (!tag) return '<span class="cd-empty">Tag antippen (oder am Rechner drüberfahren), um zu sehen, was dort schon geplant ist.</span>';
+      var datumStr = String(tag).padStart(2, '0') + '. ' + MONATE[state.monat] + '.';
+      var iso = state.jahr + '-' + String(state.monat + 1).padStart(2, '0') + '-' + String(tag).padStart(2, '0');
+      var box = card.querySelector('#calDetailBox');
+      box.innerHTML = '<span class="cd-empty">Lädt…</span>';
+      fetch('/api/kalender/tag?datum=' + iso + aktuellerMaParam())
+        .then(function (r) { return r.ok ? r.json() : []; })
+        .then(function (liste) {
+          if (state.vorschauTag !== tag) return; // zwischenzeitlich anderer Tag gewählt
+          var html = '<div class="cd-heading">' + datumStr + (liste.length ? ' — ' + liste.length + ' Termin' + (liste.length > 1 ? 'e' : '') : ' — frei') + '</div>';
+          liste.forEach(function (e) {
+            html += '<div class="cd-entry"><span class="cd-time">' + esc(e.zeit || '–') + '</span><span>' + esc(e.station) + '</span></div>';
+          });
+          box.innerHTML = html;
+        })
+        .catch(function () { box.innerHTML = '<span class="cd-empty">Konnte nicht geladen werden.</span>'; });
+      return '<span class="cd-empty">Lädt…</span>';
+    }
+
+    function isoVon(tag) { return state.jahr + '-' + String(state.monat + 1).padStart(2, '0') + '-' + String(tag).padStart(2, '0'); }
+
+    function render() {
+      var y = state.jahr, m = state.monat;
+      var erster = new Date(y, m, 1);
+      var startOffset = (erster.getDay() + 6) % 7;
+      var tageImMonat = new Date(y, m + 1, 0).getDate();
+      var tageVormonat = new Date(y, m, 0).getDate();
+      var cells = [];
+      for (var i = 0; i < startOffset; i++) cells.push({ tag: tageVormonat - startOffset + i + 1, other: true });
+      for (var d = 1; d <= tageImMonat; d++) cells.push({ tag: d, other: false });
+      while (cells.length < 42) cells.push({ tag: cells.length - startOffset - tageImMonat + 1, other: true });
+
+      var heuteIso = new Date().toISOString().slice(0, 10);
+      var html = '<div class="cal-head">'
+        + '<button type="button" class="cal-nav" data-dir="-1">&#8249;</button>'
+        + '<span class="cal-month">' + MONATE[m] + ' ' + y + '</span>'
+        + '<button type="button" class="cal-nav" data-dir="1">&#8250;</button>'
+        + '</div>'
+        + '<div class="cal-grid">'
+        + '<div class="cal-weekdays">' + WOCHENTAGE.map(function (w) { return '<span>' + w + '</span>'; }).join('') + '</div>'
+        + '<div class="cal-days">';
+
+      cells.forEach(function (c) {
+        var iso = !c.other ? isoVon(c.tag) : null;
+        var count = !c.other ? Math.min(state.counts[iso] || 0, 3) : 0;
+        var isToday = iso === heuteIso;
+        var isSelected = !c.other && state.ausgewaehlt === iso;
+        var isVorschau = !c.other && state.vorschauTag === c.tag && !isSelected;
+        var isPast = !c.other && minDatum && iso < minDatum;
+        var cls = 'cal-day' + (c.other ? ' other-month' : '') + (isToday ? ' today' : '') + (isSelected ? ' selected' : '') + (isVorschau ? ' vorschau' : '') + (isPast ? ' past' : '');
+        var dotHtml = count > 0 ? '<div class="cal-dots">' + '<span></span>'.repeat(count) + '</div>' : '<div class="cal-dots"></div>';
+        html += '<button type="button" class="' + cls + '"' + (c.other || isPast ? '' : ' data-day="' + c.tag + '"') + (isPast ? ' disabled' : '') + '>'
+          + '<span>' + c.tag + '</span>' + dotHtml + '</button>';
+      });
+
+      html += '</div></div>'
+        + '<div class="cal-detail" id="calDetailBox"></div>'
+        + '<div id="calConfirmWrap" style="padding:0 .9rem .8rem"></div>';
+      card.innerHTML = html;
+      card.querySelector('#calDetailBox').innerHTML = detailInnerHtml(state.vorschauTag);
+      renderConfirm();
+
+      card.querySelectorAll('[data-dir]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          state.monat += parseInt(btn.dataset.dir, 10);
+          if (state.monat < 0) { state.monat = 11; state.jahr--; }
+          if (state.monat > 11) { state.monat = 0; state.jahr++; }
+          state.vorschauTag = null;
+          ladeMonat();
+        });
+      });
+      card.querySelectorAll('[data-day]').forEach(function (btn) {
+        var tag = parseInt(btn.dataset.day, 10);
+        btn.addEventListener('mouseenter', function () { vorschau(tag); });
+        btn.addEventListener('click', function () { vorschau(tag); });
+      });
+    }
+
+    function vorschau(tag) {
+      state.vorschauTag = tag;
+      card.querySelectorAll('.cal-day[data-day]').forEach(function (d) {
+        d.classList.toggle('vorschau', !d.classList.contains('selected') && parseInt(d.dataset.day, 10) === tag);
+      });
+      card.querySelector('#calDetailBox').innerHTML = detailInnerHtml(tag);
+      renderConfirm();
+    }
+
+    function renderConfirm() {
+      var wrap = card.querySelector('#calConfirmWrap');
+      if (!state.vorschauTag) { wrap.innerHTML = ''; return; }
+      var iso = isoVon(state.vorschauTag);
+      wrap.innerHTML = '<button type="button" class="cal-confirm-btn">'
+        + String(state.vorschauTag).padStart(2, '0') + '.' + String(state.monat + 1).padStart(2, '0') + '.' + state.jahr + ' übernehmen</button>';
+      wrap.querySelector('button').addEventListener('click', function () {
+        zielInput.value = iso;
+        zielInput.dispatchEvent(new Event('input', { bubbles: true }));
+        zielInput.dispatchEvent(new Event('change', { bubbles: true }));
+        if (onConfirm) onConfirm(iso);
+        schliessen();
+      });
+    }
+
+    ladeMonat();
+  }
+
+  return { oeffnen: oeffnen };
+})();
 </script>
 </body>
 </html>
