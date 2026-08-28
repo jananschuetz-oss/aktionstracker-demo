@@ -1717,6 +1717,11 @@ document.addEventListener('DOMContentLoaded', function(){
                     style="font-size:.78rem;padding:5px 10px" title="Verlauf anzeigen">
               <i class="bi bi-clock-history me-1"></i>Verlauf
             </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    onclick="AktTeilen.oeffnen({url: '{{ url_for('verkaufsstelle_historie', vs_id=stop.vs_id, _external=True) }}', titel: '{{ (stop.station ~ ', ' ~ stop.datum) | e }}'})"
+                    style="font-size:.78rem;padding:5px 10px" title="Diesen Stopp teilen">
+              <i class="bi bi-share"></i>
+            </button>
           </div>
           {% endif %}
         </div>
@@ -1726,6 +1731,12 @@ document.addEventListener('DOMContentLoaded', function(){
                   data-vs-id="{{ stop.vs_id }}" data-vs-name="{{ stop.station }}"
                   style="font-size:.78rem;padding:4px 9px" title="Verlauf anzeigen">
             <i class="bi bi-clock-history"></i>
+          </button>
+          <!-- Teilen (Desktop; auf Mobile steht der Button oberhalb bei der Station) -->
+          <button type="button" class="btn btn-sm btn-outline-secondary d-none d-sm-inline-flex align-items-center gap-1"
+                  onclick="AktTeilen.oeffnen({url: '{{ url_for('verkaufsstelle_historie', vs_id=stop.vs_id, _external=True) }}', titel: '{{ (stop.station ~ ', ' ~ stop.datum) | e }}'})"
+                  style="font-size:.78rem;padding:4px 9px" title="Diesen Stopp teilen">
+            <i class="bi bi-share"></i>
           </button>
           <button type="button" class="btn btn-sm btn-outline-secondary vs-stamm-edit-btn d-none d-sm-inline-flex align-items-center gap-1"
                   data-vs-id="{{ stop.vs_id }}" data-vs-name="{{ stop.station }}"
