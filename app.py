@@ -7530,8 +7530,25 @@ def _aktivitaeten_filter(is_manager):
         params.append(str(jahr))
 
     if not is_manager:
-        where_sql += " AND a.mitarbeiter_id = ?"
-        params.append(session['user_id'])
+        # Grundsätzlich nur eigene Aktivitäten – ABER: ein Rep sieht zusätzlich fremde
+        # Aktivitäten, für die er zum Zeitpunkt der Aktivität als Vertretung (Abwesenheit)
+        # für die betroffene Verkaufsstelle eingetragen war/ist. Das ist die Grundlage für
+        # "Aktivität teilen" im Vertretungs-Fall (Kollege soll eine konkrete fremde Aktivität
+        # einsehen können, z.B. weil er dort gerade hinfährt oder hingefahren ist) – ohne die
+        # generelle Eigentümer-Beschränkung der Aktivitäten-Liste aufzuweichen.
+        # Hinweis: Anders als bei Arco gibt es in Demo keine Talon-Aktionen (talon_aktion/
+        # talon_aktion_rep) – dieser Teil des Arco-Features entfällt hier bewusst.
+        where_sql += """ AND (
+            a.mitarbeiter_id = ?
+            OR EXISTS (
+                SELECT 1 FROM vertretung v
+                JOIN mitarbeiter_verkaufsstelle mv
+                  ON mv.mitarbeiter_id = v.abwesender_id AND mv.verkaufsstelle_id = a.verkaufsstelle_id
+                WHERE v.vertreter_id = ? AND v.abwesender_id = a.mitarbeiter_id
+                  AND v.status = 'bestätigt' AND v.von <= a.datum AND v.bis >= a.datum
+            )
+        )"""
+        params.extend([session['user_id'], session['user_id']])
     else:
         if ma_ids:
             _ph = ','.join('?' * len(ma_ids))

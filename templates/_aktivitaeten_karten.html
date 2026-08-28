@@ -1,6 +1,6 @@
 {% for a in aktivitaeten %}
   {% set pos = detail[a.id] %}
-  <div class="col-12" style="order:{{ -1 * (a.datum | replace('-','') | int) }}">
+  <div class="col-12" id="aktivitaet-{{ a.id }}" style="order:{{ -1 * (a.datum | replace('-','') | int) }}">
     <div class="card">
       <div class="card-body py-3 px-4">
         <div class="row align-items-center g-2">
@@ -37,7 +37,7 @@
             {% if dp %}
             <br><small style="color:#2e6da4">{% for d in dp %}<i class="bi bi-display me-1"></i>{{ d.anzahl }}× {{ d.name }}{% if not loop.last %} &nbsp;·&nbsp; {% endif %}{% endfor %}</small>
             {% endif %}
-            {% if is_manager %}
+            {% if is_manager or a.mitarbeiter_id != session.user_id %}
             <br><small class="text-muted"><i class="bi bi-person me-1"></i>{{ a.mitarbeiter }}</small>
             {% endif %}
           </div>
@@ -90,6 +90,13 @@
                     data-bs-target="#detail_{{ a.id }}">
               <i class="bi bi-chevron-down"></i>
             </button>
+            {% if session.rolle in ('rep', 'verkaufsleiter') %}
+            <button type="button" class="btn btn-outline-secondary btn-sm"
+                    onclick="AktTeilen.oeffnen({url: '{{ url_for('aktivitaeten_liste', jahr=a.datum[:4], _external=True) }}#aktivitaet-{{ a.id }}', titel: '{{ (a.verkaufsstelle ~ ', ' ~ a.datum) | e }}'})"
+                    title="Diese Aktivität teilen">
+              <i class="bi bi-share"></i>
+            </button>
+            {% endif %}
             {% set _eigener_eintrag_heute = (session.rolle == 'rep' and a.mitarbeiter_id == session.user_id and a.datum == now.date().isoformat()) %}
             {% if is_manager or _eigener_eintrag_heute %}
             <button class="btn btn-outline-primary btn-sm"
