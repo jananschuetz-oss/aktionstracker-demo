@@ -1913,12 +1913,11 @@ document.addEventListener('DOMContentLoaded', function(){
       </div>
       <div class="cal-days">
         {% for woche in mp_wochen %}{% for tag in woche %}
-        <a href="{{ url_for('dashboard', tp_woche=tag.woche_montag) }}#tab-wochenplan-btn"
-           class="cal-day{% if tag.other_month %} other-month{% endif %}{% if tag.is_today %} today{% endif %}"
-           style="text-decoration:none" title="Zur Wochenansicht dieses Tages">
+        <button type="button" data-datum="{{ tag.datum }}" data-woche-montag="{{ tag.woche_montag }}"
+           class="cal-day{% if tag.other_month %} other-month{% endif %}{% if tag.is_today %} today{% endif %}">
           <span>{{ tag.tag }}</span>
           <div class="cal-dots">{% for _ in range(tag.punkte) %}<span></span>{% endfor %}</div>
-        </a>
+        </button>
         {% endfor %}{% endfor %}
       </div>
     </div>
@@ -1928,7 +1927,61 @@ document.addEventListener('DOMContentLoaded', function(){
       <span class="lg-item"><span class="cal-dots"><span></span><span></span><span></span></span> 3+ Termine</span>
     </div>
   </div>
-  <p class="text-muted small">Auf einen Tag klicken öffnet die Wochenansicht dieses Tages.</p>
+  <p class="text-muted small">Auf einen Tag tippen zeigt eine Vorschau der geplanten Termine.</p>
+
+  <!-- Tages-Vorschau-Overlay statt Direktsprung (Nutzerfeedback: gleiches Verhalten wie
+       bei VKL/Admin – erst Vorschau, dann bewusst zur Wochenansicht wechseln). -->
+  <div class="cal-backdrop" id="mpVorschauBackdrop" style="display:none">
+    <div class="cal-card" style="width:340px">
+      <div class="cal-head">
+        <span class="cal-month" id="mpVorschauDatum"></span>
+        <button type="button" class="cal-nav" id="mpVorschauSchliessen">&times;</button>
+      </div>
+      <div class="cal-detail" id="mpVorschauInhalt" style="min-height:3rem"></div>
+      <div style="padding:0 .9rem .8rem">
+        <a href="#" id="mpVorschauWoche" class="cal-confirm-btn" style="display:block;text-decoration:none;text-align:center">
+          <i class="bi bi-calendar-week me-1"></i>Wochenansicht öffnen
+        </a>
+      </div>
+    </div>
+  </div>
+  <script>
+  (function () {
+    var WOCHENTAGE_LANG = ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'];
+    var backdrop = document.getElementById('mpVorschauBackdrop');
+    var inhaltEl = document.getElementById('mpVorschauInhalt');
+    var datumEl  = document.getElementById('mpVorschauDatum');
+    var wocheLink = document.getElementById('mpVorschauWoche');
+    function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+    function schliessen() { backdrop.style.display = 'none'; }
+    backdrop.addEventListener('click', function (e) { if (e.target === backdrop) schliessen(); });
+    document.getElementById('mpVorschauSchliessen').addEventListener('click', schliessen);
+
+    document.querySelectorAll('#tab-monatsplan .cal-day[data-datum]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var datum = btn.dataset.datum;
+        var d = new Date(datum + 'T00:00:00');
+        datumEl.textContent = WOCHENTAGE_LANG[d.getDay()] + ', ' + datum.slice(8,10) + '.' + datum.slice(5,7) + '.' + datum.slice(0,4);
+        wocheLink.href = "{{ url_for('dashboard') }}?tp_woche=" + btn.dataset.wocheMontag + "#tab-wochenplan-btn";
+        inhaltEl.innerHTML = '<span class="cd-empty">Lädt…</span>';
+        backdrop.style.display = 'flex';
+        fetch('/api/kalender/tag?datum=' + datum)
+          .then(function (r) { return r.ok ? r.json() : []; })
+          .then(function (liste) {
+            if (!liste.length) { inhaltEl.innerHTML = '<span class="cd-empty">Keine Termine an diesem Tag.</span>'; return; }
+            var html = '';
+            liste.forEach(function (e) {
+              var adresse = [e.strasse, ([e.plz, e.ort].filter(Boolean).join(' '))].filter(Boolean).join(', ');
+              html += '<div class="cd-entry"><span class="cd-time">' + esc(e.zeit || '–') + '</span><span>' + esc(e.station)
+                + (adresse ? '<br><span style="opacity:.75">' + esc(adresse) + '</span>' : '') + '</span></div>';
+            });
+            inhaltEl.innerHTML = html;
+          })
+          .catch(function () { inhaltEl.innerHTML = '<span class="cd-empty">Konnte nicht geladen werden.</span>'; });
+      });
+    });
+  })();
+  </script>
 </div>{# /tab-monatsplan #}
 
 </div>{# /tab-content #}

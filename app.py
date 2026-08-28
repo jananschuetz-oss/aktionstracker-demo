@@ -5359,6 +5359,85 @@ def arbeitszeit_uebersicht():
     )
 
 
+def _tourenplanung_tag_daten(datum, reps):
+    """Berechnet Urlaub-/Feiertag-/Plan-Daten für einen Tag der Tourenplanung – gemeinsam
+    genutzt von der Tag-Modus-Hauptseite UND dem AJAX-Fragment für die Vorschau in der
+    Monatsansicht, damit beide exakt dieselbe Datengrundlage/Kartenvorlage
+    (_tourenplanung_rep_liste.html) nutzen statt einer separaten, abgespeckten Ansicht.
+    Portiert von Arco a660a22."""
+    rep_ids = [r['id'] for r in reps]
+    _tm_sql, _tm_p = _team_m_clause('m')
+    # _urlaub_daten_alle() statt _urlaub_daten() (Bugreport 2026-07-24, von Arco portiert):
+    # liefert pro Tag ALLE gleichzeitigen Abwesenheiten als Liste statt nur die letzte.
+    urlaub_tag = _urlaub_daten_alle(rep_ids, datum, datum)
+    try:
+        _jahr = date.fromisoformat(datum).year
+    except ValueError:
+        _jahr = date.today().year
+    # Feiertag statt "Kein Plan" anzeigen – Bundesland ist je Mitarbeiter individuell.
+    feiertag_tag = {r['id'] for r in reps if datum in _feiertage_set(_jahr, r['bundesland'] or 'BY')}
+    plan_tag = query(f'''
+        SELECT tp.id, tp.datum, tp.reihenfolge, tp.notiz, tp.erledigt,
+               COALESCE(tp.geloescht, 0) AS geloescht, tp.geloescht_am,
+               v.name AS station, v.plz, v.ort, v.id AS vs_id,
+               v.lieferant, v.ansprechpartner, v.hinweis,
+               m.name AS mitarbeiter, m.kuerzel, m.id AS ma_id,
+               COALESCE(
+                 tp.von_uhrzeit,
+                 (SELECT a.von_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id),
+                 (SELECT a.von_uhrzeit FROM aktivitaet a
+                  WHERE a.mitarbeiter_id = tp.mitarbeiter_id
+                    AND a.verkaufsstelle_id = tp.verkaufsstelle_id
+                    AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1)
+               ) AS von_uhrzeit,
+               COALESCE(
+                 tp.bis_uhrzeit,
+                 (SELECT a.bis_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id),
+                 (SELECT a.bis_uhrzeit FROM aktivitaet a
+                  WHERE a.mitarbeiter_id = tp.mitarbeiter_id
+                    AND a.verkaufsstelle_id = tp.verkaufsstelle_id
+                    AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1)
+               ) AS bis_uhrzeit
+        FROM tagesplan tp
+        JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
+        JOIN mitarbeiter m ON m.id = tp.mitarbeiter_id
+        WHERE tp.datum = ? {_tm_sql}
+        ORDER BY m.name, (von_uhrzeit IS NULL), von_uhrzeit, tp.reihenfolge, tp.id
+    ''', (datum,) + _tm_p)
+    return urlaub_tag, feiertag_tag, plan_tag
+
+
+@app.route('/api/tourenplanung/tag-fragment')
+@login_required
+def api_tourenplanung_tag_fragment():
+    """Server-gerenderter Ausschnitt (dieselbe Kartenvorlage wie die Tagesansicht) für die
+    Vorschau in der Monatsansicht (Nutzerfeedback: das bisherige simple JSON-Popup war zu
+    abgespeckt – keine Adresse, keine Aktions-Buttons). Statt die Karten in JS
+    nachzubauen, wird hier einfach dasselbe Partial mit frischen Daten gerendert und per
+    fetch() ins Vorschau-Panel eingesetzt – Bearbeiten/Verlauf/Erledigt funktionieren
+    dadurch automatisch, da die zugehörigen JS-Handler per Event-Delegation auf document
+    arbeiten, nicht auf einzeln gebundene Elemente. Portiert von Arco a660a22."""
+    if session.get('rolle') not in ('admin', 'verkaufsleiter'):
+        abort(403)
+    datum = request.args.get('datum', '')
+    try:
+        date.fromisoformat(datum)
+    except ValueError:
+        abort(400)
+    _tm_sql, _tm_p = _team_m_clause('m')
+    reps = query(
+        f"SELECT id, name, kuerzel, bundesland FROM mitarbeiter m WHERE rolle='rep' AND aktiv=1 {_tm_sql} ORDER BY name",
+        _tm_p
+    )
+    ma_param = request.args.get('ma', '').strip()
+    if ma_param:
+        _ma_ids = {int(x) for x in ma_param.split(',') if x.strip().isdigit()}
+        reps = [r for r in reps if r['id'] in _ma_ids]
+    urlaub_tag, feiertag_tag, plan_tag = _tourenplanung_tag_daten(datum, reps)
+    return render_template('_tourenplanung_rep_liste.html',
+        reps=reps, plan_tag=plan_tag, datum=datum, urlaub_tag=urlaub_tag, feiertag_tag=feiertag_tag)
+
+
 @app.route('/tourenplanung')
 @login_required
 def tourenplanung():
@@ -5386,39 +5465,10 @@ def tourenplanung():
     tag_next_kw    = tag_kw + 1 if tag_kw < 52 else 1
     tag_prev_datum = (_datum_d - timedelta(days=7)).isoformat()
     tag_next_datum = (_datum_d + timedelta(days=7)).isoformat()
-    # _urlaub_daten_alle() statt _urlaub_daten() (Bugreport 2026-07-24, von Arco portiert):
-    # liefert pro Tag ALLE gleichzeitigen Abwesenheiten als Liste statt nur die letzte.
-    urlaub_tag = _urlaub_daten_alle(rep_ids, datum, datum) if modus == 'tag' else {}
-    # Feiertag statt "Kein Plan" anzeigen – Bundesland ist je Mitarbeiter individuell.
-    feiertag_tag = {r['id'] for r in reps if datum in _feiertage_set(_datum_d.year, r['bundesland'] or 'BY')}
-    plan_tag = query(f'''
-        SELECT tp.id, tp.datum, tp.reihenfolge, tp.notiz, tp.erledigt,
-               COALESCE(tp.geloescht, 0) AS geloescht, tp.geloescht_am,
-               v.name AS station, v.plz, v.ort, v.id AS vs_id,
-               v.lieferant, v.ansprechpartner, v.hinweis,
-               m.name AS mitarbeiter, m.kuerzel, m.id AS ma_id,
-               COALESCE(
-                 tp.von_uhrzeit,
-                 (SELECT a.von_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id),
-                 (SELECT a.von_uhrzeit FROM aktivitaet a
-                  WHERE a.mitarbeiter_id = tp.mitarbeiter_id
-                    AND a.verkaufsstelle_id = tp.verkaufsstelle_id
-                    AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1)
-               ) AS von_uhrzeit,
-               COALESCE(
-                 tp.bis_uhrzeit,
-                 (SELECT a.bis_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id),
-                 (SELECT a.bis_uhrzeit FROM aktivitaet a
-                  WHERE a.mitarbeiter_id = tp.mitarbeiter_id
-                    AND a.verkaufsstelle_id = tp.verkaufsstelle_id
-                    AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1)
-               ) AS bis_uhrzeit
-        FROM tagesplan tp
-        JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
-        JOIN mitarbeiter m ON m.id = tp.mitarbeiter_id
-        WHERE tp.datum = ? {_tm_sql.replace('AND', 'AND', 1)}
-        ORDER BY m.name, (von_uhrzeit IS NULL), von_uhrzeit, tp.reihenfolge, tp.id
-    ''', (datum,) + _tm_p) if modus == 'tag' else []
+    if modus == 'tag':
+        urlaub_tag, feiertag_tag, plan_tag = _tourenplanung_tag_daten(datum, reps)
+    else:
+        urlaub_tag, feiertag_tag, plan_tag = {}, set(), []
 
     # Wochen-Modus
     woche_start_str = request.args.get('woche', None)
@@ -5491,17 +5541,28 @@ def tourenplanung():
     except ValueError:
         monat_bezug = today
     monat_jahr, monat_monat = monat_bezug.year, monat_bezug.month
+    # Mitarbeiter-Filter (Nutzerwunsch): schränkt sowohl die Punktezählung als auch die
+    # Detail-Vorschau auf ausgewählte Mitarbeiter ein, gleiches Chip/Checkbox-Muster wie
+    # der bestehende Wochen-Filter oben. Leer/fehlend = alle im Team-Scope. Portiert von
+    # Arco a660a22.
+    ma_filter_param = request.args.get('ma', '').strip()
+    monat_reps = reps
+    if ma_filter_param:
+        _ma_ids = {int(x) for x in ma_filter_param.split(',') if x.strip().isdigit()}
+        monat_reps = [r for r in reps if r['id'] in _ma_ids] or reps
     monat_counts = {}
     if modus == 'monat':
         _mvon = date(monat_jahr, monat_monat, 1)
         _mnaechster = date(monat_jahr + 1, 1, 1) if monat_monat == 12 else date(monat_jahr, monat_monat + 1, 1)
         _mbis = _mnaechster - timedelta(days=1)
+        _monat_ma_ids = [r['id'] for r in monat_reps]
+        _monat_platzhalter = ','.join('?' * len(_monat_ma_ids)) if _monat_ma_ids else 'NULL'
         _monat_rows = query(f'''
             SELECT tp.datum, COUNT(*) AS n FROM tagesplan tp
-            JOIN mitarbeiter m ON m.id = tp.mitarbeiter_id
-            WHERE tp.datum BETWEEN ? AND ? AND COALESCE(tp.geloescht,0)=0 {_tm_sql}
+            WHERE tp.datum BETWEEN ? AND ? AND COALESCE(tp.geloescht,0)=0
+              AND tp.mitarbeiter_id IN ({_monat_platzhalter})
             GROUP BY tp.datum
-        ''', (_mvon.isoformat(), _mbis.isoformat()) + _tm_p)
+        ''', (_mvon.isoformat(), _mbis.isoformat()) + tuple(_monat_ma_ids))
         monat_counts = {r['datum']: r['n'] for r in _monat_rows}
     _monat_prev = (date(monat_jahr, monat_monat, 1) - timedelta(days=1)).strftime('%Y-%m')
     _monat_next_bezug = date(monat_jahr + 1, 1, 1) if monat_monat == 12 else date(monat_jahr, monat_monat + 1, 1)
@@ -5542,6 +5603,7 @@ def tourenplanung():
         monat_prev=_monat_prev,
         monat_next=_monat_next_bezug.strftime('%Y-%m'),
         monat_name=_monat_namen[monat_monat - 1],
+        ma_filter_param=ma_filter_param,
     )
 
 
@@ -12394,12 +12456,15 @@ def api_kalender_tag():
     except ValueError:
         abort(400)
     rows = query('''
-        SELECT tp.von_uhrzeit, v.name AS station
+        SELECT tp.von_uhrzeit, v.name AS station, v.strasse, v.plz, v.ort
         FROM tagesplan tp JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
         WHERE tp.mitarbeiter_id=? AND tp.datum=? AND COALESCE(tp.geloescht,0)=0
         ORDER BY (tp.von_uhrzeit IS NULL), tp.von_uhrzeit, tp.reihenfolge, tp.id
     ''', (ma_id, datum))
-    return jsonify([{'zeit': r['von_uhrzeit'] or '', 'station': r['station']} for r in rows])
+    return jsonify([{
+        'zeit': r['von_uhrzeit'] or '', 'station': r['station'],
+        'strasse': r['strasse'] or '', 'plz': r['plz'] or '', 'ort': r['ort'] or ''
+    } for r in rows])
 
 
 # ─── Chat (VKL ↔ Mitarbeiter, VKL ↔ VKL, Mitarbeiter ↔ Mitarbeiter) ───────────

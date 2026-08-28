@@ -294,6 +294,36 @@
       background: var(--brand-dark); color: #fff; font: inherit; font-size: .8rem; font-weight: 600; cursor: pointer;
     }
     .cal-confirm-btn:hover { background: var(--brand-mid); }
+
+    /* ── Tourenplanung-Monatsansicht: responsives Split-Layout ────────────
+       Desktop (≥992px): Kalender links, Tagesdetails als normale Spalte rechts
+       daneben (immer sichtbar, kein Popup nötig – genug Platz). Mobile: Kalender
+       oben, Details erscheinen erst nach Tag-Tippen als Overlay (kein Platz für
+       zwei Spalten). Eine Datenquelle (dasselbe AJAX-Fragment), nur der
+       Container/die Positionierung wechselt per Breakpoint. Portiert von Arco
+       a660a22. -->
+    .tp-monat-layout { display: grid; grid-template-columns: 1fr; gap: 1.25rem; align-items: start; }
+    .tp-monat-detail { display: none; }
+    .tp-monat-detail-inner { background: #fff; border-radius: .75rem; }
+    @media (min-width: 992px) {
+      .tp-monat-layout { grid-template-columns: 380px 1fr; }
+      .tp-monat-detail { display: block !important; }
+      .tp-monat-detail-inner { box-shadow: 0 2px 12px rgba(0,0,0,.08); padding: 1rem; }
+    }
+    @media (max-width: 991.98px) {
+      .tp-monat-detail.active {
+        display: flex; position: fixed; inset: 0; z-index: 1200; background: rgba(15,25,40,.45);
+        align-items: center; justify-content: center; padding: 1rem;
+      }
+      .tp-monat-detail-inner {
+        max-height: 85vh; overflow-y: auto; width: 100%; max-width: 480px;
+        box-shadow: 0 10px 30px rgba(20,35,55,.25); padding: 1rem;
+      }
+    }
+    .tp-monat-detail-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: .75rem; }
+    .tp-monat-detail-head h5 { margin: 0; font-size: 1rem; color: var(--brand-dark); }
+    .tp-monat-close-btn { display: none; border: none; background: var(--brand-light); color: var(--brand-dark); width: 30px; height: 30px; border-radius: 50%; }
+    @media (max-width: 991.98px) { .tp-monat-close-btn { display: inline-flex; align-items: center; justify-content: center; } }
   </style>
 </head>
 <body>
@@ -1395,7 +1425,9 @@ window.AktKalender = (function () {
           if (state.vorschauTag !== tag) return; // zwischenzeitlich anderer Tag gewählt
           var html = '<div class="cd-heading">' + datumStr + (liste.length ? ' — ' + liste.length + ' Termin' + (liste.length > 1 ? 'e' : '') : ' — frei') + '</div>';
           liste.forEach(function (e) {
-            html += '<div class="cd-entry"><span class="cd-time">' + esc(e.zeit || '–') + '</span><span>' + esc(e.station) + '</span></div>';
+            var adresse = [e.strasse, ([e.plz, e.ort].filter(Boolean).join(' '))].filter(Boolean).join(', ');
+            html += '<div class="cd-entry"><span class="cd-time">' + esc(e.zeit || '–') + '</span><span>' + esc(e.station)
+              + (adresse ? '<br><span style="opacity:.75">' + esc(adresse) + '</span>' : '') + '</span></div>';
           });
           box.innerHTML = html;
         })
@@ -1455,10 +1487,21 @@ window.AktKalender = (function () {
           ladeMonat();
         });
       });
+      // Hover löst die Vorschau erst nach kurzem Verweilen aus (Bugreport: beim bloßen
+      // Drüberfahren mit der Maus – z.B. auf dem Weg zu einem anderen Tag – flackerte die
+      // Vorschau bei jeder einzelnen durchquerten Kachel sofort auf, weil jedes
+      // mouseenter direkt einen neuen Fetch + "Lädt…"-Reset auslöste. Ein kurzer,
+      // abbrechbarer Timer sorgt dafür, dass nur ein tatsächliches Innehalten zählt.
+      // Portiert von Arco a660a22.
+      var hoverTimer = null;
       card.querySelectorAll('[data-day]').forEach(function (btn) {
         var tag = parseInt(btn.dataset.day, 10);
-        btn.addEventListener('mouseenter', function () { vorschau(tag); });
-        btn.addEventListener('click', function () { vorschau(tag); });
+        btn.addEventListener('mouseenter', function () {
+          clearTimeout(hoverTimer);
+          hoverTimer = setTimeout(function () { vorschau(tag); }, 220);
+        });
+        btn.addEventListener('mouseleave', function () { clearTimeout(hoverTimer); });
+        btn.addEventListener('click', function () { clearTimeout(hoverTimer); vorschau(tag); });
       });
     }
 
