@@ -10,7 +10,7 @@
 </div>
 
 <!-- Modus-Umschalter -->
-<div class="d-flex gap-2 mb-3">
+<div class="d-flex flex-wrap gap-2 mb-3">
   <a href="{{ url_for('tourenplanung', modus='tag', datum=datum) }}"
      class="btn btn-sm {{ 'btn-primary' if modus == 'tag' else 'btn-outline-secondary' }}">
     <i class="bi bi-calendar-day me-1"></i>Tagesansicht
@@ -23,7 +23,7 @@
      class="btn btn-sm {{ 'btn-primary' if modus == 'monat' else 'btn-outline-secondary' }}">
     <i class="bi bi-calendar3 me-1"></i>Monatsansicht
   </a>
-  <button type="button" class="btn btn-sm btn-outline-primary ms-auto" data-bs-toggle="modal" data-bs-target="#modalNeuerStopp">
+  <button type="button" class="btn btn-sm btn-outline-primary ms-sm-auto" data-bs-toggle="modal" data-bs-target="#modalNeuerStopp">
     <i class="bi bi-plus-lg me-1"></i>Neuer Stopp
   </button>
 </div>
@@ -694,12 +694,11 @@ function wpFilterDropdownListe(inputEl, itemSelector) {
     </div>
     <div class="cal-days">
       {% for woche in monat_wochen %}{% for tag in woche %}
-      <a href="{{ url_for('tourenplanung', modus='tag', datum=tag.datum) }}"
-         class="cal-day{% if tag.other_month %} other-month{% endif %}{% if tag.is_today %} today{% endif %}{% if tag.datum == datum %} selected{% endif %}"
-         style="text-decoration:none">
+      <button type="button" data-datum="{{ tag.datum }}"
+         class="cal-day{% if tag.other_month %} other-month{% endif %}{% if tag.is_today %} today{% endif %}{% if tag.datum == datum %} selected{% endif %}">
         <span>{{ tag.tag }}</span>
         <div class="cal-dots">{% for _ in range(tag.punkte) %}<span></span>{% endfor %}</div>
-      </a>
+      </button>
       {% endfor %}{% endfor %}
     </div>
   </div>
@@ -709,7 +708,25 @@ function wpFilterDropdownListe(inputEl, itemSelector) {
     <span class="lg-item"><span class="cal-dots"><span></span><span></span><span></span></span> 3+ Termine</span>
   </div>
 </div>
-<p class="text-muted small">Punkte zeigen die Terminanzahl des ganzen Teams an diesem Tag. Auf einen Tag klicken öffnet die Tagesansicht.</p>
+<p class="text-muted small">Punkte zeigen die Terminanzahl des ganzen Teams an diesem Tag. Auf einen Tag tippen zeigt eine Vorschau.</p>
+
+<!-- Tages-Vorschau-Overlay (Nutzerwunsch): Tag antippen springt NICHT mehr sofort in
+     die Tagesansicht (nervig beim Durchsuchen mehrerer Tage), sondern zeigt die
+     Team-Termine als Overlay – Schließen bleibt auf der Monatsansicht. -->
+<div class="cal-backdrop" id="monatVorschauBackdrop" style="display:none">
+  <div class="cal-card" style="width:360px">
+    <div class="cal-head">
+      <span class="cal-month" id="monatVorschauDatum"></span>
+      <button type="button" class="cal-nav" id="monatVorschauSchliessen">&times;</button>
+    </div>
+    <div class="cal-detail" id="monatVorschauInhalt" style="min-height:4rem"></div>
+    <div style="padding:0 .9rem .8rem">
+      <a href="#" id="monatVorschauTagesansicht" class="cal-confirm-btn" style="display:block;text-decoration:none;text-align:center">
+        <i class="bi bi-calendar-day me-1"></i>Tagesansicht öffnen
+      </a>
+    </div>
+  </div>
+</div>
 
 {% endif %}
 
@@ -819,5 +836,57 @@ function wpFilterDropdownListe(inputEl, itemSelector) {
   });
 })();
 </script>
+
+{% if modus == 'monat' %}
+<script>
+// ── Monatsansicht: Tages-Vorschau-Overlay statt Direktsprung in die Tagesansicht ──
+(function () {
+  var WOCHENTAGE_LANG = ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'];
+  var backdrop = document.getElementById('monatVorschauBackdrop');
+  var inhaltEl = document.getElementById('monatVorschauInhalt');
+  var datumEl  = document.getElementById('monatVorschauDatum');
+  var tagLink  = document.getElementById('monatVorschauTagesansicht');
+
+  function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+
+  function schliessen() { backdrop.style.display = 'none'; }
+  backdrop.addEventListener('click', function (e) { if (e.target === backdrop) schliessen(); });
+  document.getElementById('monatVorschauSchliessen').addEventListener('click', schliessen);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') schliessen(); });
+
+  document.querySelectorAll('.cal-day[data-datum]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var datum = btn.dataset.datum;
+      var d = new Date(datum + 'T00:00:00');
+      datumEl.textContent = WOCHENTAGE_LANG[d.getDay()] + ', ' + datum.slice(8,10) + '.' + datum.slice(5,7) + '.' + datum.slice(0,4);
+      tagLink.href = "{{ url_for('tourenplanung', modus='tag') }}&datum=" + datum;
+      inhaltEl.innerHTML = '<span class="cd-empty">Lädt…</span>';
+      backdrop.style.display = 'flex';
+      fetch('/api/tourenplanung/tag?datum=' + datum)
+        .then(function (r) { return r.ok ? r.json() : []; })
+        .then(function (liste) {
+          if (!liste.length) { inhaltEl.innerHTML = '<span class="cd-empty">Keine Termine an diesem Tag.</span>'; return; }
+          var proMitarbeiter = {};
+          liste.forEach(function (e) {
+            (proMitarbeiter[e.mitarbeiter] = proMitarbeiter[e.mitarbeiter] || []).push(e);
+          });
+          var html = '';
+          Object.keys(proMitarbeiter).forEach(function (name) {
+            html += '<div class="cd-heading" style="margin-top:.5rem">' + esc(name) + '</div>';
+            proMitarbeiter[name].forEach(function (e) {
+              html += '<div class="cd-entry">'
+                + '<span class="cd-time">' + esc(e.zeit || '–') + '</span>'
+                + '<span>' + esc(e.station) + (e.ort ? ' – ' + esc(e.ort) : '') + (e.erledigt ? ' <i class="bi bi-check-circle-fill" style="color:#27ae60"></i>' : '') + '</span>'
+                + '</div>';
+            });
+          });
+          inhaltEl.innerHTML = html;
+        })
+        .catch(function () { inhaltEl.innerHTML = '<span class="cd-empty">Konnte nicht geladen werden.</span>'; });
+    });
+  });
+})();
+</script>
+{% endif %}
 
 {% endblock %}

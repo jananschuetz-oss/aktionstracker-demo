@@ -12348,6 +12348,40 @@ def api_kalender_monat():
     return jsonify({r['datum']: r['n'] for r in rows})
 
 
+@app.route('/api/tourenplanung/tag')
+@login_required
+def api_tourenplanung_tag():
+    """Team-Tagesdetail für die Vorschau in der Tourenplanung-Monatsansicht (Nutzerwunsch:
+    Tag antippen sollte eine Vorschau zeigen statt sofort in die Tagesansicht zu springen –
+    sonst muss man sich beim Durchsuchen mehrerer Tage jedes Mal neu durch die Seite
+    klicken). Nur VKL/Admin, team-gescoped wie die Tag-/Wochenansicht selbst. Portiert von
+    Arco 16604d9."""
+    if session.get('rolle') not in ('admin', 'verkaufsleiter'):
+        abort(403)
+    datum = request.args.get('datum', '')
+    try:
+        date.fromisoformat(datum)
+    except ValueError:
+        abort(400)
+    _tm_sql, _tm_p = _team_m_clause('m')
+    rows = query(f'''
+        SELECT m.name AS mitarbeiter, m.kuerzel, v.name AS station, v.ort, tp.erledigt,
+               COALESCE(
+                 tp.von_uhrzeit,
+                 (SELECT a.von_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id)
+               ) AS von_uhrzeit
+        FROM tagesplan tp
+        JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
+        JOIN mitarbeiter m ON m.id = tp.mitarbeiter_id
+        WHERE tp.datum = ? AND COALESCE(tp.geloescht,0)=0 {_tm_sql}
+        ORDER BY m.name, (von_uhrzeit IS NULL), von_uhrzeit, tp.reihenfolge, tp.id
+    ''', (datum,) + _tm_p)
+    return jsonify([{
+        'mitarbeiter': r['mitarbeiter'], 'kuerzel': r['kuerzel'], 'station': r['station'],
+        'ort': r['ort'], 'zeit': r['von_uhrzeit'] or '', 'erledigt': bool(r['erledigt'])
+    } for r in rows])
+
+
 @app.route('/api/kalender/tag')
 @login_required
 def api_kalender_tag():
