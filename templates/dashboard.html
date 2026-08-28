@@ -1853,6 +1853,11 @@ document.addEventListener('DOMContentLoaded', function(){
                   style="font-size:.72rem;padding:3px 7px" title="Stammdaten bearbeiten">
             <i class="bi bi-pencil"></i>
           </button>
+          <button type="button" class="btn btn-sm btn-outline-secondary flex-shrink-0"
+                  onclick="AktTeilen.oeffnen({url: '{{ url_for('verkaufsstelle_historie', vs_id=stop.vs_id, _external=True) }}', titel: '{{ (stop.station ~ ', ' ~ d) | e }}'})"
+                  style="font-size:.72rem;padding:2px 7px" title="Diesen Stopp teilen">
+            <i class="bi bi-share"></i>
+          </button>
           {% if stop.erledigt %}
           <button type="button" class="tp-detail-btn btn btn-sm d-inline-flex align-items-center gap-1 flex-shrink-0"
                   data-tp-id="{{ stop.id }}"

@@ -333,6 +333,29 @@
     .tp-monat-detail-head h5 { margin: 0; font-size: 1rem; color: var(--brand-dark); }
     .tp-monat-close-btn { display: none; border: none; background: var(--brand-light); color: var(--brand-dark); width: 30px; height: 30px; border-radius: 50%; }
     @media (max-width: 991.98px) { .tp-monat-close-btn { display: inline-flex; align-items: center; justify-content: center; } }
+
+    /* ── Teilen (AktTeilen) ────────────────────────────────────────────── */
+    .teilen-icon-btn {
+      width: 30px; height: 30px; border-radius: 50%; border: 1px solid #dee2e6; background: var(--brand-light);
+      color: var(--brand-mid); display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+    }
+    .teilen-icon-btn:hover { border-color: var(--brand-mid); }
+    .teilen-kontakt-liste { max-height: 190px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: .5rem; }
+    .teilen-kontakt-row {
+      display: flex; align-items: center; gap: .55rem; padding: .45rem .65rem; cursor: pointer;
+      border-left: 3px solid transparent;
+    }
+    .teilen-kontakt-row:hover { background: var(--brand-light); }
+    .teilen-kontakt-row.selected { background: var(--brand-light); border-left-color: var(--brand-gold); }
+    .teilen-kontakt-row .tk-avatar {
+      width: 28px; height: 28px; border-radius: 50%; background: var(--brand-mid); color: #fff;
+      display: flex; align-items: center; justify-content: center; font-size: .68rem; font-weight: 700; flex-shrink: 0;
+    }
+    .teilen-kontakt-row .tk-name { font-size: .82rem; }
+    .teilen-kommentar {
+      width: 100%; border: 1px solid #dee2e6; border-radius: .5rem; padding: .5rem .65rem;
+      font: inherit; font-size: .82rem; resize: vertical;
+    }
   </style>
 </head>
 <body>
@@ -1539,6 +1562,104 @@ window.AktKalender = (function () {
     }
 
     ladeMonat();
+  }
+
+  return { oeffnen: oeffnen };
+})();
+
+// ── Teilen (AktTeilen) ───────────────────────────────────────────────────────
+// Teilt einen konkreten Vorgang (Stopp/Freigabe) per Chat mit einem Kollegen –
+// Nutzerwunsch (Variante B: gezielte Teilen-Icons an einzelnen Objekten statt
+// "ganze Seite teilen"). Nutzt den bestehenden Chat-Sende-Endpunkt
+// (/api/chat/senden) – der Link wird einfach als Nachrichtentext mitgeschickt,
+// keine neue Backend-Route nötig. Bleibt bewusst als Overlay auf der aktuellen
+// Seite (kein Reload, keine Navigation) – "Zurück" ist dadurch gar nicht erst
+// nötig, man ist ja nie weg von der Seite. Portiert von Arco fb37901.
+window.AktTeilen = (function () {
+  function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+  function initialen(name) {
+    var teile = (name || '?').trim().split(/\s+/);
+    return ((teile[0] || '')[0] || '').toUpperCase() + ((teile[1] || '')[0] || '').toUpperCase();
+  }
+
+  function oeffnen(opts) {
+    var url = opts.url, titel = opts.titel || '';
+    var ausgewaehlt = null;
+
+    var backdrop = document.createElement('div');
+    backdrop.className = 'cal-backdrop';
+    backdrop.innerHTML =
+      '<div class="cal-card" style="width:360px">'
+      + '<div class="cal-head"><span class="cal-month"><i class="bi bi-share me-1"></i>Teilen</span>'
+      + '<button type="button" class="cal-nav" id="teilenSchliessen">&times;</button></div>'
+      + '<div style="padding:.9rem">'
+      + '<div class="small text-muted mb-2">' + esc(titel) + '</div>'
+      + '<label class="small fw-semibold mb-1 d-block">An wen?</label>'
+      + '<div class="teilen-kontakt-liste mb-3" id="teilenKontakte"><div class="p-2 small text-muted">Lädt…</div></div>'
+      + '<label class="small fw-semibold mb-1 d-block">Kommentar (optional)</label>'
+      + '<textarea class="teilen-kommentar" id="teilenKommentar" rows="2" placeholder="Schau dir das mal an…"></textarea>'
+      + '</div>'
+      + '<div style="padding:0 .9rem .9rem" id="teilenSendenWrap">'
+      + '<button type="button" class="cal-confirm-btn" id="teilenSendenBtn" disabled>Senden</button>'
+      + '</div>'
+      + '</div>';
+    document.body.appendChild(backdrop);
+
+    function schliessen() { backdrop.remove(); }
+    backdrop.addEventListener('click', function (e) { if (e.target === backdrop) schliessen(); });
+    document.getElementById('teilenSchliessen').addEventListener('click', schliessen);
+    document.addEventListener('keydown', function esc_(e) { if (e.key === 'Escape') { schliessen(); document.removeEventListener('keydown', esc_); } });
+
+    var sendBtn = document.getElementById('teilenSendenBtn');
+    var kontakteEl = document.getElementById('teilenKontakte');
+
+    fetch('/api/chat/kontakte').then(function (r) { return r.json(); }).then(function (liste) {
+      if (!liste.length) { kontakteEl.innerHTML = '<div class="p-2 small text-muted">Keine Kontakte verfügbar.</div>'; return; }
+      var vkl = liste.filter(function (k) { return k.rolle === 'verkaufsleiter'; });
+      var reps = liste.filter(function (k) { return k.rolle === 'rep'; });
+      var html = '';
+      function gruppe(label, arr) {
+        if (!arr.length) return '';
+        var h = '<div class="px-2 pt-1 pb-0" style="font-size:.65rem;font-weight:700;text-transform:uppercase;color:#97a2b1;letter-spacing:.05em">' + label + '</div>';
+        arr.forEach(function (k) {
+          h += '<div class="teilen-kontakt-row" data-id="' + k.id + '" data-name="' + esc(k.name) + '">'
+            + '<div class="tk-avatar">' + esc(initialen(k.name)) + '</div>'
+            + '<span class="tk-name">' + esc(k.name) + '</span></div>';
+        });
+        return h;
+      }
+      html += gruppe('Verkaufsleiter', vkl) + gruppe('Mitarbeiter', reps);
+      kontakteEl.innerHTML = html;
+      kontakteEl.querySelectorAll('.teilen-kontakt-row').forEach(function (row) {
+        row.addEventListener('click', function () {
+          kontakteEl.querySelectorAll('.teilen-kontakt-row').forEach(function (r) { r.classList.remove('selected'); });
+          row.classList.add('selected');
+          ausgewaehlt = parseInt(row.dataset.id, 10);
+          sendBtn.disabled = false;
+        });
+      });
+    }).catch(function () {
+      kontakteEl.innerHTML = '<div class="p-2 small text-muted">Konnte nicht geladen werden.</div>';
+    });
+
+    sendBtn.addEventListener('click', function () {
+      if (!ausgewaehlt) return;
+      sendBtn.disabled = true;
+      sendBtn.textContent = 'Wird gesendet…';
+      var kommentar = document.getElementById('teilenKommentar').value.trim();
+      var text = (kommentar ? kommentar + '\n\n' : '') + url;
+      var formData = new FormData();
+      formData.append('partner_id', ausgewaehlt);
+      formData.append('text', text);
+      fetch('/api/chat/senden', { method: 'POST', body: formData })
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
+          if (res.error) { alert(res.error); sendBtn.disabled = false; sendBtn.textContent = 'Senden'; return; }
+          document.getElementById('teilenSendenWrap').innerHTML = '<div class="text-center small" style="color:#155724"><i class="bi bi-check-circle-fill me-1"></i>Gesendet</div>';
+          setTimeout(schliessen, 900);
+        })
+        .catch(function () { alert('Konnte nicht gesendet werden.'); sendBtn.disabled = false; sendBtn.textContent = 'Senden'; });
+    });
   }
 
   return { oeffnen: oeffnen };

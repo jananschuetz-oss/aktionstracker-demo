@@ -131,6 +131,26 @@
 
   function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
 
+  // Macht URLs in Nachrichtentext klickbar (für geteilte Links aus dem "Teilen"-
+  // Baustein) – trennt am URL-Muster, escaped jedes Textstück einzeln, baut den
+  // Link-Teil separat als <a> statt der rohe Text roh in innerHTML zu landen.
+  // Portiert von Arco fb37901.
+  function linkify(text) {
+    if (!text) return '';
+    var teile = String(text).split(/(https?:\/\/[^\s]+)/g);
+    var html = '';
+    teile.forEach(function (teil, i) {
+      if (i % 2 === 1) {
+        var url = teil.replace(/[.,;:!?)\]]+$/, '');
+        var rest = teil.slice(url.length);
+        html += '<a href="' + esc(url) + '" target="_blank" rel="noopener" style="text-decoration:underline;color:inherit">' + esc(url) + '</a>' + esc(rest);
+      } else {
+        html += esc(teil);
+      }
+    });
+    return html;
+  }
+
   function initialen(name) {
     var teile = (name || '?').trim().split(/\s+/);
     return ((teile[0] || '')[0] || '') .toUpperCase() + ((teile[1] || '')[0] || '').toUpperCase();
@@ -289,10 +309,10 @@
       if (n.foto_pfad) {
         body += '<div class="chat-bubble photo">'
           + '<img src="/uploads/' + encodeURIComponent(n.foto_pfad) + '" alt="Foto">'
-          + (n.text ? '<div class="cb-cap">' + esc(n.text) + '</div>' : '')
+          + (n.text ? '<div class="cb-cap">' + linkify(n.text) + '</div>' : '')
           + '<span class="cb-stamp">' + zeitKurz(n.erstellt_am) + '</span></div>';
       } else {
-        body += '<div class="chat-bubble">' + esc(n.text) + '<span class="cb-stamp">' + zeitKurz(n.erstellt_am) + '</span></div>';
+        body += '<div class="chat-bubble">' + linkify(n.text) + '<span class="cb-stamp">' + zeitKurz(n.erstellt_am) + '</span></div>';
       }
       body += '</div>';
     });

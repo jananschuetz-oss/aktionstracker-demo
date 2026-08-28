@@ -13,7 +13,7 @@
 <div class="row g-3">
   {% for p in pending %}
   <div class="col-12">
-    <div class="card">
+    <div class="card" id="freigabe-{{ p.dp_id }}">
       <div class="card-body py-3 px-4">
         <div class="row align-items-center g-3">
           <!-- Datum -->
@@ -66,6 +66,13 @@
 
           <!-- Aktionen -->
           <div class="col-auto d-flex gap-1">
+            {% if session.rolle == 'verkaufsleiter' %}
+            <button type="button" class="btn btn-outline-secondary btn-sm"
+                    onclick="AktTeilen.oeffnen({url: '{{ url_for('aufbauten_freigabe', _external=True) }}#freigabe-{{ p.dp_id }}', titel: '{{ (p.ds_name ~ ' – ' ~ p.vs_name ~ ' (' ~ p.mitarbeiter_name ~ ', ' ~ p.datum ~ ')') | e }}'})"
+                    title="Diese Freigabe teilen">
+              <i class="bi bi-share"></i>
+            </button>
+            {% endif %}
             <form method="POST" action="{{ url_for('aufbau_freigeben', dp_id=p.dp_id) }}" style="display:inline">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button type="submit" class="btn btn-success btn-sm">

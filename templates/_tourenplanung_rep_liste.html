@@ -80,6 +80,13 @@
                   style="font-size:.75rem;padding:3px 8px" title="Stammdaten bearbeiten">
             <i class="bi bi-pencil"></i>
           </button>
+          {% if session.rolle in ('rep', 'verkaufsleiter') %}
+          <button type="button" class="btn btn-sm btn-outline-secondary flex-shrink-0"
+                  onclick="AktTeilen.oeffnen({url: '{{ url_for('verkaufsstelle_historie', vs_id=stop.vs_id, _external=True) }}', titel: '{{ (stop.station ~ ' – ' ~ stop.mitarbeiter ~ ', ' ~ stop.datum) | e }}'})"
+                  style="font-size:.75rem;padding:3px 8px" title="Diesen Stopp teilen">
+            <i class="bi bi-share"></i>
+          </button>
+          {% endif %}
           {% if stop.erledigt %}
           <button type="button" class="tp-detail-btn btn btn-sm d-inline-flex align-items-center gap-1 flex-shrink-0"
                   data-tp-id="{{ stop.id }}"
