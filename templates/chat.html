@@ -4,7 +4,7 @@
 {% block content %}
 <div class="page-header">
   <h1><i class="bi bi-chat-dots me-2"></i>Chat</h1>
-  <p>Direktnachrichten zwischen Verkaufsleitern und Mitarbeitern – 1:1, kein Gruppenchat.</p>
+  <p>Direktnachrichten zwischen Verkaufsleitern, Mitarbeitern und untereinander – 1:1, kein Gruppenchat.</p>
 </div>
 
 <style>
@@ -193,42 +193,40 @@
   }
 
   function oeffneUnterhaltung(kontakt) {
+    var wechsel = !aktiverPartner || aktiverPartner.id !== kontakt.id;
     aktiverPartner = kontakt;
     layoutEl.classList.add('showing-thread');
     renderKontakte();
+    if (wechsel) {
+      // Rahmen (Header + Eingabefeld) nur beim tatsächlichen Kontaktwechsel neu aufbauen –
+      // sonst geht ein bereits angefangener Entwurf verloren (siehe Bugreport 2026-08-28
+      // unten bei ladeVerlauf()).
+      ausgewaehlteFoto = null;
+      renderThreadFrame(kontakt);
+    }
     ladeVerlauf(true);
   }
 
   function ladeVerlauf(scrollen) {
     if (!aktiverPartner) return;
-    fetch('/api/chat/verlauf/' + aktiverPartner.id).then(function (r) { return r.json(); }).then(function (nachrichten) {
-      renderThread(nachrichten, scrollen);
+    var partnerBeimStart = aktiverPartner.id;
+    fetch('/api/chat/verlauf/' + partnerBeimStart).then(function (r) { return r.json(); }).then(function (nachrichten) {
+      // Zwischenzeitlich könnte auf einen anderen Kontakt gewechselt worden sein
+      // (schnelles Klicken während die Poll-Antwort noch unterwegs ist).
+      if (!aktiverPartner || aktiverPartner.id !== partnerBeimStart) return;
+      renderThreadMessages(nachrichten, scrollen);
       // Badges (Navbar + Kontaktliste) können sich durch das Lesen geändert haben.
       ladeKontakte();
       aktualisiereNavbarBadge();
     });
   }
 
-  function renderThread(nachrichten, scrollen) {
-    var k = aktiverPartner;
-    var body = '';
-    nachrichten.forEach(function (n) {
-      body += '<div class="chat-bubble-row ' + (n.von_mich ? 'own' : 'other') + '">';
-      if (n.foto_pfad) {
-        body += '<div class="chat-bubble photo">'
-          + '<img src="/uploads/' + encodeURIComponent(n.foto_pfad) + '" alt="Foto">'
-          + (n.text ? '<div class="cb-cap">' + esc(n.text) + '</div>' : '')
-          + '<span class="cb-stamp">' + zeitKurz(n.erstellt_am) + '</span></div>';
-      } else {
-        body += '<div class="chat-bubble">' + esc(n.text) + '<span class="cb-stamp">' + zeitKurz(n.erstellt_am) + '</span></div>';
-      }
-      body += '</div>';
-    });
-    if (!nachrichten.length) {
-      body = '<div class="chat-empty"><i class="bi bi-chat-heart" style="font-size:2rem;opacity:.5"></i>'
-        + '<p>Noch keine Nachrichten mit ' + esc(k.name) + '. Schreib die erste!</p></div>';
-    }
-
+  // Baut Header + Eingabezeile EINMAL beim Öffnen/Wechseln eines Kontakts auf. Das
+  // regelmäßige Polling (siehe ladeVerlauf()) ruft NUR NOCH renderThreadMessages() auf und
+  // fasst diesen Bereich nicht mehr an – vorher wurde bei jedem Poll (alle 6s) der komplette
+  // Thread inkl. Eingabefeld per innerHTML neu geschrieben, wodurch ein gerade getippter,
+  // noch nicht abgeschickter Text sofort wieder verschwand (Bugreport 2026-08-28).
+  function renderThreadFrame(k) {
     threadEl.innerHTML =
       '<div class="chat-thread-header">'
       + '<button type="button" class="chat-back-btn" id="chatBack"><i class="bi bi-arrow-left"></i></button>'
@@ -236,7 +234,7 @@
       + '<div><div class="ct-name">' + esc(k.name) + '</div><div class="ct-role">'
       + (k.rolle === 'verkaufsleiter' ? 'Verkaufsleiter' : 'Außendienst') + '</div></div>'
       + '</div>'
-      + '<div class="chat-thread-body" id="chatThreadBody">' + body + '</div>'
+      + '<div class="chat-thread-body" id="chatThreadBody"></div>'
       + '<div class="chat-foto-preview" id="chatFotoPreview"></div>'
       + '<div class="chat-thread-input">'
       + '<button type="button" class="chat-icon-btn" id="chatFotoBtn" title="Foto anhängen"><i class="bi bi-camera"></i></button>'
@@ -272,9 +270,39 @@
       if (e.key === 'Enter') { e.preventDefault(); senden(); }
     });
     document.getElementById('chatSendBtn').addEventListener('click', senden);
+  }
 
-    if (scrollen) {
-      var bodyEl = document.getElementById('chatThreadBody');
+  // Aktualisiert NUR den Nachrichtenverlauf, lässt Header/Eingabefeld unangetastet – wird
+  // sowohl beim ersten Öffnen als auch bei jedem Poll-Tick aufgerufen.
+  function renderThreadMessages(nachrichten, scrollen) {
+    var bodyEl = document.getElementById('chatThreadBody');
+    if (!bodyEl) return;
+    // Eingabefeld wird hier nicht mehr angefasst (siehe renderThreadFrame()), daher bleibt
+    // ein laufender Tastaturfokus automatisch erhalten – nur die Scroll-Position behandeln wir
+    // bewusst: neue Nachrichten sollen nur dann nach unten scrollen, wenn man ohnehin schon
+    // am Ende war (sonst reißt das Polling die Ansicht während des Lesens älterer Nachrichten weg).
+    var war_unten = bodyEl.scrollTop + bodyEl.clientHeight >= bodyEl.scrollHeight - 40;
+
+    var body = '';
+    nachrichten.forEach(function (n) {
+      body += '<div class="chat-bubble-row ' + (n.von_mich ? 'own' : 'other') + '">';
+      if (n.foto_pfad) {
+        body += '<div class="chat-bubble photo">'
+          + '<img src="/uploads/' + encodeURIComponent(n.foto_pfad) + '" alt="Foto">'
+          + (n.text ? '<div class="cb-cap">' + esc(n.text) + '</div>' : '')
+          + '<span class="cb-stamp">' + zeitKurz(n.erstellt_am) + '</span></div>';
+      } else {
+        body += '<div class="chat-bubble">' + esc(n.text) + '<span class="cb-stamp">' + zeitKurz(n.erstellt_am) + '</span></div>';
+      }
+      body += '</div>';
+    });
+    if (!nachrichten.length) {
+      body = '<div class="chat-empty"><i class="bi bi-chat-heart" style="font-size:2rem;opacity:.5"></i>'
+        + '<p>Noch keine Nachrichten mit ' + esc(aktiverPartner.name) + '. Schreib die erste!</p></div>';
+    }
+    bodyEl.innerHTML = body;
+
+    if (scrollen || war_unten) {
       bodyEl.scrollTop = bodyEl.scrollHeight;
     }
   }

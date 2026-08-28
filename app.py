@@ -1192,10 +1192,11 @@ def init_db():
                 FOREIGN KEY (biersorte_id) REFERENCES biersorte(id)
             );
 
-            -- 1:1-Chat zwischen VKL und Mitarbeiter bzw. VKL untereinander (Nutzerwunsch,
-            -- portiert aus Arco fce3e9f). Admin nimmt bewusst nicht teil. Kein eigener
-            -- "gelöscht"-Status – Nachrichten bleiben wie Aktivitäts-Notizen dauerhaft,
-            -- gelesen/ungelesen steuert nur die Badge-Anzeige.
+            -- 1:1-Chat, kein Gruppenchat (Nutzerwunsch, portiert aus Arco fce3e9f). Auch
+            -- Mitarbeiter↔Mitarbeiter möglich (ursprünglich nur VKL↔Mitarbeiter/VKL↔VKL,
+            -- portiert aus Arco 87e72d9), siehe _chat_kontakt_ids(). Admin nimmt bewusst
+            -- nicht teil. Kein eigener "gelöscht"-Status – Nachrichten bleiben wie
+            -- Aktivitäts-Notizen dauerhaft, gelesen/ungelesen steuert nur die Badge-Anzeige.
             CREATE TABLE IF NOT EXISTS chat_nachricht (
                 id                 INTEGER PRIMARY KEY AUTOINCREMENT,
                 von_mitarbeiter_id INTEGER NOT NULL,
@@ -2882,13 +2883,14 @@ def _chat_erlaubt():
 def _chat_kontakt_ids():
     """IDs aller Mitarbeiter, mit denen der aktuell eingeloggte Nutzer chatten darf –
     reiner 1:1-Chat, kein Gruppenchat. Nutzt dasselbe Team-Scoping-Muster wie
-    _team_m_clause()/_team_ma_clause(): ein VKL mit Team sieht nur sein Team, ein VKL
-    OHNE Team sieht/erreicht alle Mitarbeiter. VKL können zusätzlich untereinander
-    schreiben. Admin ist kein gültiger Kontakt."""
+    _team_m_clause()/_team_ma_clause(): mit Team sieht man nur die eigenen Team-Kollegen,
+    OHNE Team sieht/erreicht man alle. VKL können zusätzlich untereinander schreiben, Rep
+    können zusätzlich untereinander schreiben (analog zum VKL-Scoping). Admin ist kein
+    gültiger Kontakt."""
     rolle = session.get('rolle')
     uid = session.get('user_id')
+    tid = session.get('team_id')
     if rolle == 'verkaufsleiter':
-        tid = session.get('team_id')
         if tid:
             reps = query("SELECT id FROM mitarbeiter WHERE rolle='rep' AND team_id=?", (tid,))
         else:
@@ -2896,11 +2898,14 @@ def _chat_kontakt_ids():
         vkls = query("SELECT id FROM mitarbeiter WHERE rolle='verkaufsleiter' AND id != ?", (uid,))
         return {r['id'] for r in reps} | {r['id'] for r in vkls}
     if rolle == 'rep':
-        tid = session.get('team_id')
         vkls = query(
             "SELECT id FROM mitarbeiter WHERE rolle='verkaufsleiter' AND (team_id IS NULL OR team_id=?)",
             (tid,))
-        return {r['id'] for r in vkls}
+        if tid:
+            kollegen = query("SELECT id FROM mitarbeiter WHERE rolle='rep' AND team_id=? AND id != ?", (tid, uid))
+        else:
+            kollegen = query("SELECT id FROM mitarbeiter WHERE rolle='rep' AND id != ?", (uid,))
+        return {r['id'] for r in vkls} | {r['id'] for r in kollegen}
     return set()
 
 
@@ -12205,11 +12210,11 @@ def serve_upload(filename):
     return send_from_directory(UPLOAD_FOLDER, filename)
 
 
-# ─── Chat (VKL ↔ Mitarbeiter, VKL ↔ VKL) ──────────────────────────────────────
+# ─── Chat (VKL ↔ Mitarbeiter, VKL ↔ VKL, Mitarbeiter ↔ Mitarbeiter) ───────────
 # 1:1 nur, kein Gruppenchat, Admin nimmt bewusst nicht teil (siehe _chat_erlaubt()/
 # _chat_kontakt_ids() bei den Team-Scoping-Helfern). Client pollt periodisch statt
 # WebSocket – bei der aktuellen Nutzerzahl unproblematisch, kein neuer Infrastruktur-
-# Bedarf. Portiert aus Arco (Commit fce3e9f).
+# Bedarf. Portiert aus Arco (Commit fce3e9f, Erweiterung 87e72d9).
 
 @app.route('/chat')
 @login_required
