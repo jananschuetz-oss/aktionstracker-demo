@@ -262,10 +262,12 @@
      class="{% if request.endpoint == 'neue_aktivitaet' %}active{% endif %}">
     <i class="bi bi-plus-circle"></i>Eintragen
   </a>
+  {% if session.rolle == 'admin' %}
   <a href="{{ url_for('vergleich') }}"
      class="{% if request.endpoint == 'vergleich' %}active{% endif %}">
     <i class="bi bi-graph-up-arrow"></i>Vergleich
   </a>
+  {% endif %}
   {% elif session.rolle == 'rep' %}
   <a href="{{ url_for('dashboard') }}#tab-tagesplan-btn" class="btn-neu">
     <i class="bi bi-signpost-split-fill"></i><span style="text-align:center;line-height:1.2">Besuchs<br>planung</span>
@@ -273,6 +275,16 @@
   <a href="{{ url_for('neue_aktivitaet') }}"
      class="{% if request.endpoint == 'neue_aktivitaet' %}active{% endif %}">
     <i class="bi bi-plus-circle"></i>Eintragen
+  </a>
+  {% endif %}
+  {% if session.rolle in ('rep', 'verkaufsleiter') %}
+  <a href="{{ url_for('chat') }}"
+     class="{% if request.endpoint == 'chat' %}active{% endif %}" style="position:relative">
+    <i class="bi bi-chat-dots"></i>
+    {% if offene_chat_nachrichten %}
+    <span class="chat-navbadge" style="position:absolute;top:.3rem;right:.6rem;background:#e74c3c;color:#fff;border-radius:50%;width:15px;height:15px;font-size:9px;line-height:15px;text-align:center;font-weight:700">{{ offene_chat_nachrichten }}</span>
+    {% endif %}
+    Chat
   </a>
   {% endif %}
   <button class="mobile-menu-btn" type="button"
@@ -308,6 +320,12 @@
         <li class="nav-item">
           <a class="nav-link" href="{{ url_for('aktivitaeten_liste') }}"><i class="bi bi-list-ul"></i>Aktivitäten</a>
         </li>
+        {% if session.rolle in ('rep', 'verkaufsleiter') %}
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'chat' %}active{% endif %}"
+             href="{{ url_for('chat') }}"><i class="bi bi-chat-dots"></i>Chat{% if offene_chat_nachrichten %} <span class="badge bg-danger chat-navbadge">{{ offene_chat_nachrichten }}</span>{% endif %}</a>
+        </li>
+        {% endif %}
         {% if arbeitszeit_modus %}
         <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'arbeitszeit_uebersicht' %}active{% endif %}"
@@ -716,6 +734,10 @@
     {% if session.rolle == 'rep' %}
     <a href="{{ url_for('vergleich') }}" class="mobile-menu-item {% if request.endpoint == 'vergleich' %}active{% endif %}">
       <i class="bi bi-bullseye"></i>Zielkurs
+    </a>
+    {% elif session.rolle == 'verkaufsleiter' %}
+    <a href="{{ url_for('vergleich') }}" class="mobile-menu-item {% if request.endpoint == 'vergleich' %}active{% endif %}">
+      <i class="bi bi-graph-up-arrow"></i>Vergleich
     </a>
     {% endif %}
     <a href="{{ url_for('verkaufsstellen_liste') }}" class="mobile-menu-item {% if request.endpoint == 'verkaufsstellen_liste' %}active{% endif %}">

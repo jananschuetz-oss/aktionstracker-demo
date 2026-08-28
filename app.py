@@ -261,6 +261,7 @@ def inject_now():
         'offene_urlaubsantraege': 0,
         'offene_vs_hinweise': 0,
         'offene_aufbauten_freigaben': 0,
+        'offene_chat_nachrichten': 0,
         'abgelehnte_aufbauten': [],
         'mein_email': '',
         'mein_signatur': None,
@@ -325,6 +326,12 @@ def inject_now():
                     WHERE dp.status = 'offen'{_tc}
                 ''', _tp, one=True)
                 ctx['offene_aufbauten_freigaben'] = _fcnt['n'] if _fcnt else 0
+            # Zähler ungelesener Chat-Nachrichten (nur Rep/VKL – Admin nimmt am Chat nicht teil).
+            if session.get('rolle') in ('rep', 'verkaufsleiter'):
+                _chcnt = query(
+                    "SELECT COUNT(*) AS n FROM chat_nachricht WHERE an_mitarbeiter_id=? AND gelesen=0",
+                    (session['user_id'],), one=True)
+                ctx['offene_chat_nachrichten'] = _chcnt['n'] if _chcnt else 0
             # Abgelehnte Aufbauten, die der Mitarbeiter noch nicht gesehen hat – als
             # Hinweis-Banner auf dem Dashboard (s. /aufbau/<id>/gesehen zum Bestätigen).
             if session.get('rolle') in ('rep', 'verkaufsleiter'):
@@ -1185,6 +1192,22 @@ def init_db():
                 FOREIGN KEY (biersorte_id) REFERENCES biersorte(id)
             );
 
+            -- 1:1-Chat zwischen VKL und Mitarbeiter bzw. VKL untereinander (Nutzerwunsch,
+            -- portiert aus Arco fce3e9f). Admin nimmt bewusst nicht teil. Kein eigener
+            -- "gelöscht"-Status – Nachrichten bleiben wie Aktivitäts-Notizen dauerhaft,
+            -- gelesen/ungelesen steuert nur die Badge-Anzeige.
+            CREATE TABLE IF NOT EXISTS chat_nachricht (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                von_mitarbeiter_id INTEGER NOT NULL,
+                an_mitarbeiter_id  INTEGER NOT NULL,
+                text               TEXT,
+                foto_pfad          TEXT,
+                gelesen            INTEGER NOT NULL DEFAULT 0,
+                erstellt_am        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (von_mitarbeiter_id) REFERENCES mitarbeiter(id),
+                FOREIGN KEY (an_mitarbeiter_id)  REFERENCES mitarbeiter(id)
+            );
+
             CREATE TABLE IF NOT EXISTS zielzahlen (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 mitarbeiter_id INTEGER,
@@ -1453,6 +1476,8 @@ def init_db():
             # Full-Table-Scan auf jeder einzelnen Seite.
             "CREATE INDEX IF NOT EXISTS idx_vertretung_abwesender ON vertretung(abwesender_id)",
             "CREATE INDEX IF NOT EXISTS idx_vertretung_status ON vertretung(status)",
+            "CREATE INDEX IF NOT EXISTS idx_chat_von_an ON chat_nachricht(von_mitarbeiter_id, an_mitarbeiter_id)",
+            "CREATE INDEX IF NOT EXISTS idx_chat_an_gelesen ON chat_nachricht(an_mitarbeiter_id, gelesen)",
             # Urlaubskonto: Jahresanspruch + Übertrag Vorjahr je Mitarbeiter, Bundesland für
             # die gesetzlichen Feiertage bei der Werktage-Berechnung (siehe _werktage_zaehlen).
             "ALTER TABLE mitarbeiter ADD COLUMN urlaubsanspruch_jahr INTEGER DEFAULT 30",
@@ -2846,6 +2871,37 @@ def _team_m_clause(alias='m'):
         if tid:
             return f' AND {alias}.team_id = ?', (tid,)
     return '', ()
+
+
+def _chat_erlaubt():
+    """True wenn die aktuell eingeloggte Rolle grundsätzlich am Chat teilnehmen darf.
+    Bewusste Design-Entscheidung: nur Rep und VKL, kein Admin (portiert aus Arco fce3e9f)."""
+    return session.get('rolle') in ('rep', 'verkaufsleiter')
+
+
+def _chat_kontakt_ids():
+    """IDs aller Mitarbeiter, mit denen der aktuell eingeloggte Nutzer chatten darf –
+    reiner 1:1-Chat, kein Gruppenchat. Nutzt dasselbe Team-Scoping-Muster wie
+    _team_m_clause()/_team_ma_clause(): ein VKL mit Team sieht nur sein Team, ein VKL
+    OHNE Team sieht/erreicht alle Mitarbeiter. VKL können zusätzlich untereinander
+    schreiben. Admin ist kein gültiger Kontakt."""
+    rolle = session.get('rolle')
+    uid = session.get('user_id')
+    if rolle == 'verkaufsleiter':
+        tid = session.get('team_id')
+        if tid:
+            reps = query("SELECT id FROM mitarbeiter WHERE rolle='rep' AND team_id=?", (tid,))
+        else:
+            reps = query("SELECT id FROM mitarbeiter WHERE rolle='rep'")
+        vkls = query("SELECT id FROM mitarbeiter WHERE rolle='verkaufsleiter' AND id != ?", (uid,))
+        return {r['id'] for r in reps} | {r['id'] for r in vkls}
+    if rolle == 'rep':
+        tid = session.get('team_id')
+        vkls = query(
+            "SELECT id FROM mitarbeiter WHERE rolle='verkaufsleiter' AND (team_id IS NULL OR team_id=?)",
+            (tid,))
+        return {r['id'] for r in vkls}
+    return set()
 
 
 def _vertretung_entscheidbar_clause(v_alias='v', m_alias='m'):
@@ -10670,6 +10726,25 @@ def _produktbild_speichern(datei, alt_pfad: str | None = None) -> tuple[str | No
     return dateiname, None
 
 
+def _chat_foto_speichern(datei):
+    """Speichert einen Chat-Fotoanhang komprimiert unter UPLOAD_FOLDER, analog
+    _produktbild_speichern() (portiert aus Arco fce3e9f). Gibt (dateiname, fehler) zurück;
+    (None, None) wenn gar keine Datei geschickt wurde. Gleiche Auflösung wie Aktivitätsfotos
+    (1200px) – anders als das reine Vorschaubild bei Produkten kann hier auch mal ein
+    Beleg/Etikett scharf lesbar sein müssen."""
+    if not (datei and datei.filename):
+        return None, None
+    if not allowed_file(datei.filename):
+        return None, 'Nur Bilddateien erlaubt.'
+    dateiname = f"chat_{uuid.uuid4().hex}.jpg"
+    try:
+        komprimiere_foto(datei, os.path.join(UPLOAD_FOLDER, dateiname), max_px=1200, qualitaet=75)
+    except Exception as exc:
+        app.logger.warning(f"Chat-Foto-Upload abgelehnt (keine gültige Bilddatei): {exc}")
+        return None, 'Foto konnte nicht gelesen werden – bitte anderes Bild wählen.'
+    return dateiname, None
+
+
 def _verpackungsebenen_speichern(b_id: int) -> str | None:
     """Übernimmt die Verpackungsebenen (Kiste, 6er, Flasche …) einer Biersorte aus dem
     Formular (von Arco portiert). Gibt eine Fehlermeldung zurück oder None.
@@ -12094,6 +12169,17 @@ def serve_upload(filename):
              "UNION ALL SELECT 1 FROM biersorte_gtin WHERE bild_pfad=?",
              (filename, filename), one=True):
         return send_from_directory(UPLOAD_FOLDER, filename)
+    chat_msg = query(
+        "SELECT von_mitarbeiter_id, an_mitarbeiter_id FROM chat_nachricht WHERE foto_pfad=?",
+        (filename,), one=True
+    )
+    if chat_msg:
+        # Chat-Fotos sind nur für die beiden Gesprächsteilnehmer sichtbar, nicht wie
+        # Aktivitätsfotos zusätzlich für Team/Admin – ein Chat ist bewusst 1:1 privat.
+        uid = session.get('user_id')
+        if uid not in (chat_msg['von_mitarbeiter_id'], chat_msg['an_mitarbeiter_id']):
+            abort(403)
+        return send_from_directory(UPLOAD_FOLDER, filename)
     akt = query(
         "SELECT mitarbeiter_id FROM aktivitaet WHERE foto_pfad=? OR foto_pfad_2=? OR foto_pfad_3=?",
         (filename, filename, filename), one=True
@@ -12117,6 +12203,116 @@ def serve_upload(filename):
             if akt['mitarbeiter_id'] != session.get('user_id'):
                 abort(403)
     return send_from_directory(UPLOAD_FOLDER, filename)
+
+
+# ─── Chat (VKL ↔ Mitarbeiter, VKL ↔ VKL) ──────────────────────────────────────
+# 1:1 nur, kein Gruppenchat, Admin nimmt bewusst nicht teil (siehe _chat_erlaubt()/
+# _chat_kontakt_ids() bei den Team-Scoping-Helfern). Client pollt periodisch statt
+# WebSocket – bei der aktuellen Nutzerzahl unproblematisch, kein neuer Infrastruktur-
+# Bedarf. Portiert aus Arco (Commit fce3e9f).
+
+@app.route('/chat')
+@login_required
+def chat():
+    if not _chat_erlaubt():
+        flash('Chat ist für diese Rolle nicht verfügbar.', 'danger')
+        return redirect(url_for('dashboard'))
+    return render_template('chat.html')
+
+
+@app.route('/api/chat/kontakte')
+@login_required
+def api_chat_kontakte():
+    if not _chat_erlaubt():
+        abort(403)
+    uid = session['user_id']
+    ids = _chat_kontakt_ids()
+    if not ids:
+        return jsonify([])
+    platzhalter = ','.join('?' * len(ids))
+    kontakte = query(
+        f"SELECT id, name, rolle FROM mitarbeiter WHERE id IN ({platzhalter}) ORDER BY name",
+        tuple(ids)
+    )
+    ergebnis = []
+    for k in kontakte:
+        letzte = query('''
+            SELECT text, foto_pfad, erstellt_am
+            FROM chat_nachricht
+            WHERE (von_mitarbeiter_id=? AND an_mitarbeiter_id=?)
+               OR (von_mitarbeiter_id=? AND an_mitarbeiter_id=?)
+            ORDER BY erstellt_am DESC, id DESC LIMIT 1
+        ''', (uid, k['id'], k['id'], uid), one=True)
+        ungelesen = query(
+            "SELECT COUNT(*) AS n FROM chat_nachricht WHERE von_mitarbeiter_id=? AND an_mitarbeiter_id=? AND gelesen=0",
+            (k['id'], uid), one=True
+        )
+        preview = None
+        if letzte:
+            preview = letzte['text'] if letzte['text'] else ('📷 Foto' if letzte['foto_pfad'] else None)
+        ergebnis.append({
+            'id': k['id'], 'name': k['name'], 'rolle': k['rolle'],
+            'preview': preview,
+            'letzte_zeit': letzte['erstellt_am'] if letzte else None,
+            'ungelesen': ungelesen['n'] if ungelesen else 0
+        })
+    mit_verlauf = sorted([r for r in ergebnis if r['letzte_zeit']], key=lambda r: r['letzte_zeit'], reverse=True)
+    ohne_verlauf = sorted([r for r in ergebnis if not r['letzte_zeit']], key=lambda r: r['name'])
+    return jsonify(mit_verlauf + ohne_verlauf)
+
+
+@app.route('/api/chat/verlauf/<int:partner_id>')
+@login_required
+def api_chat_verlauf(partner_id):
+    if not _chat_erlaubt():
+        abort(403)
+    uid = session['user_id']
+    if partner_id not in _chat_kontakt_ids():
+        abort(403)
+    nachrichten = query('''
+        SELECT id, von_mitarbeiter_id, text, foto_pfad, erstellt_am
+        FROM chat_nachricht
+        WHERE (von_mitarbeiter_id=? AND an_mitarbeiter_id=?)
+           OR (von_mitarbeiter_id=? AND an_mitarbeiter_id=?)
+        ORDER BY erstellt_am ASC, id ASC
+    ''', (uid, partner_id, partner_id, uid))
+    # Nachrichten VOM Partner AN mich beim Öffnen als gelesen markieren.
+    execute(
+        "UPDATE chat_nachricht SET gelesen=1 WHERE von_mitarbeiter_id=? AND an_mitarbeiter_id=? AND gelesen=0",
+        (partner_id, uid)
+    )
+    return jsonify([{
+        'id': n['id'], 'von_mich': n['von_mitarbeiter_id'] == uid,
+        'text': n['text'], 'foto_pfad': n['foto_pfad'], 'erstellt_am': n['erstellt_am']
+    } for n in nachrichten])
+
+
+@app.route('/api/chat/senden', methods=['POST'])
+@login_required
+def api_chat_senden():
+    if not _chat_erlaubt():
+        abort(403)
+    uid = session['user_id']
+    partner_id = request.form.get('partner_id', type=int)
+    if not partner_id or partner_id not in _chat_kontakt_ids():
+        abort(403)
+    text = (request.form.get('text') or '').strip()
+    if len(text) > 2000:
+        return jsonify({'error': 'Nachricht zu lang (max. 2000 Zeichen).'}), 400
+    dateiname, fehler = _chat_foto_speichern(request.files.get('foto'))
+    if fehler:
+        return jsonify({'error': fehler}), 400
+    if not text and not dateiname:
+        return jsonify({'error': 'Nachricht ist leer.'}), 400
+    neue_id = execute(
+        "INSERT INTO chat_nachricht (von_mitarbeiter_id, an_mitarbeiter_id, text, foto_pfad) VALUES (?, ?, ?, ?)",
+        (uid, partner_id, text or None, dateiname)
+    )
+    zeile = query("SELECT erstellt_am FROM chat_nachricht WHERE id=?", (neue_id,), one=True)
+    return jsonify({
+        'id': neue_id, 'von_mich': True, 'text': text or None,
+        'foto_pfad': dateiname, 'erstellt_am': zeile['erstellt_am']
+    })
 
 
 # ─── API: Autocomplete ────────────────────────────────────────────────────────

@@ -1,0 +1,328 @@
+{% extends 'base.html' %}
+{% block title %}Chat – {{ company_short }} – Aktions Tracker{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1><i class="bi bi-chat-dots me-2"></i>Chat</h1>
+  <p>Direktnachrichten zwischen Verkaufsleitern und Mitarbeitern – 1:1, kein Gruppenchat.</p>
+</div>
+
+<style>
+  .chat-card { border-radius: .75rem; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,.08); background: #fff; }
+  .chat-layout { display: grid; grid-template-columns: 280px 1fr; height: calc(100vh - 260px); min-height: 440px; }
+
+  .chat-contacts { border-right: 1px solid #dee2e6; display: flex; flex-direction: column; overflow: hidden; }
+  .chat-contacts-search { padding: .65rem; border-bottom: 1px solid #dee2e6; flex-shrink: 0; }
+  .chat-contacts-list { overflow-y: auto; flex: 1; }
+  .chat-contacts-section {
+    font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
+    color: #97a2b1; padding: .7rem 1rem .3rem;
+  }
+  .chat-contact-row {
+    display: flex; align-items: center; gap: .6rem; padding: .55rem 1rem; cursor: pointer;
+    border-left: 3px solid transparent; text-decoration: none; color: inherit;
+  }
+  .chat-contact-row:hover { background: var(--brand-light); }
+  .chat-contact-row.active { background: var(--brand-light); border-left-color: var(--brand-gold); }
+  .chat-contact-row .cc-avatar {
+    width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0; color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: .78rem; font-weight: 700;
+    background: var(--brand-mid);
+  }
+  .chat-contact-row .cc-meta { min-width: 0; flex: 1; }
+  .chat-contact-row .cc-name-row { display: flex; justify-content: space-between; gap: .4rem; align-items: baseline; }
+  .chat-contact-row .cc-name { font-size: .87rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-contact-row .cc-time { font-size: .68rem; color: #97a2b1; flex-shrink: 0; }
+  .chat-contact-row .cc-preview-row { display: flex; justify-content: space-between; gap: .4rem; }
+  .chat-contact-row .cc-preview { font-size: .78rem; color: #6b7789; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-contact-row .cc-preview.empty { font-style: italic; color: #97a2b1; }
+  .chat-unread-dot {
+    background: #e74c3c; color: #fff; font-size: .65rem; font-weight: 700; border-radius: 1rem;
+    min-width: 17px; height: 17px; padding: 0 .35rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+
+  .chat-thread { display: flex; flex-direction: column; background: #f4f6fa; min-width: 0; }
+  .chat-thread-header { display: flex; align-items: center; gap: .6rem; padding: .75rem 1.1rem; border-bottom: 1px solid #dee2e6; background: #fff; flex-shrink: 0; }
+  .chat-thread-header .ct-avatar {
+    width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: .74rem; font-weight: 700; color: #fff; background: var(--brand-mid); flex-shrink: 0;
+  }
+  .chat-thread-header .ct-name { font-size: .92rem; font-weight: 700; color: var(--brand-dark); }
+  .chat-thread-header .ct-role { font-size: .72rem; color: #6b7789; }
+  .chat-back-btn { display: none; border: none; background: none; font-size: 1.2rem; color: var(--brand-dark); padding: 0 .3rem 0 0; }
+
+  .chat-thread-body { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: .5rem; }
+  .chat-bubble-row { display: flex; }
+  .chat-bubble-row.own { justify-content: flex-end; }
+  .chat-bubble {
+    max-width: 72%; padding: .5rem .75rem; border-radius: .85rem; font-size: .87rem; line-height: 1.42;
+    box-shadow: 0 1px 4px rgba(0,0,0,.06); word-wrap: break-word; white-space: pre-wrap;
+  }
+  .chat-bubble-row.other .chat-bubble { background: var(--brand-light); color: var(--brand-dark); border-bottom-left-radius: .2rem; }
+  .chat-bubble-row.own .chat-bubble { background: linear-gradient(135deg, var(--brand-dark), var(--brand-mid)); color: #fff; border-bottom-right-radius: .2rem; }
+  .chat-bubble .cb-stamp { display: block; font-size: .65rem; margin-top: .25rem; opacity: .7; text-align: right; }
+  .chat-bubble.photo { padding: .35rem; }
+  .chat-bubble.photo img { display: block; max-width: 220px; max-height: 220px; border-radius: .55rem; }
+  .chat-bubble.photo .cb-cap { padding: .35rem .3rem 0; }
+  .chat-bubble.photo .cb-stamp { padding: 0 .3rem .1rem; }
+
+  .chat-thread-input { display: flex; align-items: center; gap: .5rem; padding: .65rem .85rem; border-top: 1px solid #dee2e6; background: #fff; flex-shrink: 0; }
+  .chat-icon-btn {
+    width: 36px; height: 36px; border-radius: 50%; border: 1px solid #dee2e6; background: var(--brand-light);
+    color: var(--brand-mid); display: flex; align-items: center; justify-content: center; flex-shrink: 0; cursor: pointer;
+  }
+  .chat-icon-btn:hover { border-color: var(--brand-mid); }
+  .chat-thread-input input[type=text] { flex: 1; border-radius: 1.4rem; }
+  .chat-send-btn {
+    width: 38px; height: 38px; border-radius: 50%; border: none; flex-shrink: 0;
+    background: linear-gradient(135deg, var(--brand-dark), var(--brand-mid)); color: #fff;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+  }
+  .chat-send-btn:disabled { opacity: .5; cursor: default; }
+  .chat-foto-preview { display: none; align-items: center; gap: .4rem; padding: 0 .85rem .5rem; }
+  .chat-foto-preview img { width: 44px; height: 44px; object-fit: cover; border-radius: .4rem; }
+  .chat-foto-preview button { border: none; background: none; color: #c0392b; font-size: .8rem; }
+
+  .chat-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .5rem; color: #97a2b1; padding: 2rem; text-align: center; }
+
+  @media (max-width: 767.98px) {
+    .chat-layout { grid-template-columns: 1fr; height: calc(100vh - 230px); }
+    .chat-contacts { display: flex; }
+    .chat-thread { display: none; }
+    .chat-layout.showing-thread .chat-contacts { display: none; }
+    .chat-layout.showing-thread .chat-thread { display: flex; }
+    .chat-back-btn { display: inline-block; }
+  }
+</style>
+
+<div class="chat-card">
+  <div class="chat-layout" id="chatLayout">
+    <div class="chat-contacts">
+      <div class="chat-contacts-search">
+        <input type="text" id="chatSuche" class="form-control form-control-sm" placeholder="Kontakt suchen…">
+      </div>
+      <div class="chat-contacts-list" id="chatContactsList">
+        <div class="p-3 text-muted small">Lade Kontakte…</div>
+      </div>
+    </div>
+    <div class="chat-thread" id="chatThread">
+      <div class="chat-empty">
+        <i class="bi bi-chat-dots" style="font-size:2.5rem;opacity:.5"></i>
+        <p>Kontakt auswählen, um eine Unterhaltung zu öffnen.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var meineId = {{ session.user_id }};
+  var alleKontakte = [];
+  var aktiverPartner = null;
+  var pollTimer = null;
+  var ausgewaehlteFoto = null;
+
+  var listEl = document.getElementById('chatContactsList');
+  var threadEl = document.getElementById('chatThread');
+  var layoutEl = document.getElementById('chatLayout');
+  var sucheEl = document.getElementById('chatSuche');
+
+  function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+
+  function initialen(name) {
+    var teile = (name || '?').trim().split(/\s+/);
+    return ((teile[0] || '')[0] || '') .toUpperCase() + ((teile[1] || '')[0] || '').toUpperCase();
+  }
+
+  function zeitKurz(iso) {
+    if (!iso) return '';
+    var d = new Date(iso.replace(' ', 'T'));
+    if (isNaN(d)) return '';
+    var heute = new Date();
+    var istHeute = d.toDateString() === heute.toDateString();
+    if (istHeute) return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+  }
+
+  function ladeKontakte(callback) {
+    fetch('/api/chat/kontakte').then(function (r) { return r.json(); }).then(function (data) {
+      alleKontakte = data;
+      renderKontakte();
+      if (callback) callback();
+    }).catch(function () {
+      listEl.innerHTML = '<div class="p-3 text-muted small">Kontakte konnten nicht geladen werden.</div>';
+    });
+  }
+
+  function renderKontakte() {
+    var filter = (sucheEl.value || '').toLowerCase().trim();
+    var gefiltert = alleKontakte.filter(function (k) { return !filter || k.name.toLowerCase().indexOf(filter) !== -1; });
+    var vkl = gefiltert.filter(function (k) { return k.rolle === 'verkaufsleiter'; });
+    var reps = gefiltert.filter(function (k) { return k.rolle === 'rep'; });
+    var html = '';
+    if (vkl.length) html += kontaktGruppe('Verkaufsleiter', vkl);
+    if (reps.length) html += kontaktGruppe('Mitarbeiter', reps);
+    if (!vkl.length && !reps.length) html = '<div class="p-3 text-muted small">Keine Kontakte gefunden.</div>';
+    listEl.innerHTML = html;
+    listEl.querySelectorAll('.chat-contact-row').forEach(function (row) {
+      row.addEventListener('click', function () {
+        var id = parseInt(row.dataset.id, 10);
+        var kontakt = alleKontakte.filter(function (k) { return k.id === id; })[0];
+        oeffneUnterhaltung(kontakt);
+      });
+    });
+  }
+
+  function kontaktGruppe(label, liste) {
+    var html = '<div class="chat-contacts-section">' + esc(label) + '</div>';
+    liste.forEach(function (k) {
+      var aktiv = aktiverPartner && aktiverPartner.id === k.id;
+      html += '<div class="chat-contact-row' + (aktiv ? ' active' : '') + '" data-id="' + k.id + '">'
+        + '<div class="cc-avatar">' + esc(initialen(k.name)) + '</div>'
+        + '<div class="cc-meta">'
+        + '<div class="cc-name-row"><span class="cc-name">' + esc(k.name) + '</span>'
+        + (k.letzte_zeit ? '<span class="cc-time">' + zeitKurz(k.letzte_zeit) + '</span>' : '') + '</div>'
+        + '<div class="cc-preview-row"><span class="cc-preview' + (k.preview ? '' : ' empty') + '">'
+        + (k.preview ? esc(k.preview) : 'Noch keine Nachrichten') + '</span>'
+        + (k.ungelesen ? '<span class="chat-unread-dot">' + k.ungelesen + '</span>' : '')
+        + '</div></div></div>';
+    });
+    return html;
+  }
+
+  function oeffneUnterhaltung(kontakt) {
+    aktiverPartner = kontakt;
+    layoutEl.classList.add('showing-thread');
+    renderKontakte();
+    ladeVerlauf(true);
+  }
+
+  function ladeVerlauf(scrollen) {
+    if (!aktiverPartner) return;
+    fetch('/api/chat/verlauf/' + aktiverPartner.id).then(function (r) { return r.json(); }).then(function (nachrichten) {
+      renderThread(nachrichten, scrollen);
+      // Badges (Navbar + Kontaktliste) können sich durch das Lesen geändert haben.
+      ladeKontakte();
+      aktualisiereNavbarBadge();
+    });
+  }
+
+  function renderThread(nachrichten, scrollen) {
+    var k = aktiverPartner;
+    var body = '';
+    nachrichten.forEach(function (n) {
+      body += '<div class="chat-bubble-row ' + (n.von_mich ? 'own' : 'other') + '">';
+      if (n.foto_pfad) {
+        body += '<div class="chat-bubble photo">'
+          + '<img src="/uploads/' + encodeURIComponent(n.foto_pfad) + '" alt="Foto">'
+          + (n.text ? '<div class="cb-cap">' + esc(n.text) + '</div>' : '')
+          + '<span class="cb-stamp">' + zeitKurz(n.erstellt_am) + '</span></div>';
+      } else {
+        body += '<div class="chat-bubble">' + esc(n.text) + '<span class="cb-stamp">' + zeitKurz(n.erstellt_am) + '</span></div>';
+      }
+      body += '</div>';
+    });
+    if (!nachrichten.length) {
+      body = '<div class="chat-empty"><i class="bi bi-chat-heart" style="font-size:2rem;opacity:.5"></i>'
+        + '<p>Noch keine Nachrichten mit ' + esc(k.name) + '. Schreib die erste!</p></div>';
+    }
+
+    threadEl.innerHTML =
+      '<div class="chat-thread-header">'
+      + '<button type="button" class="chat-back-btn" id="chatBack"><i class="bi bi-arrow-left"></i></button>'
+      + '<div class="ct-avatar">' + esc(initialen(k.name)) + '</div>'
+      + '<div><div class="ct-name">' + esc(k.name) + '</div><div class="ct-role">'
+      + (k.rolle === 'verkaufsleiter' ? 'Verkaufsleiter' : 'Außendienst') + '</div></div>'
+      + '</div>'
+      + '<div class="chat-thread-body" id="chatThreadBody">' + body + '</div>'
+      + '<div class="chat-foto-preview" id="chatFotoPreview"></div>'
+      + '<div class="chat-thread-input">'
+      + '<button type="button" class="chat-icon-btn" id="chatFotoBtn" title="Foto anhängen"><i class="bi bi-camera"></i></button>'
+      + '<input type="file" id="chatFotoInput" accept="image/*" style="display:none">'
+      + '<input type="text" id="chatTextInput" class="form-control" placeholder="Nachricht an ' + esc(k.name.split(' ')[0]) + '…" maxlength="2000">'
+      + '<button type="button" class="chat-send-btn" id="chatSendBtn" title="Senden"><i class="bi bi-send"></i></button>'
+      + '</div>';
+
+    document.getElementById('chatBack').addEventListener('click', function () {
+      layoutEl.classList.remove('showing-thread');
+    });
+    document.getElementById('chatFotoBtn').addEventListener('click', function () {
+      document.getElementById('chatFotoInput').click();
+    });
+    document.getElementById('chatFotoInput').addEventListener('change', function (e) {
+      ausgewaehlteFoto = e.target.files[0] || null;
+      var preview = document.getElementById('chatFotoPreview');
+      if (ausgewaehlteFoto) {
+        preview.style.display = 'flex';
+        preview.innerHTML = '<img src="' + URL.createObjectURL(ausgewaehlteFoto) + '">'
+          + '<span class="small text-muted">' + esc(ausgewaehlteFoto.name) + '</span>'
+          + '<button type="button" id="chatFotoEntfernen"><i class="bi bi-x-circle"></i></button>';
+        document.getElementById('chatFotoEntfernen').addEventListener('click', function () {
+          ausgewaehlteFoto = null;
+          document.getElementById('chatFotoInput').value = '';
+          preview.style.display = 'none';
+          preview.innerHTML = '';
+        });
+      }
+    });
+    var textInput = document.getElementById('chatTextInput');
+    textInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); senden(); }
+    });
+    document.getElementById('chatSendBtn').addEventListener('click', senden);
+
+    if (scrollen) {
+      var bodyEl = document.getElementById('chatThreadBody');
+      bodyEl.scrollTop = bodyEl.scrollHeight;
+    }
+  }
+
+  function senden() {
+    var textInput = document.getElementById('chatTextInput');
+    var text = (textInput.value || '').trim();
+    if (!text && !ausgewaehlteFoto) return;
+    var sendBtn = document.getElementById('chatSendBtn');
+    sendBtn.disabled = true;
+
+    var formData = new FormData();
+    formData.append('partner_id', aktiverPartner.id);
+    formData.append('text', text);
+    if (ausgewaehlteFoto) formData.append('foto', ausgewaehlteFoto);
+
+    fetch('/api/chat/senden', { method: 'POST', body: formData })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        sendBtn.disabled = false;
+        if (res.error) { alert(res.error); return; }
+        textInput.value = '';
+        ausgewaehlteFoto = null;
+        var preview = document.getElementById('chatFotoPreview');
+        if (preview) { preview.style.display = 'none'; preview.innerHTML = ''; }
+        ladeVerlauf(true);
+      })
+      .catch(function () { sendBtn.disabled = false; alert('Nachricht konnte nicht gesendet werden.'); });
+  }
+
+  function aktualisiereNavbarBadge() {
+    var gesamt = alleKontakte.reduce(function (sum, k) { return sum + (k.ungelesen || 0); }, 0);
+    document.querySelectorAll('.chat-navbadge').forEach(function (el) {
+      el.textContent = gesamt;
+      el.style.display = gesamt ? '' : 'none';
+    });
+  }
+
+  sucheEl.addEventListener('input', renderKontakte);
+
+  ladeKontakte();
+  // Leichtes Polling statt WebSocket – reicht bei der aktuellen Nutzerzahl für ein
+  // Gefühl von "fast live", ohne neue Infrastruktur.
+  pollTimer = setInterval(function () {
+    ladeKontakte();
+    if (aktiverPartner) ladeVerlauf(false);
+  }, 6000);
+  window.addEventListener('beforeunload', function () { clearInterval(pollTimer); });
+})();
+</script>
+{% endblock %}
