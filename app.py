@@ -2945,6 +2945,7 @@ def _monatsraster(jahr, monat, counts):
             woche.append({
                 'datum': iso, 'tag': cur.day, 'other_month': cur.month != monat,
                 'punkte': min(counts.get(iso, 0), 3), 'is_today': iso == heute,
+                'woche_montag': (cur - timedelta(days=cur.weekday())).isoformat(),
             })
             cur += timedelta(days=1)
         wochen.append(woche)
@@ -4843,6 +4844,35 @@ def dashboard():
     for _j in {tp_woche_montag.year, tp_woche_sonntag.year}:
         _feiertage_rep |= _feiertage_set(_j, _bundesland_rep)
     feiertage_woche_rep = {d for d in datum_woche_rep if d in _feiertage_rep}
+
+    # Monatsplan-Tab (Nachtrag zu b8a3d00: Monatsübersicht auch im eigenen
+    # Wochenplan-Tab, nicht nur bei VKL/Admin in der Tourenplanung). Zeigt NUR die
+    # eigenen Termine (rein persönliche Ansicht, kein Team-Scope). Eigener mp_*-
+    # Namensraum bewusst getrennt von der bestehenden monat_name-Variable oben
+    # (Monats-KPI-Widget, immer der aktuelle Monat) – hier ist der Monat navigierbar.
+    # Portiert von Arco c37c860.
+    _mp_monat_namen = ['Januar','Februar','März','April','Mai','Juni',
+                        'Juli','August','September','Oktober','November','Dezember']
+    _mp_str = request.args.get('mp', None)
+    try:
+        _mp_bezug_datum = date.fromisoformat(_mp_str + '-01') if _mp_str else _today
+    except ValueError:
+        _mp_bezug_datum = _today
+    mp_jahr, mp_monat = _mp_bezug_datum.year, _mp_bezug_datum.month
+    _mp_von = date(mp_jahr, mp_monat, 1)
+    _mp_naechster = date(mp_jahr + 1, 1, 1) if mp_monat == 12 else date(mp_jahr, mp_monat + 1, 1)
+    _mp_bis = _mp_naechster - timedelta(days=1)
+    _mp_rows = query(
+        "SELECT datum, COUNT(*) AS n FROM tagesplan WHERE mitarbeiter_id=? AND datum BETWEEN ? AND ? "
+        "AND COALESCE(geloescht,0)=0 GROUP BY datum",
+        (session['user_id'], _mp_von.isoformat(), _mp_bis.isoformat())
+    )
+    mp_wochen = _monatsraster(mp_jahr, mp_monat, {r['datum']: r['n'] for r in _mp_rows})
+    mp_name   = _mp_monat_namen[mp_monat - 1]
+    mp_bezug  = _mp_bezug_datum.strftime('%Y-%m')
+    mp_prev   = (date(mp_jahr, mp_monat, 1) - timedelta(days=1)).strftime('%Y-%m')
+    mp_next   = (date(mp_jahr + 1, 1, 1) if mp_monat == 12 else date(mp_jahr, mp_monat + 1, 1)).strftime('%Y-%m')
+
     # Eigener Besuchsplan: eigene Ansicht (Rep, oder VKL ohne ma_filter)
     if zeige_eigene_ansicht:
         tagesplan_rep = query('''
@@ -4957,6 +4987,8 @@ def dashboard():
         monat_name=monat_name,
         tagesplan_rep=tagesplan_rep,
         alle_verkaufsstellen_rep=alle_verkaufsstellen_rep,
+        mp_wochen=mp_wochen, mp_name=mp_name, mp_jahr=mp_jahr, mp_bezug=mp_bezug,
+        mp_prev=mp_prev, mp_next=mp_next,
         datum_woche_rep=datum_woche_rep,
         urlaub_woche_rep=urlaub_woche_rep,
         hotel_naechte_woche_rep=hotel_naechte_woche_rep,

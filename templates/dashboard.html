@@ -160,6 +160,12 @@
       <i class="bi bi-calendar-week me-1"></i>Wochenplan
     </button>
   </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-monatsplan-btn" data-bs-toggle="tab"
+            data-bs-target="#tab-monatsplan" type="button" role="tab">
+      <i class="bi bi-calendar3 me-1"></i>Monatsplan
+    </button>
+  </li>
 </ul>
 <script>
 // Tab per Hash aktivieren (nach KW-Navigation). Muss auf DOMContentLoaded warten:
@@ -175,6 +181,9 @@ document.addEventListener('DOMContentLoaded', function(){
     if (btn) { new bootstrap.Tab(btn).show(); }
   } else if (hash === '#tab-tagesplan-btn') {
     const btn = document.getElementById('tab-tagesplan-btn');
+    if (btn) { new bootstrap.Tab(btn).show(); }
+  } else if (hash === '#tab-monatsplan-btn') {
+    const btn = document.getElementById('tab-monatsplan-btn');
     if (btn) { new bootstrap.Tab(btn).show(); }
   }
 });
@@ -1889,6 +1898,38 @@ document.addEventListener('DOMContentLoaded', function(){
 {% endfor %}
 
 </div>{# /tab-wochenplan #}
+
+<!-- ── TAB 4: MONATSPLAN (Rep) ── -->
+<div class="tab-pane fade" id="tab-monatsplan" role="tabpanel">
+  <div class="card mb-3" style="max-width:380px">
+    <div class="cal-head">
+      <a href="{{ url_for('dashboard', mp=mp_prev) }}#tab-monatsplan-btn" class="cal-nav" style="text-decoration:none">&#8249;</a>
+      <span class="cal-month">{{ mp_name }} {{ mp_jahr }}</span>
+      <a href="{{ url_for('dashboard', mp=mp_next) }}#tab-monatsplan-btn" class="cal-nav" style="text-decoration:none">&#8250;</a>
+    </div>
+    <div class="cal-grid">
+      <div class="cal-weekdays">
+        {% for w in ['Mo','Di','Mi','Do','Fr','Sa','So'] %}<span>{{ w }}</span>{% endfor %}
+      </div>
+      <div class="cal-days">
+        {% for woche in mp_wochen %}{% for tag in woche %}
+        <a href="{{ url_for('dashboard', tp_woche=tag.woche_montag) }}#tab-wochenplan-btn"
+           class="cal-day{% if tag.other_month %} other-month{% endif %}{% if tag.is_today %} today{% endif %}"
+           style="text-decoration:none" title="Zur Wochenansicht dieses Tages">
+          <span>{{ tag.tag }}</span>
+          <div class="cal-dots">{% for _ in range(tag.punkte) %}<span></span>{% endfor %}</div>
+        </a>
+        {% endfor %}{% endfor %}
+      </div>
+    </div>
+    <div class="cal-legend">
+      <span class="lg-item"><span class="cal-dots"><span></span></span> 1 Termin</span>
+      <span class="lg-item"><span class="cal-dots"><span></span><span></span></span> 2 Termine</span>
+      <span class="lg-item"><span class="cal-dots"><span></span><span></span><span></span></span> 3+ Termine</span>
+    </div>
+  </div>
+  <p class="text-muted small">Auf einen Tag klicken öffnet die Wochenansicht dieses Tages.</p>
+</div>{# /tab-monatsplan #}
 
 </div>{# /tab-content #}
 {% endif %}{# /touren_modus rep tabs #}
