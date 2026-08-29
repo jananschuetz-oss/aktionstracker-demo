@@ -92,7 +92,7 @@
             </button>
             {% if session.rolle in ('rep', 'verkaufsleiter') %}
             <button type="button" class="btn btn-outline-secondary btn-sm"
-                    onclick="AktTeilen.oeffnen({url: '{{ url_for('aktivitaeten_liste', jahr=a.datum[:4], _external=True) }}#aktivitaet-{{ a.id }}', titel: '{{ (a.verkaufsstelle ~ ', ' ~ a.datum) | e }}'})"
+                    onclick='AktTeilen.oeffnen({url: {{ (url_for('aktivitaeten_liste', jahr=a.datum[:4], _external=True) ~ '#aktivitaet-' ~ a.id) | tojson }}, titel: {{ (a.verkaufsstelle ~ ', ' ~ a.datum) | tojson }}})'
                     title="Diese Aktivität teilen">
               <i class="bi bi-share"></i>
             </button>

@@ -130,6 +130,14 @@
   var sucheEl = document.getElementById('chatSuche');
 
   function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+  // esc() escaped nur, was in einem HTML-Textknoten nötig ist (&, <, >) - NICHT
+  // Anführungszeichen, weil die dort keine Sonderbedeutung haben. Für Werte, die in ein
+  // HTML-Attribut (z.B. href="...") eingesetzt werden, reicht das nicht: ein Doppelt-
+  // /Einfaches Anführungszeichen im Wert würde das Attribut vorzeitig beenden und
+  // beliebige weitere Attribute (onmouseover= etc.) einschleusen (Sicherheits-Fix,
+  // von Arco 2e66b72 portiert). Für Attribut-Kontexte immer escAttr() statt esc()
+  // verwenden.
+  function escAttr(s) { return esc(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
 
   // Macht URLs in Nachrichtentext klickbar (für geteilte Links aus dem "Teilen"-
   // Baustein) – trennt am URL-Muster, escaped jedes Textstück einzeln, baut den
@@ -143,7 +151,7 @@
       if (i % 2 === 1) {
         var url = teil.replace(/[.,;:!?)\]]+$/, '');
         var rest = teil.slice(url.length);
-        html += '<a href="' + esc(url) + '" target="_blank" rel="noopener" style="text-decoration:underline;color:inherit">' + esc(url) + '</a>' + esc(rest);
+        html += '<a href="' + escAttr(url) + '" target="_blank" rel="noopener" style="text-decoration:underline;color:inherit">' + esc(url) + '</a>' + esc(rest);
       } else {
         html += esc(teil);
       }

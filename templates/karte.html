@@ -816,7 +816,7 @@ document.getElementById('btnSaveZuordnung').addEventListener('click', async func
       } else {
         zEl.innerHTML = alleReps
           .filter(r => repIds.includes(r.id))
-          .map(r => `<span class="badge" style="background:${repFarbe(r.id)}">${r.name}</span>`)
+          .map(r => `<span class="badge" style="background:${repFarbe(r.id)}">${escapeHtml(r.name)}</span>`)
           .join(' ');
       }
 

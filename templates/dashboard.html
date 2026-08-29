@@ -1718,7 +1718,7 @@ document.addEventListener('DOMContentLoaded', function(){
               <i class="bi bi-clock-history me-1"></i>Verlauf
             </button>
             <button type="button" class="btn btn-sm btn-outline-secondary"
-                    onclick="AktTeilen.oeffnen({url: '{{ url_for('verkaufsstelle_historie', vs_id=stop.vs_id, _external=True) }}', titel: '{{ (stop.station ~ ', ' ~ stop.datum) | e }}'})"
+                    onclick='AktTeilen.oeffnen({url: {{ url_for('verkaufsstelle_historie', vs_id=stop.vs_id, _external=True) | tojson }}, titel: {{ (stop.station ~ ', ' ~ stop.datum) | tojson }}})'
                     style="font-size:.78rem;padding:5px 10px" title="Diesen Stopp teilen">
               <i class="bi bi-share"></i>
             </button>
@@ -1734,7 +1734,7 @@ document.addEventListener('DOMContentLoaded', function(){
           </button>
           <!-- Teilen (Desktop; auf Mobile steht der Button oberhalb bei der Station) -->
           <button type="button" class="btn btn-sm btn-outline-secondary d-none d-sm-inline-flex align-items-center gap-1"
-                  onclick="AktTeilen.oeffnen({url: '{{ url_for('verkaufsstelle_historie', vs_id=stop.vs_id, _external=True) }}', titel: '{{ (stop.station ~ ', ' ~ stop.datum) | e }}'})"
+                  onclick='AktTeilen.oeffnen({url: {{ url_for('verkaufsstelle_historie', vs_id=stop.vs_id, _external=True) | tojson }}, titel: {{ (stop.station ~ ', ' ~ stop.datum) | tojson }}})'
                   style="font-size:.78rem;padding:4px 9px" title="Diesen Stopp teilen">
             <i class="bi bi-share"></i>
           </button>
@@ -1865,7 +1865,7 @@ document.addEventListener('DOMContentLoaded', function(){
             <i class="bi bi-pencil"></i>
           </button>
           <button type="button" class="btn btn-sm btn-outline-secondary flex-shrink-0"
-                  onclick="AktTeilen.oeffnen({url: '{{ url_for('verkaufsstelle_historie', vs_id=stop.vs_id, _external=True) }}', titel: '{{ (stop.station ~ ', ' ~ d) | e }}'})"
+                  onclick='AktTeilen.oeffnen({url: {{ url_for('verkaufsstelle_historie', vs_id=stop.vs_id, _external=True) | tojson }}, titel: {{ (stop.station ~ ', ' ~ d) | tojson }}})'
                   style="font-size:.72rem;padding:2px 7px" title="Diesen Stopp teilen">
             <i class="bi bi-share"></i>
           </button>

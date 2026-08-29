@@ -68,7 +68,7 @@
           <div class="col-auto d-flex gap-1">
             {% if session.rolle == 'verkaufsleiter' %}
             <button type="button" class="btn btn-outline-secondary btn-sm"
-                    onclick="AktTeilen.oeffnen({url: '{{ url_for('aufbauten_freigabe', _external=True) }}#freigabe-{{ p.dp_id }}', titel: '{{ (p.ds_name ~ ' – ' ~ p.vs_name ~ ' (' ~ p.mitarbeiter_name ~ ', ' ~ p.datum ~ ')') | e }}'})"
+                    onclick='AktTeilen.oeffnen({url: {{ (url_for('aufbauten_freigabe', _external=True) ~ '#freigabe-' ~ p.dp_id) | tojson }}, titel: {{ (p.ds_name ~ ' – ' ~ p.vs_name ~ ' (' ~ p.mitarbeiter_name ~ ', ' ~ p.datum ~ ')') | tojson }}})'
                     title="Diese Freigabe teilen">
               <i class="bi bi-share"></i>
             </button>

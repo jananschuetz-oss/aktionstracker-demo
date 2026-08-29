@@ -82,7 +82,7 @@
           </button>
           {% if session.rolle in ('rep', 'verkaufsleiter') %}
           <button type="button" class="btn btn-sm btn-outline-secondary flex-shrink-0"
-                  onclick="AktTeilen.oeffnen({url: '{{ url_for('verkaufsstelle_historie', vs_id=stop.vs_id, _external=True) }}', titel: '{{ (stop.station ~ ' – ' ~ stop.mitarbeiter ~ ', ' ~ stop.datum) | e }}'})"
+                  onclick='AktTeilen.oeffnen({url: {{ url_for('verkaufsstelle_historie', vs_id=stop.vs_id, _external=True) | tojson }}, titel: {{ (stop.station ~ ' – ' ~ stop.mitarbeiter ~ ', ' ~ stop.datum) | tojson }}})'
                   style="font-size:.75rem;padding:3px 8px" title="Diesen Stopp teilen">
             <i class="bi bi-share"></i>
           </button>

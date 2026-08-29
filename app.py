@@ -8802,8 +8802,8 @@ def _build_vs_stammdaten_excel(team_id=None) -> bytes:
             v['typ'],
             _excel_formel_sicher(v['strasse']),
             v['plz'],
-            v['ort'],
-            v['landkreis'],
+            _excel_formel_sicher(v['ort']),
+            _excel_formel_sicher(v['landkreis']),
             v['kundennummer'],
             _excel_formel_sicher(v['lieferant']),
             _excel_formel_sicher(v['ansprechpartner']),
@@ -10037,6 +10037,15 @@ def admin_vertretung_neu():
         if not ma or ma['team_id'] != session.get('team_id'):
             flash('Keine Berechtigung für diesen Mitarbeiter.', 'danger')
             return redirect(_redir)
+        # Sicherheits-Nachtrag (von Arco 2e66b72 portiert): vertreter_id war bisher
+        # ungeprüft – ein VKL konnte als Vertretung einen beliebigen fremden Mitarbeiter
+        # eintragen, der dadurch Zugriff auf die Aktivitäten des eigenen Teammitglieds
+        # bekäme. Gleicher Check wie oben für abwesender_id, nur für vertreter_id.
+        if vertreter_id:
+            vma = query("SELECT team_id FROM mitarbeiter WHERE id=?", (vertreter_id,), one=True)
+            if not vma or vma['team_id'] != session.get('team_id'):
+                flash('Keine Berechtigung für diesen Vertreter.', 'danger')
+                return redirect(_redir)
     execute(
         "INSERT INTO vertretung (abwesender_id, vertreter_id, von, bis, status, typ, grund, erstellt_am, "
         "hotel_name_adresse, hotel_kosten_pro_nacht) VALUES (?,?,?,?,'bestätigt',?,?,?,?,?)",
@@ -12344,6 +12353,19 @@ def team_vergleich():
 def service_worker():
     from flask import send_from_directory
     return send_from_directory('static', 'sw.js', mimetype='application/javascript')
+
+
+@app.route('/static/uploads/<path:filename>')
+def uploaded_file_static_bypass_block(filename):
+    """Sicherheits-Fix (von Arco 2e66b72 portiert): UPLOAD_FOLDER liegt per Default unter
+    static/uploads/ – Flask registriert für den gesamten static-Ordner automatisch die
+    eingebaute, komplett ungeschützte Route /static/<path:filename>. Ohne diese explizitere
+    (und damit höher priorisierte) Route wäre jede hochgeladene Datei (Aktivitäts-/Chat-/
+    Produktfotos) über /static/uploads/<dateiname> erreichbar gewesen, sobald der Dateiname
+    bekannt ist – komplett unter Umgehung der Zugriffsprüfung in serve_upload() unten
+    (Team-/Eigentümer-Scoping, Chat-Teilnehmer-Check, login_required). Erzwingt stattdessen
+    ausschließlich den Weg über /uploads/<filename>."""
+    abort(404)
 
 
 @app.route('/uploads/<path:filename>')
