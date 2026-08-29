@@ -50,7 +50,8 @@
           <div class="mb-3">
             <label class="form-label small fw-bold">Datum</label>
             <div class="d-flex gap-1">
-              <input type="date" name="datum" id="npDatum" class="form-control" value="{{ datum if modus == 'tag' else today_str }}" required>
+              <input type="date" name="datum" id="npDatum" class="form-control" value="{{ datum if modus == 'tag' else today_str }}" required readonly
+                     onclick="AktKalender.oeffnen({zielInput:'npDatum', mitarbeiterId: function(){ return document.getElementById('npMitarbeiter').value; }})">
               <button type="button" class="cal-icon-btn" title="Kalender mit Terminübersicht"
                       onclick="AktKalender.oeffnen({zielInput:'npDatum', mitarbeiterId: function(){ return document.getElementById('npMitarbeiter').value; }})">
                 <i class="bi bi-calendar3"></i>

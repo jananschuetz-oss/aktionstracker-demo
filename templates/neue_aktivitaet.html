@@ -598,7 +598,8 @@
       <div class="col-12 col-sm-5">
         <label class="form-label small mb-1">Datum</label>
         <div class="d-flex gap-1">
-          <input type="date" name="folge_datum" id="folgeDatum" class="form-control" min="{{ heute }}">
+          <input type="date" name="folge_datum" id="folgeDatum" class="form-control" min="{{ heute }}" readonly
+                 onclick="AktKalender.oeffnen({zielInput:'folgeDatum', minDatum:'{{ heute }}'})">
           <button type="button" class="cal-icon-btn" title="Kalender mit Terminübersicht"
                   onclick="AktKalender.oeffnen({zielInput:'folgeDatum', minDatum:'{{ heute }}'})">
             <i class="bi bi-calendar3"></i>

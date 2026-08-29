@@ -58,7 +58,8 @@
       {% endfor %}
       <input type="date" id="planungsDatumCustom"
              min="{{ today_str }}"
-             title="Eigenes Datum wählen"
+             title="Eigenes Datum wählen" readonly
+             onclick="AktKalender.oeffnen({zielInput:'planungsDatumCustom', minDatum:'{{ today_str }}'})"
              style="font-size:.78rem;padding:4px 8px;height:36px;border:1px solid #dee2e6;border-radius:.375rem;min-width:130px;cursor:pointer;color:#555">
       <button type="button" class="cal-icon-btn" style="width:36px;height:36px" title="Kalender mit Terminübersicht"
               onclick="AktKalender.oeffnen({zielInput:'planungsDatumCustom', minDatum:'{{ today_str }}'})">
