@@ -10404,6 +10404,18 @@ def profil_vertretung_neu():
     # Bestätigungsmail raus – weder an den VKL noch ans Lohnbüro/den Innendienst.
     # "Kein Arbeitstag" ist keine Abwesenheit im eigentlichen Sinn (kein Vertretungsbedarf,
     # keine Genehmigung nötig) – für jede Rolle direkt bestätigt (von Arco portiert).
+    # Sicherheits-Nachtrag 2026-08-29 (von Arco portiert, Commit 7eec47e): "Kein Arbeitstag"
+    # wird unten unconditional sofort bestätigt (keine Genehmigung nötig) - ohne
+    # Datumsschranke könnte das rückwirkend auf bereits geloggte Tage gesetzt werden.
+    # Nutzerwunsch: nur zukünftige Tage erlaubt.
+    if typ == 'kein_arbeitstag':
+        try:
+            if date.fromisoformat(von) < date.today():
+                flash('"Kein Arbeitstag" kann nur für die Zukunft eingetragen werden, nicht rückwirkend.', 'danger')
+                return redirect(request.referrer or url_for('dashboard'))
+        except ValueError:
+            flash('Ungültiges Datum.', 'danger')
+            return redirect(request.referrer or url_for('dashboard'))
     if typ == 'kein_arbeitstag':
         _status = 'bestätigt'
     else:
