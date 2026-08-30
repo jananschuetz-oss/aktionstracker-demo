@@ -166,7 +166,14 @@
 
   function zeitKurz(iso) {
     if (!iso) return '';
-    var d = new Date(iso.replace(' ', 'T'));
+    // chat_nachricht.erstellt_am kommt als SQLite CURRENT_TIMESTAMP in UTC aus der DB
+    // (Server läuft auf Railway in UTC) - das 'Z' markiert das für new Date() explizit als
+    // UTC, sonst interpretiert der Browser den Bindestrich-String als lokale Zeit und zeigt
+    // im Sommer (CEST) 2h / im Winter 1h zu frühe Uhrzeiten an (gleicher Bug wie bei
+    // Aktivitäten am 2026-07-31 gefunden und dort serverseitig gefixt - hier zentral im
+    // Client behoben, da zeitKurz() sowohl Bubble-Zeiten als auch die Kontaktlisten-
+    // Vorschau bedient).
+    var d = new Date(iso.replace(' ', 'T') + 'Z');
     if (isNaN(d)) return '';
     var heute = new Date();
     var istHeute = d.toDateString() === heute.toDateString();
