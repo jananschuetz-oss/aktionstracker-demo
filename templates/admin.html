@@ -144,6 +144,16 @@
                 </button>
                 {% if m.rolle != 'admin' and m.id != session.user_id %}
                 <form method="POST"
+                      action="{{ url_for('admin_mitarbeiter_konto_sperren', ma_id=m.id) }}"
+                      style="display:inline"
+                      onsubmit="return confirm({% if m.konto_gesperrt %}'Mitarbeiter „{{ m.name }}” wieder entsperren?'{% else %}'Mitarbeiter „{{ m.name }}” sperren?\n\nLogin ist danach nicht mehr möglich. Name/Daten bleiben vollständig erhalten (im Unterschied zu „Anonymisieren”) - passend für einen normalen Austritt. Jederzeit wieder entsperrbar.'{% endif %})">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-sm py-0 px-1 {% if m.konto_gesperrt %}btn-outline-warning{% else %}btn-outline-secondary{% endif %}"
+                          title="{% if m.konto_gesperrt %}Gesperrt - Klicken zum Entsperren{% else %}Konto sperren (z.B. bei Austritt){% endif %}">
+                    <i class="bi bi-{% if m.konto_gesperrt %}lock-fill{% else %}unlock{% endif %}"></i>
+                  </button>
+                </form>
+                <form method="POST"
                       action="{{ url_for('admin_mitarbeiter_loeschen', ma_id=m.id) }}"
                       style="display:inline"
                       onsubmit="return confirm('Mitarbeiter „{{ m.name }}" wirklich löschen?\n\nNur möglich wenn keine Aktivitäten vorhanden.')">

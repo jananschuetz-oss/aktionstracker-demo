@@ -9648,6 +9648,39 @@ def admin_mitarbeiter_loeschen(ma_id):
     return redirect(url_for('admin'))
 
 
+@app.route('/admin/mitarbeiter/<int:ma_id>/konto-sperren', methods=['POST'])
+@admin_required
+def admin_mitarbeiter_konto_sperren(ma_id):
+    """Leichtgewichtiger, umkehrbarer Account-Stopp für den Normalfall "Mitarbeiter
+    kündigt/scheidet aus" (Nutzerwunsch 2026-08-30) - im Unterschied zu
+    admin_mitarbeiter_anonymisieren() bleiben Name/E-Mail/Wohnort unangetastet, damit
+    historische Wochen-/Monatsberichte, Excel-Exports und Zielerreichungs-Auswertungen
+    weiterhin den echten Namen zeigen. Sperrt nur den Zugang (konto_gesperrt - dieselbe
+    Prüfung wie beim automatischen Fehlversuchs-Lockout, greift in login() VOR der
+    Passwortprüfung) und blendet den Mitarbeiter aus aktiven Listen/Zuordnungen aus
+    (aktiv=0). Togglebar - dieselbe Route sperrt und entsperrt wieder, je nach
+    aktuellem Zustand. Für die endgültige DSGVO-Löschanfrage weiterhin "Anonymisieren"
+    verwenden."""
+    ma = query("SELECT * FROM mitarbeiter WHERE id=?", (ma_id,), one=True)
+    if not ma:
+        flash('Mitarbeiter nicht gefunden.', 'danger')
+        return redirect(url_for('admin'))
+    if ma['rolle'] == 'admin':
+        flash('Admin-Konten können nicht gesperrt werden.', 'danger')
+        return redirect(url_for('admin'))
+    if ma_id == session.get('user_id'):
+        flash('Sie können sich nicht selbst sperren.', 'danger')
+        return redirect(url_for('admin'))
+    if ma['konto_gesperrt']:
+        execute("UPDATE mitarbeiter SET konto_gesperrt=0, aktiv=1, fehlgeschlagene_logins=0, gesperrt_bis=NULL WHERE id=?", (ma_id,))
+        flash(f'„{ma["name"]}" wurde entsperrt und ist wieder aktiv.', 'success')
+    else:
+        execute("UPDATE mitarbeiter SET konto_gesperrt=1, aktiv=0 WHERE id=?", (ma_id,))
+        flash(f'„{ma["name"]}" wurde gesperrt - Login ist ab sofort nicht mehr möglich, '
+              f'Name/Daten bleiben aber vollständig erhalten. Jederzeit wieder entsperrbar.', 'success')
+    return redirect(url_for('admin'))
+
+
 @app.route('/admin/mitarbeiter/<int:ma_id>/anonymisieren', methods=['POST'])
 @admin_required
 def admin_mitarbeiter_anonymisieren(ma_id):
