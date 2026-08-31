@@ -9300,6 +9300,22 @@ def _monatsspanne(monat_key: str):
 @admin_required
 def admin():
     mitarbeiter     = query("SELECT m.*, t.name AS team_name FROM mitarbeiter m LEFT JOIN team t ON t.id = m.team_id WHERE m.kuerzel != 'ADMIN' ORDER BY m.rolle, m.name")
+    # Sichtbarkeits-Split für die Tabelle (portiert aus Arco-Commit 8320b02): ohne diesen
+    # Filter wuchs die Mitarbeiterliste mit jedem gesperrten/anonymisierten Austritt
+    # unbegrenzt weiter. Reine Anzeige-Trennung, keine Datenänderung - 'mitarbeiter' bleibt
+    # die VOLLSTÄNDIGE Liste (wird u.a. von den weiter unten pro Mitarbeiter gerenderten
+    # Modals gebraucht, die über alle IDs iterieren müssen, auch ehemalige).
+    mitarbeiter_aktiv     = [m for m in mitarbeiter if m['aktiv']]
+    mitarbeiter_ehemalige = [m for m in mitarbeiter if not m['aktiv']]
+    # Warnhinweis (portiert aus Arco-Commit 2d844ac): Austrittsdatum sperrt für sich
+    # genommen nichts (siehe Kommentar bei _urlaub_anteilig) - ohne diesen Hinweis könnte
+    # ein längst ausgeschiedener Mitarbeiter mit vergessenem "Konto sperren" beliebig lange
+    # unbemerkt weiter aktiv/einloggbar bleiben. Nur unter mitarbeiter_aktiv relevant -
+    # ein bereits gesperrter Mitarbeiter mit Austrittsdatum braucht keinen Hinweis mehr.
+    _heute_iso = date.today().isoformat()
+    mitarbeiter_austritt_ueberfaellig = [
+        m for m in mitarbeiter_aktiv if m['austrittsdatum'] and m['austrittsdatum'] < _heute_iso
+    ]
     # Bei vielen Verkaufsstellen würde das ungebremste Einbetten ALLER Zeilen die
     # Admin-Seite lahmlegen – initial nur die ersten laden, für den Rest steht die
     # Suche (api_admin_verkaufsstellen_suche) zur Verfügung.
@@ -9418,6 +9434,9 @@ def admin():
 
     return render_template('admin.html',
         mitarbeiter=mitarbeiter,
+        mitarbeiter_aktiv=mitarbeiter_aktiv,
+        mitarbeiter_ehemalige=mitarbeiter_ehemalige,
+        mitarbeiter_austritt_ueberfaellig=mitarbeiter_austritt_ueberfaellig,
         verkaufsstellen=verkaufsstellen,
         vs_admin_gesamt=vs_admin_gesamt,
         vs_admin_seitengroesse=VS_ADMIN_SEITENGROESSE,

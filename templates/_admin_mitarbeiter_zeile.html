@@ -1,0 +1,142 @@
+{# Eine Mitarbeiter-Tabellenzeile im Admin-Panel - ausgelagert (portiert aus Arco-Commit
+   8320b02), damit die aktive und die "Ehemalige Mitarbeiter"-Tabelle exakt dieselbe
+   Zeilenvorlage nutzen statt zweimal denselben Markup zu pflegen. Erwartet Kontext: m
+   (Mitarbeiter-Zeile), plus die im admin()-Rendering ohnehin vorhandenen
+   zuordnungen/urlaub_konten/teams. #}
+{% set ma_zuordnung = zuordnungen.get(m.id) or [] %}
+<tr>
+  <td>
+    {{ m.name }}
+    <button class="btn btn-link btn-sm p-0 ms-1 text-muted"
+            style="font-size:.75rem;vertical-align:middle"
+            data-bs-toggle="modal"
+            data-bs-target="#modalName"
+            data-ma-id="{{ m.id }}"
+            data-ma-name="{{ m.name }}"
+            data-ma-kuerzel="{{ m.kuerzel }}"
+            title="Name & Kürzel bearbeiten">
+      <i class="bi bi-pencil"></i>
+    </button>
+  </td>
+  <td><span class="badge" style="background:#1a3a5c">{{ m.kuerzel }}</span></td>
+  <td>
+    {% if m.rolle == 'admin' %}
+      <span class="badge bg-danger">Leitung</span>
+    {% elif m.rolle == 'verkaufsleiter' %}
+      <span class="badge bg-primary">VKL</span>
+    {% else %}
+      <span class="badge bg-secondary">Mitarbeiter</span>
+    {% endif %}
+    {% if m.id != session.user_id %}
+    <button class="btn btn-link btn-sm p-0 ms-1 text-muted"
+            style="font-size:.75rem;vertical-align:middle"
+            data-bs-toggle="modal"
+            data-bs-target="#modalRolle"
+            data-ma-id="{{ m.id }}"
+            data-ma-name="{{ m.name }}"
+            data-current-rolle="{{ m.rolle }}"
+            title="Rolle ändern">
+      <i class="bi bi-pencil-square"></i>
+    </button>
+    {% endif %}
+  </td>
+  <td>
+    {% if m.rolle != 'admin' and teams %}
+      <button class="btn btn-sm py-0 px-1 {% if m.team_name %}btn-outline-info{% else %}btn-outline-secondary{% endif %}"
+              data-bs-toggle="modal"
+              data-bs-target="#modalTeam_{{ m.id }}"
+              title="Team zuordnen"
+              style="font-size:.75rem">
+        {% if m.team_name %}
+          <i class="bi bi-people-fill me-1"></i>{{ m.team_name }}
+        {% else %}
+          <i class="bi bi-people me-1"></i>–
+        {% endif %}
+      </button>
+    {% elif m.rolle != 'admin' %}
+      <span class="text-muted small">–</span>
+    {% endif %}
+  </td>
+  <td>
+    <button class="btn btn-sm py-0 px-1 {% if m.email %}btn-outline-success{% else %}btn-outline-warning{% endif %}"
+            data-bs-toggle="modal"
+            data-bs-target="#modalEmail_{{ m.id }}"
+            title="{% if m.email %}{{ m.email }}{% else %}Noch keine E-Mail hinterlegt{% endif %}">
+      <i class="bi bi-envelope{% if not m.email %}-exclamation{% endif %}"></i>
+    </button>
+  </td>
+  <td class="text-center">
+    {% if m.rolle in ('rep', 'verkaufsleiter') %}
+      <button class="btn btn-outline-primary btn-sm py-0 px-2"
+              data-bs-toggle="modal"
+              data-bs-target="#modalZuordnung_{{ m.id }}"
+              title="Verkaufsstellen zuordnen">
+        <i class="bi bi-shop me-1"></i>
+        <span class="badge" style="background:#2e6da4;font-size:.7rem">
+          {{ ma_zuordnung|length if ma_zuordnung else 'Alle' }}
+        </span>
+      </button>
+    {% endif %}
+  </td>
+  <td class="text-center">
+    {% if m.rolle in ('rep', 'verkaufsleiter') %}
+    {% set uk = urlaub_konten.get(m.id) %}
+    <button class="btn btn-sm py-0 px-1 {% if uk and uk.verfuegbar < 0 %}btn-outline-danger{% else %}btn-outline-secondary{% endif %}"
+            data-bs-toggle="modal"
+            data-bs-target="#modalUrlaub_{{ m.id }}"
+            title="Urlaubskonto bearbeiten">
+      <i class="bi bi-calendar2-check me-1"></i>{% if uk %}{{ uk.verfuegbar }}/{{ uk.anspruch + uk.uebertrag }}{% else %}–{% endif %}
+    </button>
+    {% endif %}
+  </td>
+  <td class="text-center">
+    {% if m.rolle in ('rep', 'verkaufsleiter') %}
+    <button class="btn btn-sm py-0 px-1 {% if m.wohnort_ort %}btn-outline-success{% else %}btn-outline-secondary{% endif %}"
+            data-bs-toggle="modal"
+            data-bs-target="#modalWohnort_{{ m.id }}"
+            title="{% if m.wohnort_ort %}{{ m.wohnort_ort }}{% else %}Wohnort hinterlegen{% endif %}">
+      <i class="bi bi-house{% if not m.wohnort_ort %}-dash{% endif %}"></i>
+    </button>
+    {% endif %}
+  </td>
+  <td class="text-center">
+    <button class="btn btn-outline-secondary btn-sm py-0 px-1"
+            data-bs-toggle="modal"
+            data-bs-target="#modalPw_{{ m.id }}"
+            title="Passwort setzen">
+      <i class="bi bi-key"></i>
+    </button>
+    {% if m.rolle != 'admin' and m.id != session.user_id %}
+    <form method="POST"
+          action="{{ url_for('admin_mitarbeiter_konto_sperren', ma_id=m.id) }}"
+          style="display:inline"
+          onsubmit="return confirm({% if m.konto_gesperrt %}'Mitarbeiter „{{ m.name }}” wieder entsperren?'{% else %}'Mitarbeiter „{{ m.name }}” sperren?\n\nLogin ist danach nicht mehr möglich. Name/Daten bleiben vollständig erhalten (im Unterschied zu „Anonymisieren”) - passend für einen normalen Austritt. Jederzeit wieder entsperrbar.'{% endif %})">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-sm py-0 px-1 {% if m.konto_gesperrt %}btn-outline-warning{% else %}btn-outline-secondary{% endif %}"
+              title="{% if m.konto_gesperrt %}Gesperrt - Klicken zum Entsperren{% else %}Konto sperren (z.B. bei Austritt){% endif %}">
+        <i class="bi bi-{% if m.konto_gesperrt %}lock-fill{% else %}unlock{% endif %}"></i>
+      </button>
+    </form>
+    <form method="POST"
+          action="{{ url_for('admin_mitarbeiter_loeschen', ma_id=m.id) }}"
+          style="display:inline"
+          onsubmit="return confirm('Mitarbeiter „{{ m.name }}" wirklich löschen?\n\nNur möglich wenn keine Aktivitäten vorhanden.')">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"
+              title="Löschen (nur ohne Aktivitäten)">
+        <i class="bi bi-trash"></i>
+      </button>
+    </form>
+    <form method="POST"
+          action="{{ url_for('admin_mitarbeiter_anonymisieren', ma_id=m.id) }}"
+          style="display:inline"
+          onsubmit="return confirm('Mitarbeiter „{{ m.name }}" anonymisieren?\n\nName, E-Mail und Wohnort werden entfernt und das Konto deaktiviert. Geschäftsdaten (Aktivitäten, Bestellungen) bleiben zur Auswertung erhalten, aber ohne Personenbezug. Nicht umkehrbar.')">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-outline-secondary btn-sm py-0 px-1"
+              title="Anonymisieren (DSGVO-Löschanfrage bei bestehenden Aktivitäten)">
+        <i class="bi bi-person-x"></i>
+      </button>
+    </form>
+    {% endif %}
+  </td>
+</tr>
