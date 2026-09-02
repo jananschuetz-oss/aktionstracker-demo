@@ -4901,7 +4901,24 @@ def dashboard():
               AND tp.datum >= ?
               AND tp.datum <= ?
               AND COALESCE(tp.geloescht, 0) = 0
-            ORDER BY tp.datum, (von_uhrzeit IS NULL), von_uhrzeit, tp.reihenfolge, tp.id
+            ORDER BY tp.datum,
+                     -- Bugfix 2026-09-02 (portiert von Arco 47fb427): ORDER BY darf NICHT den
+                     -- bloßen Alias "von_uhrzeit" referenzieren - tagesplan hat selbst eine (bei
+                     -- fast allen Stopps leere) Spalte gleichen Namens, und SQLite löst
+                     -- "(von_uhrzeit IS NULL)" auf die ROHE tp.Spalte statt die berechnete
+                     -- COALESCE-Spalte auf. Ausdruck statt Alias wiederholen behebt das. Offene
+                     -- Stopps (noch keine Zeit) sollen zuerst stehen -> IS NULL DESC.
+                     (COALESCE(tp.von_uhrzeit, (SELECT a.von_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id),
+                       (SELECT a.von_uhrzeit FROM aktivitaet a
+                        WHERE a.mitarbeiter_id = tp.mitarbeiter_id
+                          AND a.verkaufsstelle_id = tp.verkaufsstelle_id
+                          AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1)) IS NULL) DESC,
+                     COALESCE(tp.von_uhrzeit, (SELECT a.von_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id),
+                       (SELECT a.von_uhrzeit FROM aktivitaet a
+                        WHERE a.mitarbeiter_id = tp.mitarbeiter_id
+                          AND a.verkaufsstelle_id = tp.verkaufsstelle_id
+                          AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1)),
+                     tp.reihenfolge, tp.id
         ''', (session['user_id'], tp_woche_montag.isoformat(), tp_woche_sonntag.isoformat()))
         # Stationsliste für Self-Service-Formular. Gedeckelt (Performance) – bei
         # sehr vielen aktiven Stationen würde das feste Einbetten ALLER Stationen
@@ -5402,7 +5419,20 @@ def _tourenplanung_tag_daten(datum, reps):
         JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
         JOIN mitarbeiter m ON m.id = tp.mitarbeiter_id
         WHERE tp.datum = ? {_tm_sql}
-        ORDER BY m.name, (von_uhrzeit IS NULL), von_uhrzeit, tp.reihenfolge, tp.id
+        ORDER BY m.name,
+                 -- Bugfix 2026-09-02 (portiert von Arco 47fb427): s. Kommentar bei tagesplan_rep
+                 -- oben - Ausdruck statt Alias, offene Stopps zuerst (IS NULL DESC).
+                 (COALESCE(tp.von_uhrzeit, (SELECT a.von_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id),
+                   (SELECT a.von_uhrzeit FROM aktivitaet a
+                    WHERE a.mitarbeiter_id = tp.mitarbeiter_id
+                      AND a.verkaufsstelle_id = tp.verkaufsstelle_id
+                      AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1)) IS NULL) DESC,
+                 COALESCE(tp.von_uhrzeit, (SELECT a.von_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id),
+                   (SELECT a.von_uhrzeit FROM aktivitaet a
+                    WHERE a.mitarbeiter_id = tp.mitarbeiter_id
+                      AND a.verkaufsstelle_id = tp.verkaufsstelle_id
+                      AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1)),
+                 tp.reihenfolge, tp.id
     ''', (datum,) + _tm_p)
     return urlaub_tag, feiertag_tag, plan_tag
 
@@ -5508,7 +5538,20 @@ def tourenplanung():
         JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
         JOIN mitarbeiter m ON m.id = tp.mitarbeiter_id
         WHERE tp.datum >= ? AND tp.datum <= ? {_tm_sql}
-        ORDER BY m.name, tp.datum, (von_uhrzeit IS NULL), von_uhrzeit, tp.reihenfolge, tp.id
+        ORDER BY m.name, tp.datum,
+                 -- Bugfix 2026-09-02 (portiert von Arco 47fb427): s. Kommentar in
+                 -- _tourenplanung_tag_daten() - Ausdruck statt Alias, offene Stopps zuerst.
+                 (COALESCE(tp.von_uhrzeit, (SELECT a.von_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id),
+                   (SELECT a.von_uhrzeit FROM aktivitaet a
+                    WHERE a.mitarbeiter_id = tp.mitarbeiter_id
+                      AND a.verkaufsstelle_id = tp.verkaufsstelle_id
+                      AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1)) IS NULL) DESC,
+                 COALESCE(tp.von_uhrzeit, (SELECT a.von_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id),
+                   (SELECT a.von_uhrzeit FROM aktivitaet a
+                    WHERE a.mitarbeiter_id = tp.mitarbeiter_id
+                      AND a.verkaufsstelle_id = tp.verkaufsstelle_id
+                      AND a.datum = tp.datum ORDER BY a.erstellt_am DESC LIMIT 1)),
+                 tp.reihenfolge, tp.id
     ''', (woche_start.isoformat(), woche_ende.isoformat()) + _tm_p) if modus == 'woche' else []
     # _urlaub_daten_alle() statt _urlaub_daten() (Bugreport 2026-07-24, von Arco portiert):
     # liefert pro Tag ALLE gleichzeitigen Abwesenheiten als Liste statt nur die letzte.
@@ -12539,7 +12582,12 @@ def api_tourenplanung_tag():
         JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
         JOIN mitarbeiter m ON m.id = tp.mitarbeiter_id
         WHERE tp.datum = ? AND COALESCE(tp.geloescht,0)=0 {_tm_sql}
-        ORDER BY m.name, (von_uhrzeit IS NULL), von_uhrzeit, tp.reihenfolge, tp.id
+        ORDER BY m.name,
+                 -- Bugfix 2026-09-02 (portiert von Arco 47fb427): Ausdruck statt Alias, offene
+                 -- Stopps zuerst.
+                 (COALESCE(tp.von_uhrzeit, (SELECT a.von_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id)) IS NULL) DESC,
+                 COALESCE(tp.von_uhrzeit, (SELECT a.von_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id)),
+                 tp.reihenfolge, tp.id
     ''', (datum,) + _tm_p)
     return jsonify([{
         'mitarbeiter': r['mitarbeiter'], 'kuerzel': r['kuerzel'], 'station': r['station'],
