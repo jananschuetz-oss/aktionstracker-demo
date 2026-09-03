@@ -5491,10 +5491,13 @@ def tourenplanung():
     _datum_montag  = _datum_d - timedelta(days=_datum_d.weekday())
     datum_woche    = [(_datum_montag + timedelta(days=i)).isoformat() for i in range(7)]
     tag_kw         = _datum_montag.isocalendar()[1]
-    tag_prev_kw    = tag_kw - 1 if tag_kw > 1 else 52
-    tag_next_kw    = tag_kw + 1 if tag_kw < 52 else 1
     tag_prev_datum = (_datum_d - timedelta(days=7)).isoformat()
     tag_next_datum = (_datum_d + timedelta(days=7)).isoformat()
+    # Bugfix 2026-09-03 (portiert von Arco 10fc2aa): hartkodierte 52 statt echter ISO-
+    # Berechnung - bei Jahren mit 53 ISO-Kalenderwochen (z.B. 2026) zeigte der Button
+    # fälschlich KW 1 statt KW 53 bzw. KW 52 statt KW 53.
+    tag_prev_kw    = (_datum_montag - timedelta(days=7)).isocalendar()[1]
+    tag_next_kw    = (_datum_montag + timedelta(days=7)).isocalendar()[1]
     if modus == 'tag':
         urlaub_tag, feiertag_tag, plan_tag = _tourenplanung_tag_daten(datum, reps)
     else:
@@ -8196,8 +8199,8 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id=None) ->
 
         for i, row in enumerate(ma_data):
             r = i + 3
-            ws2.cell(r, 1, row['name'])
-            ws2.cell(r, 2, row['kuerzel'])
+            ws2.cell(r, 1, _excel_formel_sicher(row['name']))
+            ws2.cell(r, 2, _excel_formel_sicher(row['kuerzel']))
             ws2.cell(r, 3, row['displays'] or 0)
             ws2.cell(r, 4, row['kisten'] or 0)
             ws2.cell(r, 5, row['besuche'] or 0)
@@ -8286,7 +8289,7 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id=None) ->
         if not positionen:
             ws3.cell(r, 1, a['datum'])
             ws3.cell(r, 2, f"KW {kw:02d}")
-            ws3.cell(r, 3, a['mitarbeiter'])
+            ws3.cell(r, 3, _excel_formel_sicher(a['mitarbeiter']))
             ws3.cell(r, 4, _excel_formel_sicher(a['verkaufsstelle']))
             ws3.cell(r, 5, _excel_formel_sicher(a['ort']))
             ws3.cell(r, 6, a['typ'])
@@ -8305,12 +8308,12 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id=None) ->
             for j, pos in enumerate(positionen):
                 ws3.cell(r, 1, a['datum'] if j == 0 else '')
                 ws3.cell(r, 2, f"KW {kw:02d}" if j == 0 else '')
-                ws3.cell(r, 3, a['mitarbeiter'] if j == 0 else '')
+                ws3.cell(r, 3, _excel_formel_sicher(a['mitarbeiter']) if j == 0 else '')
                 ws3.cell(r, 4, _excel_formel_sicher(a['verkaufsstelle']) if j == 0 else '')
                 ws3.cell(r, 5, _excel_formel_sicher(a['ort']) if j == 0 else '')
                 ws3.cell(r, 6, a['typ'] if j == 0 else '')
                 ws3.cell(r, 7, a['anzahl_displays'] if j == 0 else '')
-                ws3.cell(r, 8, pos['name'])
+                ws3.cell(r, 8, _excel_formel_sicher(pos['name']))
                 ws3.cell(r, 9, pos['kisten_anzahl'])
                 ws3.cell(r, 10, _excel_formel_sicher(a['notizen']) if j == 0 else '')
                 if j == 0:
@@ -8358,7 +8361,7 @@ def _build_excel_bytes(jahr: int, is_admin: bool = True, mitarbeiter_id=None) ->
 
     for i, row in enumerate(bier_data):
         r2 = i + 3
-        ws4.cell(r2, 1, row['name'])
+        ws4.cell(r2, 1, _excel_formel_sicher(row['name']))
         ws4.cell(r2, 2, row['einheit'])
         ws4.cell(r2, 3, row['kisten'])
         fill = ALT_FILL if i % 2 == 0 else None
@@ -8435,7 +8438,7 @@ def _build_tanken_excel_bytes(von: str, bis: str, monat_label: str) -> bytes:
     for i, row in enumerate(rows):
         r = i + 3
         ws.cell(r, 1, row['tank_datum'] or row['datum'])
-        ws.cell(r, 2, f"{row['mitarbeiter']} ({row['kuerzel']})")
+        ws.cell(r, 2, _excel_formel_sicher(f"{row['mitarbeiter']} ({row['kuerzel']})"))
         ws.cell(r, 3, _excel_formel_sicher(row['tank_kennzeichen'] or ''))
         ws.cell(r, 4, row['tank_kraftstoffsorte'] or '')
         ws.cell(r, 5, row['tank_liter'] or '')
@@ -8529,7 +8532,7 @@ def _build_hotel_excel_bytes(von: str, bis: str, monat_label: str) -> bytes:
         kosten_pro_nacht = row['hotel_kosten_pro_nacht'] or 0
         gesamtkosten = round(kosten_pro_nacht * naechte, 2)
         gesamt_kosten_summe += gesamtkosten
-        ws.cell(r, 1, f"{row['mitarbeiter']} ({row['kuerzel']})")
+        ws.cell(r, 1, _excel_formel_sicher(f"{row['mitarbeiter']} ({row['kuerzel']})"))
         ws.cell(r, 2, f"{row['von']} – {row['bis']}")
         ws.cell(r, 3, _excel_formel_sicher(row['hotel_name_adresse'] or ''))
         ws.cell(r, 4, naechte)
@@ -9533,6 +9536,13 @@ def admin_mitarbeiter_neu():
     is_vkl   = session.get('rolle') == 'verkaufsleiter'
     name     = request.form.get('name',    '').strip()
     kuerzel  = request.form.get('kuerzel', '').strip().upper()
+    # Sicherheits-Fix 2026-09-03 (portiert von Arco 10fc2aa): kuerzel war bisher komplett
+    # freier Text (nur strip/upper), wurde aber u.a. in vergleich.html als Dict-Key/JS-
+    # Bezeichner verwendet - Zeichen-Whitelist als Tiefenverteidigung, unabhängig vom
+    # eigentlichen |tojson-Fix dort.
+    if kuerzel and not re.match(r'^[A-ZÄÖÜ0-9]{1,8}$', kuerzel):
+        flash('Kürzel darf nur Buchstaben/Ziffern enthalten (max. 8 Zeichen).', 'danger')
+        return redirect(url_for('admin') if is_admin else url_for('team_verwaltung'))
     passwort = request.form.get('passwort', DEFAULT_PASSWORD).strip()
     # Bugreport 2026-07-21 (Mittel, von Arco portiert): anders als bei Reset/Erstlogin
     # fehlte hier eine Mindestlängen-Prüfung – ein Admin/VKL konnte ein 1-Zeichen-
@@ -9601,6 +9611,11 @@ def admin_mitarbeiter_name(ma_id):
     kuerzel = request.form.get('kuerzel', '').strip().upper()
     if not name or not kuerzel:
         flash('Name und Kürzel sind Pflichtfelder.', 'danger')
+        return redirect(url_for('admin'))
+    # Sicherheits-Fix 2026-09-03 (portiert von Arco 10fc2aa): s. Kommentar in
+    # admin_mitarbeiter_neu() - Zeichen-Whitelist.
+    if not re.match(r'^[A-ZÄÖÜ0-9]{1,8}$', kuerzel):
+        flash('Kürzel darf nur Buchstaben/Ziffern enthalten (max. 8 Zeichen).', 'danger')
         return redirect(url_for('admin'))
     existing = query(
         "SELECT id FROM mitarbeiter WHERE UPPER(kuerzel)=? AND id!=?",
@@ -10603,7 +10618,7 @@ def admin_vs_neu():
             flash(f'Verkaufsstelle "{name}" angelegt.', 'success')
         ersteller = query("SELECT name FROM mitarbeiter WHERE id=?", (session['user_id'],), one=True)
         _notify_neue_vs(name, strasse, plz, ort, typ, ansprechpartner,
-                        ersteller['name'] if ersteller else session.get('user_name', 'Admin'))
+                        ersteller['name'] if ersteller else session.get('name', 'Admin'))  # Bugfix 2026-09-03 (portiert von Arco): session['user_name'] wird nirgends gesetzt (nur session['name'])
     is_admin = session.get('rolle') == 'admin'
     return redirect(url_for('admin') if is_admin else url_for('team_verwaltung'))
 
@@ -10959,7 +10974,7 @@ def vs_neu_rep():
         flash(f'Verkaufsstelle "{name}" wurde angelegt und ausgewählt.', 'success')
         ersteller = query("SELECT name FROM mitarbeiter WHERE id=?", (session['user_id'],), one=True)
         _notify_neue_vs(name, strasse, plz_rep, ort, typ, ansprechpartner,
-                        ersteller['name'] if ersteller else session.get('user_name', ''))
+                        ersteller['name'] if ersteller else session.get('name', ''))  # Bugfix 2026-09-03: s. Kommentar oben
         return redirect(url_for('dashboard') if vom_dashboard else url_for('neue_aktivitaet', vs_id=new_id))
     flash('Name, Straße und Ort sind Pflichtfelder.', 'danger')
     return redirect(url_for('dashboard') if vom_dashboard else url_for('neue_aktivitaet'))
@@ -12048,17 +12063,23 @@ def vergleich():
         jahr=jahr, alle_jahre=alle_jahre,
         ist=ist, ziele=ziele, teamziel=teamziel,
         reps_namen=reps_namen,
-        kisten_ist=json.dumps(kisten_ist),
-        kisten_soll=json.dumps(kisten_soll),
-        disp_ist=json.dumps(disp_ist),
-        disp_soll=json.dumps(disp_soll),
+        # Sicherheits-Fix 2026-09-03 (portiert von Arco 10fc2aa): vorher hier per json.dumps()
+        # vor-serialisiert und im Template mit |safe roh in ein <script>-Tag gerendert -
+        # json.dumps() escaped </script>-Sequenzen NICHT, im Unterschied zu Flask/Jinja2s
+        # |tojson-Filter. Da mitarbeiter.kuerzel (Dict-Key in kum_ist_data/kum_ziel_data)
+        # ohne Zeichen-Whitelist frei vergeben werden kann, war das eine stored-XSS-Lücke
+        # (VKL->Admin). Jetzt rohe Python-Objekte übergeben, Template nutzt |tojson.
+        kisten_ist=kisten_ist,
+        kisten_soll=kisten_soll,
+        disp_ist=disp_ist,
+        disp_soll=disp_soll,
         kw_by_rep=json.dumps(kw_by_rep),
         monatsziele=monatsziele,
         zielkurs=zielkurs,
-        kum_ist_data=json.dumps(kum_ist_data),
-        kum_ziel_data=json.dumps(kum_ziel_data),
-        kisten_saison_soll=json.dumps(kisten_saison_soll),
-        disp_saison_soll=json.dumps(disp_saison_soll),
+        kum_ist_data=kum_ist_data,
+        kum_ziel_data=kum_ziel_data,
+        kisten_saison_soll=kisten_saison_soll,
+        disp_saison_soll=disp_saison_soll,
         aktueller_monat=aktueller_monat,
         m_namen=M_NAMEN,
         sk_pct=sk_pct,
@@ -12606,11 +12627,22 @@ def api_kalender_tag():
         date.fromisoformat(datum)
     except ValueError:
         abort(400)
+    # Bugfix 2026-09-03 (portiert von Arco 10fc2aa): nutzte bisher nur die rohe
+    # tp.von_uhrzeit-Spalte, die bei den meisten Stopps leer bleibt - Termine mit
+    # nachträglich aus der Aktivität übernommener Ist-Zeit zeigten hier keine Uhrzeit
+    # und wurden falsch einsortiert. Gleicher COALESCE-Fallback wie an den anderen Stellen.
     rows = query('''
-        SELECT tp.von_uhrzeit, v.name AS station, v.strasse, v.plz, v.ort
+        SELECT COALESCE(
+                 tp.von_uhrzeit,
+                 (SELECT a.von_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id)
+               ) AS von_uhrzeit,
+               v.name AS station, v.strasse, v.plz, v.ort
         FROM tagesplan tp JOIN verkaufsstelle v ON v.id = tp.verkaufsstelle_id
         WHERE tp.mitarbeiter_id=? AND tp.datum=? AND COALESCE(tp.geloescht,0)=0
-        ORDER BY (tp.von_uhrzeit IS NULL), tp.von_uhrzeit, tp.reihenfolge, tp.id
+        ORDER BY
+          (COALESCE(tp.von_uhrzeit, (SELECT a.von_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id)) IS NULL) DESC,
+          COALESCE(tp.von_uhrzeit, (SELECT a.von_uhrzeit FROM aktivitaet a WHERE a.id = tp.aktivitaet_id)),
+          tp.reihenfolge, tp.id
     ''', (ma_id, datum))
     return jsonify([{
         'zeit': r['von_uhrzeit'] or '', 'station': r['station'],
@@ -13246,12 +13278,16 @@ def _do_send_wochenbericht(force=False):
                 execute("UPDATE wochenbericht_config SET zuletzt_gesendet=? WHERE id=1", (kw_key,))
                 return True, f"Gesendet an {ok_count} Empfänger"
             else:
-                detail = f': {_smtp_last_error}' if _smtp_last_error else ''
-                return False, f"E-Mail-Versand fehlgeschlagen{detail}"
+                # Sicherheits-Fix 2026-09-03 (portiert von Arco 10fc2aa): rohe SMTP/Resend-
+                # Fehlermeldung nicht mehr an den Client (landet per flash() im Browser von
+                # VKL/Admin) - nur noch geloggt.
+                if _smtp_last_error:
+                    app.logger.error(f"WOCHENBERICHT E-Mail-Versand fehlgeschlagen: {_smtp_last_error}")
+                return False, "E-Mail-Versand fehlgeschlagen. Details siehe Server-Log."
 
     except Exception as e:
         app.logger.error(f"WOCHENBERICHT Fehler: {e}", exc_info=True)
-        return False, f"Fehler: {e}"
+        return False, "Fehler beim Versand. Details siehe Server-Log."
 
 
 def send_wochenbericht(force=False):
@@ -13619,12 +13655,14 @@ def _do_send_monatsbericht(force=False):
             execute("UPDATE wochenbericht_config SET zuletzt_gesendet_monat=? WHERE id=1", (monat_key,))
             return True, f"Gesendet an {ok_count} Empfänger"
         else:
-            detail = f': {_smtp_last_error}' if _smtp_last_error else ''
-            return False, f"E-Mail-Versand fehlgeschlagen{detail}"
+            # Sicherheits-Fix 2026-09-03: s. Kommentar in _do_send_wochenbericht().
+            if _smtp_last_error:
+                app.logger.error(f"MONATSBERICHT E-Mail-Versand fehlgeschlagen: {_smtp_last_error}")
+            return False, "E-Mail-Versand fehlgeschlagen. Details siehe Server-Log."
 
     except Exception as e:
         app.logger.error(f"MONATSBERICHT Fehler: {e}", exc_info=True)
-        return False, f"Fehler: {e}"
+        return False, "Fehler beim Versand. Details siehe Server-Log."
 
 
 def send_monatsbericht(force=False):

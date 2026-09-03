@@ -63,8 +63,17 @@
     <div class="card h-100">
       <div class="card-header"><i class="bi bi-people me-2"></i>Mitarbeiter</div>
       <div class="card-body p-0">
+        {% if mitarbeiter_aktiv|length > 8 %}
+        <!-- Komfort-Verbesserung 2026-09-03 (portiert von Arco 10fc2aa): Suchfilter für
+             wachsende Mitarbeiterlisten, rein clientseitig. Erst ab >8 Zeilen sichtbar. -->
+        <div class="p-2 border-bottom">
+          <input type="text" id="mitarbeiterSucheInput" class="form-control form-control-sm"
+                 placeholder="Suchen nach Name, Kürzel, Team, Wohnort…"
+                 oninput="filterMitarbeiterTabelle(this.value)">
+        </div>
+        {% endif %}
         <div class="table-responsive">
-        <table class="table table-sm table-striped mb-0">
+        <table class="table table-sm table-striped mb-0" id="mitarbeiterHauptTabelle">
           <thead>
             <tr><th>Name</th><th>Kürzel</th><th>Rolle</th><th>Team</th><th>E-Mail</th><th>VS</th><th>Urlaub</th><th>Wohnort</th><th></th></tr>
           </thead>
@@ -1501,6 +1510,12 @@ document.getElementById('modalRolle').addEventListener('show.bs.modal', function
   </div>
 </div>
 <script>
+function filterMitarbeiterTabelle(term) {
+  term = term.trim().toLowerCase();
+  document.querySelectorAll('#mitarbeiterHauptTabelle tbody tr').forEach(function(tr) {
+    tr.style.display = tr.textContent.toLowerCase().includes(term) ? '' : 'none';
+  });
+}
 (function() {
   const modal = document.getElementById('modalName');
   const nameInput    = document.getElementById('nameInput');

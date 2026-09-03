@@ -97,7 +97,8 @@
           </button>
           {% else %}
           <span class="badge flex-shrink-0" style="background:#fff3cd;color:#856404;font-size:.72rem">Offen</span>
-          <form method="POST" action="{{ url_for('tourenplanung_loeschen', tp_id=stop.id) }}" class="d-inline ms-1">
+          <form method="POST" action="{{ url_for('tourenplanung_loeschen', tp_id=stop.id) }}" class="d-inline ms-1"
+                onsubmit='return confirm("Stopp {{ stop.station }} aus dem Tagesplan entfernen?")'>
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-sm btn-outline-danger"
                     style="font-size:.75rem;padding:3px 8px" title="Stop entfernen">

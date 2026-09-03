@@ -271,6 +271,7 @@
       + '</div>'
       + '<div class="chat-thread-body" id="chatThreadBody"></div>'
       + '<div class="chat-foto-preview" id="chatFotoPreview"></div>'
+      + '<div class="chat-send-error d-none alert alert-danger py-1 px-2 mx-2 mb-1" id="chatSendError" style="font-size:.8rem"></div>'
       + '<div class="chat-thread-input">'
       + '<button type="button" class="chat-icon-btn" id="chatFotoBtn" title="Foto anhängen"><i class="bi bi-camera"></i></button>'
       + '<input type="file" id="chatFotoInput" accept="image/*" style="display:none">'
@@ -342,30 +343,55 @@
     }
   }
 
+  function chatSendFehler(msg) {
+    // Komfort-Fix 2026-09-03 (portiert von Arco 10fc2aa): alert() durch Inline-Banner
+    // ersetzt - auf dem Handy weniger abrupt als ein nativer Systemdialog.
+    var errEl = document.getElementById('chatSendError');
+    if (!errEl) { return; }
+    errEl.textContent = msg;
+    errEl.classList.remove('d-none');
+  }
+
   function senden() {
     var textInput = document.getElementById('chatTextInput');
     var text = (textInput.value || '').trim();
     if (!text && !ausgewaehlteFoto) return;
     var sendBtn = document.getElementById('chatSendBtn');
     sendBtn.disabled = true;
+    var errEl = document.getElementById('chatSendError');
+    if (errEl) { errEl.classList.add('d-none'); }
 
     var formData = new FormData();
     formData.append('partner_id', aktiverPartner.id);
     formData.append('text', text);
     if (ausgewaehlteFoto) formData.append('foto', ausgewaehlteFoto);
 
-    fetch('/api/chat/senden', { method: 'POST', body: formData })
+    // Komfort-Fix 2026-09-03: bisher kein Timeout - bei schwachem Empfang konnte der
+    // Senden-Button beliebig lange hängen.
+    var timeoutCtrl = new AbortController();
+    var timeoutId = setTimeout(function () { timeoutCtrl.abort(); }, 20000);
+
+    fetch('/api/chat/senden', { method: 'POST', body: formData, signal: timeoutCtrl.signal })
       .then(function (r) { return r.json(); })
       .then(function (res) {
+        clearTimeout(timeoutId);
         sendBtn.disabled = false;
-        if (res.error) { alert(res.error); return; }
+        if (res.error) { chatSendFehler(res.error); return; }
         textInput.value = '';
         ausgewaehlteFoto = null;
         var preview = document.getElementById('chatFotoPreview');
         if (preview) { preview.style.display = 'none'; preview.innerHTML = ''; }
         ladeVerlauf(true);
       })
-      .catch(function () { sendBtn.disabled = false; alert('Nachricht konnte nicht gesendet werden.'); });
+      .catch(function (err) {
+        clearTimeout(timeoutId);
+        sendBtn.disabled = false;
+        if (err && err.name === 'AbortError') {
+          chatSendFehler('Senden dauert zu lange (schwache Verbindung?). Bitte erneut versuchen.');
+        } else {
+          chatSendFehler('Nachricht konnte nicht gesendet werden. Bitte erneut versuchen.');
+        }
+      });
   }
 
   function aktualisiereNavbarBadge() {

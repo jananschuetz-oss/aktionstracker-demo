@@ -1770,7 +1770,8 @@ document.addEventListener('DOMContentLoaded', function(){
           </button>
           {% endif %}
           {% if not stop.erledigt and stop.datum >= today_str %}
-          <form method="POST" action="{{ url_for('tourenplanung_loeschen', tp_id=stop.id) }}" class="d-inline">
+          <form method="POST" action="{{ url_for('tourenplanung_loeschen', tp_id=stop.id) }}" class="d-inline"
+                onsubmit='return confirm("Stopp {{ stop.station }} aus dem Tagesplan entfernen?")'>
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-sm btn-outline-danger"
                     style="font-size:.78rem;padding:5px 9px" title="Stop entfernen">
@@ -1882,7 +1883,8 @@ document.addEventListener('DOMContentLoaded', function(){
           {% else %}
           <span class="badge flex-shrink-0" style="background:#fff3cd;color:#856404;font-size:.7rem">Offen</span>
           {% if d >= today_str %}
-          <form method="POST" action="{{ url_for('tourenplanung_loeschen', tp_id=stop.id) }}" class="d-inline">
+          <form method="POST" action="{{ url_for('tourenplanung_loeschen', tp_id=stop.id) }}" class="d-inline"
+                onsubmit='return confirm("Stopp {{ stop.station }} aus dem Tagesplan entfernen?")'>
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-sm btn-outline-danger"
                     style="font-size:.72rem;padding:2px 7px" title="Stop entfernen">

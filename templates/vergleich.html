@@ -986,8 +986,8 @@ new Chart(document.getElementById('monDispChart'), {
 
 {% else %}
 // ── Teamansicht: Kumulativer Verlauf + IST vs. SOLL ──────────────────────
-const KUM_IST   = {{ kum_ist_data|safe }};
-const KUM_ZIEL  = {{ kum_ziel_data|safe }};
+const KUM_IST   = {{ kum_ist_data|tojson }};
+const KUM_ZIEL  = {{ kum_ziel_data|tojson }};
 const KUM_LABEL = {{ m_namen|tojson }}.slice(0, {{ aktueller_monat }});
 const REP_COLORS = ['#1a3a5c','#2e6da4','#c8860a','#e74c3c','#27ae60'];
 
@@ -1024,12 +1024,12 @@ if (kumReps.length) {
 }
 
 const REPS         = {{ reps_namen|tojson }};
-const K_IST        = {{ kisten_ist|safe }};
-const K_SOLL       = {{ kisten_soll|safe }};
-const K_SAISON     = {{ kisten_saison_soll|safe }};
-const D_IST        = {{ disp_ist|safe }};
-const D_SOLL       = {{ disp_soll|safe }};
-const D_SAISON     = {{ disp_saison_soll|safe }};
+const K_IST        = {{ kisten_ist|tojson }};
+const K_SOLL       = {{ kisten_soll|tojson }};
+const K_SAISON     = {{ kisten_saison_soll|tojson }};
+const D_IST        = {{ disp_ist|tojson }};
+const D_SOLL       = {{ disp_soll|tojson }};
+const D_SAISON     = {{ disp_saison_soll|tojson }};
 
 const CHART_OPTS_ANNOTATED = {
   responsive: true, maintainAspectRatio: false,
