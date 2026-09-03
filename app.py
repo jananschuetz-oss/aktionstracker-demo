@@ -38,6 +38,24 @@ import holidays as _holidays_lib
 import re
 import html as html_lib
 
+# Fehler-Monitoring 2026-09-03 (Sentry, kostenloser Plan, portiert von Arco d0832c7): DSN
+# ausschließlich aus ENV-Variable, nie hartkodiert. Ohne SENTRY_DSN läuft die App unverändert
+# ohne Monitoring (rein optional, kein Hard-Fail wie bei SECRET_KEY). send_default_pii
+# bewusst NICHT gesetzt (Default False) - keine Request-Header/IP-Daten an Sentry senden.
+# traces_sample_rate=0, da nur Error Monitoring gebucht ist. Anders als bei Arco (eigenes
+# Sentry-Projekt) teilen sich Demo, Neukunde und jeder künftig daraus duplizierte Kunde EIN
+# gemeinsames Sentry-Projekt (skaliert besser als ein Projekt pro Kunde) - environment=
+# RAILWAY_SERVICE_NAME sorgt dafür, dass jeder Fehler in Sentry trotzdem eindeutig dem
+# jeweiligen Service/Kunden zugeordnet werden kann (Filter über "Environment" in Sentry).
+try:
+    import sentry_sdk
+    _sentry_dsn = os.environ.get('SENTRY_DSN')
+    if _sentry_dsn:
+        sentry_sdk.init(dsn=_sentry_dsn, traces_sample_rate=0,
+                         environment=os.environ.get('RAILWAY_SERVICE_NAME', 'lokal'))
+except ImportError:
+    pass
+
 app = Flask(__name__)
 _SECRET_KEY = os.environ.get('SECRET_KEY')
 if not _SECRET_KEY:
