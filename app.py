@@ -1926,7 +1926,17 @@ def init_db():
                 db.execute("INSERT INTO listungsprodukt (name, sortierung) VALUES (?, ?)", (lp_name, i))
 
         # Beispiel-Kunden – nur einfügen wenn Tabelle leer
-        if not db.execute("SELECT 1 FROM verkaufsstelle LIMIT 1").fetchone():
+        # Sicherheits-/Datenintegritäts-Fix 2026-09-03: der komplette Block bis zur
+        # "Demo-Konten zusammenführen"-Migration unten war NICHT an DEMO_MODUS gekoppelt -
+        # nur die Mitarbeiter-Seeds oben sind es. Ein echter Neukunde mit leeren Tabellen
+        # (Normalzustand vor dem ersten eigenen Dateneintrag) hätte beim ersten App-Start
+        # automatisch Fake-Firmen/-Aktivitäten bekommen, und mehrere Migrationen darunter
+        # hätten sogar echte Kundendaten verändert/gelöscht (z.B. "2025-Daten entfernen",
+        # "Überfällige Bestellungen auf 5 begrenzen"). Entdeckt bei der Neukunde-Aufräumung
+        # (Jan): nach dem Leeren der Verkaufsstellen-Tabelle kamen beim nächsten Deploy die
+        # Demo-Verkaufsstellen automatisch zurück. Jede einzelne Bedingung unten ist jetzt
+        # zusätzlich an DEMO_MODUS geknüpft, Struktur/Reihenfolge unverändert.
+        if DEMO_MODUS and not db.execute("SELECT 1 FROM verkaufsstelle LIMIT 1").fetchone():
             stellen = [
                 ('Supermarkt Mitte',       'Berlin',   'Einzelhandel'),
                 ('Fachmarkt Nord',         'Hamburg',  'Einzelhandel'),
@@ -1967,7 +1977,7 @@ def init_db():
             ('Fachmarkt Fuggerstadt',    'Augsburg',   'Einzelhandel'),
             ('Kiosk Hauptbahnhof',       'Augsburg',   'Kiosk'),
         ]
-        for name, ort, typ in _rolle2_stellen:
+        for name, ort, typ in (_rolle2_stellen if DEMO_MODUS else []):
             if not db.execute("SELECT 1 FROM verkaufsstelle WHERE name=? AND ort=?", (name, ort)).fetchone():
                 db.execute("INSERT INTO verkaufsstelle (name, ort, typ) VALUES (?, ?, ?)", (name, ort, typ))
         db.commit()
@@ -1986,27 +1996,33 @@ def init_db():
         db.commit()
 
         # Beispieldaten einfügen wenn DB noch leer
-        if not db.execute("SELECT 1 FROM aktivitaet LIMIT 1").fetchone():
+        if DEMO_MODUS and not db.execute("SELECT 1 FROM aktivitaet LIMIT 1").fetchone():
             seed_demo_data_relativ(db)
             seed_demo_besuchsplan(db)
 
-        # Zielzahlen immer aktualisieren (unabhängig ob Seed gelaufen)
-        _ziele_2026 = {'MM':(80,2900),'AS':(120,4600),'TW':(80,2600),'LF':(90,3900),'KH':(80,2500)}
-        _reps_all = db.execute("SELECT id, kuerzel FROM mitarbeiter WHERE rolle='rep'").fetchall()
-        for _r in _reps_all:
-            if _r['kuerzel'] in _ziele_2026:
-                _d, _k = _ziele_2026[_r['kuerzel']]
-                db.execute('''INSERT INTO zielzahlen (mitarbeiter_id,jahr,displays_ziel,kisten_ziel)
-                    VALUES (?,2026,?,?) ON CONFLICT(mitarbeiter_id,jahr) DO UPDATE SET
-                    displays_ziel=excluded.displays_ziel, kisten_ziel=excluded.kisten_ziel''',
-                    (_r['id'], _d, _k))
-        db.execute('''INSERT INTO zielzahlen (mitarbeiter_id,jahr,displays_ziel,kisten_ziel)
-            VALUES (NULL,2026,450,16500) ON CONFLICT(mitarbeiter_id,jahr) DO UPDATE SET
-            displays_ziel=excluded.displays_ziel, kisten_ziel=excluded.kisten_ziel''')
-        db.commit()
+        # Zielzahlen immer aktualisieren (unabhängig ob Seed gelaufen) - NUR im Demo-Modus.
+        # Sicherheits-Fix 2026-09-03: war komplett ungegatet und lief bei JEDEM Start, egal
+        # ob DEMO_MODUS. Ein echter Kunde mit einem Mitarbeiter, dessen Kürzel zufällig mit
+        # einem der hier hartkodierten Demo-Kürzel (MM/AS/TW/LF/KH) übereinstimmt, hätte bei
+        # jedem Neustart seine echten Zielzahlen durch diese Demo-Werte überschrieben
+        # bekommen (ON CONFLICT DO UPDATE trifft auch bestehende echte Zielzahlen-Zeilen).
+        if DEMO_MODUS:
+            _ziele_2026 = {'MM':(80,2900),'AS':(120,4600),'TW':(80,2600),'LF':(90,3900),'KH':(80,2500)}
+            _reps_all = db.execute("SELECT id, kuerzel FROM mitarbeiter WHERE rolle='rep'").fetchall()
+            for _r in _reps_all:
+                if _r['kuerzel'] in _ziele_2026:
+                    _d, _k = _ziele_2026[_r['kuerzel']]
+                    db.execute('''INSERT INTO zielzahlen (mitarbeiter_id,jahr,displays_ziel,kisten_ziel)
+                        VALUES (?,2026,?,?) ON CONFLICT(mitarbeiter_id,jahr) DO UPDATE SET
+                        displays_ziel=excluded.displays_ziel, kisten_ziel=excluded.kisten_ziel''',
+                        (_r['id'], _d, _k))
+            db.execute('''INSERT INTO zielzahlen (mitarbeiter_id,jahr,displays_ziel,kisten_ziel)
+                VALUES (NULL,2026,450,16500) ON CONFLICT(mitarbeiter_id,jahr) DO UPDATE SET
+                displays_ziel=excluded.displays_ziel, kisten_ziel=excluded.kisten_ziel''')
+            db.commit()
 
         # Bestellpositionen nachfüllen wenn Tabelle leer aber Bestellungen existieren
-        if not db.execute("SELECT 1 FROM bestellposition LIMIT 1").fetchone():
+        if DEMO_MODUS and not db.execute("SELECT 1 FROM bestellposition LIMIT 1").fetchone():
             import random as _rnd
             _biere = db.execute("SELECT id FROM biersorte WHERE aktiv=1 AND COALESCE(ist_gratisware,0)=0").fetchall()
             _bier_ids = [b['id'] for b in _biere]
@@ -2027,7 +2043,7 @@ def init_db():
         fotos_in_db = db.execute(
             "SELECT COUNT(*) FROM aktivitaet WHERE foto_pfad IS NOT NULL AND foto_pfad != ''"
         ).fetchone()[0]
-        if fotos_in_db == 0 and os.path.isdir(UPLOAD_FOLDER):
+        if DEMO_MODUS and fotos_in_db == 0 and os.path.isdir(UPLOAD_FOLDER):
             upload_files = sorted([
                 f for f in os.listdir(UPLOAD_FOLDER)
                 if f.startswith('akt_') and f.endswith('.jpg')
@@ -2058,7 +2074,7 @@ def init_db():
             LEFT JOIN mitarbeiter_verkaufsstelle mv ON mv.verkaufsstelle_id = v.id
             WHERE v.aktiv = 1 AND mv.mitarbeiter_id IS NULL
         """).fetchone()[0]
-        if _unzugeordnet > 0 or _mm_hat_falsch:
+        if DEMO_MODUS and (_unzugeordnet > 0 or _mm_hat_falsch):
             import random as _rnd_assign
             _rnd_assign.seed(42)
             # Rep-Zuordnungen löschen und geografisch neu vergeben
@@ -2121,7 +2137,7 @@ def init_db():
         ohne_coords = db.execute(
             "SELECT id, ort FROM verkaufsstelle WHERE aktiv=1 AND (lat IS NULL OR lng IS NULL)"
         ).fetchall()
-        if ohne_coords:
+        if DEMO_MODUS and ohne_coords:
             import random as _rnd_geo
             _rnd_geo.seed(77)
             STADT_COORDS = {
@@ -2179,7 +2195,7 @@ def init_db():
             'Starnberg': ('Landkreis Starnberg', '82319'),
             'Dachau': ('Landkreis Dachau', '85221'),
         }
-        for _ort, (_lk, _plz) in _demo_lk.items():
+        for _ort, (_lk, _plz) in (_demo_lk.items() if DEMO_MODUS else []):
             db.execute("UPDATE verkaufsstelle SET landkreis=? WHERE ort=? AND landkreis IS NULL", (_lk, _ort))
             db.execute("UPDATE verkaufsstelle SET plz=? WHERE ort=? AND plz IS NULL", (_plz, _ort))
         db.commit()
@@ -2190,7 +2206,7 @@ def init_db():
             JOIN mitarbeiter_verkaufsstelle mv ON mv.verkaufsstelle_id = a.verkaufsstelle_id
             WHERE a.mitarbeiter_id != mv.mitarbeiter_id
         """).fetchone()[0]
-        if _falsch_n > 0:
+        if DEMO_MODUS and _falsch_n > 0:
             db.execute("""
                 UPDATE aktivitaet
                 SET mitarbeiter_id = (
@@ -2211,7 +2227,7 @@ def init_db():
         _juni_n = db.execute(
             "SELECT COUNT(*) FROM aktivitaet WHERE datum BETWEEN '2026-06-02' AND '2026-06-06'"
         ).fetchone()[0]
-        if _juni_n == 0:
+        if DEMO_MODUS and _juni_n == 0:
             import random as _rnd_juni
             _rnd_juni.seed(20260601)
             _reps_juni = db.execute("SELECT id FROM mitarbeiter WHERE rolle='rep'").fetchall()
@@ -2253,7 +2269,7 @@ def init_db():
         _n_2025 = db.execute(
             "SELECT COUNT(*) FROM aktivitaet WHERE strftime('%Y', datum) = '2025'"
         ).fetchone()[0]
-        if _n_2025 > 0:
+        if DEMO_MODUS and _n_2025 > 0:
             db.execute("DELETE FROM aktivitaet WHERE strftime('%Y', datum) = '2025'")
             db.commit()
             app.logger.info(f"Migration: {_n_2025} Aktivitaeten aus 2025 geloescht.")
@@ -2265,7 +2281,7 @@ def init_db():
             "AND julianday('now') - julianday(datum) > 28 "
             "ORDER BY datum ASC"
         ).fetchall()
-        if len(_ue_ids) > 5:
+        if DEMO_MODUS and len(_ue_ids) > 5:
             _close_ids = [r[0] for r in _ue_ids[:-5]]
             db.execute(
                 f"UPDATE aktivitaet SET bestell_status='aufgebaut' WHERE id IN ({','.join('?'*len(_close_ids))})",
@@ -2281,7 +2297,7 @@ def init_db():
             "WHERE aktionstyp='Bestellung' AND COALESCE(bestell_status,'offen')='offen' "
             "AND julianday('now') - julianday(datum) > 28"
         ).fetchone()[0]
-        if _ue_count == 0:
+        if DEMO_MODUS and _ue_count == 0:
             from datetime import date as _d, timedelta as _td
             _ue_reps    = db.execute("SELECT id FROM mitarbeiter WHERE rolle='rep' ORDER BY id LIMIT 3").fetchall()
             _ue_stellen = db.execute("SELECT id FROM verkaufsstelle WHERE aktiv=1 ORDER BY id LIMIT 3").fetchall()
@@ -2334,7 +2350,7 @@ def init_db():
             ('Stadionkiosk SV Mitte',      'Schwarzwaldstrasse 20'),
         ]
         _updated = 0
-        for _vs_name, _strasse in _vs_adressen:
+        for _vs_name, _strasse in (_vs_adressen if DEMO_MODUS else []):
             _r = db.execute(
                 "UPDATE verkaufsstelle SET strasse=? WHERE name=? AND (strasse IS NULL OR strasse='')",
                 (_strasse, _vs_name)
@@ -2348,7 +2364,7 @@ def init_db():
         _old_dl = db.execute(
             "SELECT id FROM mitarbeiter WHERE name='Demo Leitung' AND kuerzel='DL'"
         ).fetchone()
-        if _old_dl:
+        if DEMO_MODUS and _old_dl:
             db.execute("DELETE FROM aktivitaet WHERE mitarbeiter_id=?", (_old_dl[0],))
             db.execute("DELETE FROM mitarbeiter_verkaufsstelle WHERE mitarbeiter_id=?", (_old_dl[0],))
             db.execute("DELETE FROM zielzahlen WHERE mitarbeiter_id=?", (_old_dl[0],))
@@ -2358,7 +2374,7 @@ def init_db():
         _demo_zugang = db.execute(
             "SELECT id FROM mitarbeiter WHERE name='Demo-Zugang'"
         ).fetchone()
-        if _demo_zugang:
+        if DEMO_MODUS and _demo_zugang:
             db.execute("UPDATE mitarbeiter SET name='Demo Leitung' WHERE id=?", (_demo_zugang[0],))
             db.commit()
             app.logger.info("Migration: Demo-Zugang zu 'Demo Leitung' umbenannt.")
