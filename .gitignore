@@ -30,3 +30,4 @@ static/logoarco.png
 # Pflichttest (Browser)
 _pflichttest_shots/
 _pflichttest_server.log
+.deploy_check.conf
