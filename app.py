@@ -9720,7 +9720,32 @@ def admin_mitarbeiter_loeschen(ma_id):
               f'da sonst Geschäftsdaten (Bestellungen/Umsatzhistorie) verloren gehen. '
               f'Für eine Löschanfrage nach DSGVO stattdessen „Anonymisieren" verwenden.', 'danger')
         return redirect(url_for('admin'))
-    execute("DELETE FROM mitarbeiter WHERE id=?", (ma_id,))
+    # Bugfix 2026-09-03: nur aktivitaet wurde geprüft, aber mehrere weitere Tabellen
+    # referenzieren mitarbeiter(id) OHNE ON DELETE CASCADE (chat_nachricht, zielzahlen,
+    # zielzahlen_kategorie, vs_dubletten_ignoriert.ignoriert_von, vs_hinweis_meldung,
+    # abweichungs_alert.entschieden_von) - das DELETE unten warf dadurch ungefangen einen
+    # sqlite3.IntegrityError (FOREIGN KEY constraint failed) und die App zeigte einen
+    # nackten 500er statt einer verständlichen Meldung. Die eindeutig zu diesem Mitarbeiter
+    # gehörenden Datensätze werden hier mitgelöscht (Zielzahlen, Chat-Verlauf - konsistent
+    # mit "Löschen" als vollständige Entfernung, im Unterschied zu "Anonymisieren"), reine
+    # Referenzfelder (wer eine Meldung ignoriert/entschieden hat) werden auf NULL gesetzt
+    # statt die fremde Meldung selbst zu löschen.
+    execute("DELETE FROM chat_nachricht WHERE von_mitarbeiter_id=? OR an_mitarbeiter_id=?", (ma_id, ma_id))
+    execute("DELETE FROM zielzahlen WHERE mitarbeiter_id=?", (ma_id,))
+    execute("DELETE FROM zielzahlen_kategorie WHERE mitarbeiter_id=?", (ma_id,))
+    execute("UPDATE vs_dubletten_ignoriert SET ignoriert_von=NULL WHERE ignoriert_von=?", (ma_id,))
+    execute("DELETE FROM vs_hinweis_meldung WHERE mitarbeiter_id=?", (ma_id,))
+    execute("UPDATE abweichungs_alert SET entschieden_von=NULL WHERE entschieden_von=?", (ma_id,))
+    try:
+        execute("DELETE FROM mitarbeiter WHERE id=?", (ma_id,))
+    except sqlite3.IntegrityError as e:
+        # Sicherheitsnetz (CLAUDE.md: nie str(e)/Traceback an den Client) - falls doch noch
+        # eine nicht bedachte Fremdschlüssel-Referenz existiert, lieber eine verständliche
+        # Meldung als ein nackter 500er.
+        app.logger.error(f"Mitarbeiter-Löschen {ma_id} fehlgeschlagen: {e}", exc_info=True)
+        flash(f'„{ma["name"]}" konnte nicht gelöscht werden, da noch verknüpfte Daten bestehen. '
+              f'Für eine Löschanfrage nach DSGVO stattdessen „Anonymisieren" verwenden.', 'danger')
+        return redirect(url_for('admin'))
     flash(f'Mitarbeiter „{ma["name"]}" wurde gelöscht.', 'success')
     return redirect(url_for('admin'))
 
