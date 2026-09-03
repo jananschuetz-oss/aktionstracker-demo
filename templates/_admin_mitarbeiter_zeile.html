@@ -120,7 +120,7 @@
     <form method="POST"
           action="{{ url_for('admin_mitarbeiter_loeschen', ma_id=m.id) }}"
           style="display:inline"
-          onsubmit="return confirm('Mitarbeiter „{{ m.name }}" wirklich löschen?\n\nNur möglich wenn keine Aktivitäten vorhanden.')">
+          onsubmit="return confirm('Mitarbeiter „{{ m.name }}” wirklich löschen?\n\nNur möglich wenn keine Aktivitäten vorhanden.')">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"
               title="Löschen (nur ohne Aktivitäten)">
@@ -130,7 +130,7 @@
     <form method="POST"
           action="{{ url_for('admin_mitarbeiter_anonymisieren', ma_id=m.id) }}"
           style="display:inline"
-          onsubmit="return confirm('Mitarbeiter „{{ m.name }}" anonymisieren?\n\nName, E-Mail und Wohnort werden entfernt und das Konto deaktiviert. Geschäftsdaten (Aktivitäten, Bestellungen) bleiben zur Auswertung erhalten, aber ohne Personenbezug. Nicht umkehrbar.')">
+          onsubmit="return confirm('Mitarbeiter „{{ m.name }}” anonymisieren?\n\nName, E-Mail und Wohnort werden entfernt und das Konto deaktiviert. Geschäftsdaten (Aktivitäten, Bestellungen) bleiben zur Auswertung erhalten, aber ohne Personenbezug. Nicht umkehrbar.')">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit" class="btn btn-outline-secondary btn-sm py-0 px-1"
               title="Anonymisieren (DSGVO-Löschanfrage bei bestehenden Aktivitäten)">

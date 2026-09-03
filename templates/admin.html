@@ -211,7 +211,7 @@
                   <form method="POST"
                         action="{{ url_for('admin_vs_loeschen', vs_id=vs.id) }}"
                         style="display:inline"
-                        onsubmit="return confirm('Verkaufsstelle „{{ vs.name }}" löschen?\n\nHat sie Aktivitäten, wird sie nur deaktiviert.')">
+                        onsubmit="return confirm('Verkaufsstelle „{{ vs.name }}” löschen?\n\nHat sie Aktivitäten, wird sie nur deaktiviert.')">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"
                             title="Löschen / Deaktivieren">
@@ -325,7 +325,7 @@
                 </button>
                 <form method="POST" action="{{ url_for('admin_display_loeschen', ds_id=d.id) }}"
                       style="display:inline"
-                      onsubmit="return confirm('Display-Typ „{{ d.name }}" deaktivieren?')">
+                      onsubmit="return confirm('Display-Typ „{{ d.name }}” deaktivieren?')">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1"
                           title="Deaktivieren (bleibt in Historie erhalten)">
@@ -334,7 +334,7 @@
                 </form>
                 <form method="POST" action="{{ url_for('admin_display_hart_loeschen', ds_id=d.id) }}"
                       style="display:inline"
-                      onsubmit="return confirm('Display-Typ „{{ d.name }}" ENDGÜLTIG löschen? Das geht nur, wenn er in keiner Aktivität verwendet wurde, und kann nicht rückgängig gemacht werden.')">
+                      onsubmit="return confirm('Display-Typ „{{ d.name }}” ENDGÜLTIG löschen? Das geht nur, wenn er in keiner Aktivität verwendet wurde, und kann nicht rückgängig gemacht werden.')">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"
                           title="Endgültig löschen (nur wenn unbenutzt)">
@@ -424,7 +424,7 @@
                 <form method="POST"
                       action="{{ url_for('admin_bier_loeschen', b_id=b.id) }}"
                       style="display:inline"
-                      onsubmit="return confirm('Produkt „{{ b.name }}" löschen?\n\nHat es Bestellungen, wird es nur deaktiviert.')">
+                      onsubmit="return confirm('Produkt „{{ b.name }}” löschen?\n\nHat es Bestellungen, wird es nur deaktiviert.')">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"
                           title="Löschen / Deaktivieren">
@@ -1319,7 +1319,7 @@
               </div>
             </div>
             <form method="POST" action="{{ url_for('admin_team_loeschen', team_id=t.id) }}"
-                  onsubmit="return confirm('Team „{{ t.name }}" wirklich löschen?\nMitglieder werden keinem Team mehr zugeordnet.')">
+                  onsubmit="return confirm('Team „{{ t.name }}” wirklich löschen?\nMitglieder werden keinem Team mehr zugeordnet.')">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1" title="Team löschen">
                 <i class="bi bi-trash"></i>
