@@ -13352,7 +13352,25 @@ def _do_send_wochenbericht(force=False):
 def send_wochenbericht(force=False):
     """Wrapper für APScheduler – erstellt eigenen App-Context."""
     with app.app_context():
-        return _do_send_wochenbericht(force=force)
+        ok, msg = _do_send_wochenbericht(force=force)
+        # Toter-Briefkasten-Check 2026-09-03 (portiert von Arco b1c51af): Ping nur bei
+        # automatischem, erfolgreichem Lauf (nicht force=True), damit ein manueller Test-
+        # Versand den wöchentlichen Rhythmus des Checks nicht durcheinanderbringt.
+        if ok and not force:
+            _healthcheck_ping(os.environ.get('HEALTHCHECK_WOCHENBERICHT_URL'))
+        return ok, msg
+
+
+def _healthcheck_ping(url, fail=False):
+    """Sendet einen Lebenszeichen-Ping an healthchecks.io (portiert von Arco b1c51af). Rein
+    optional - ohne gesetzte URL passiert nichts, ein Fehler beim Ping selbst darf niemals
+    den eigentlichen Report-Versand beeinträchtigen (daher alles in try/except, nur geloggt)."""
+    if not url:
+        return
+    try:
+        urllib.request.urlopen((url.rstrip('/') + '/fail') if fail else url, timeout=5)
+    except Exception as e:
+        app.logger.warning(f"Healthcheck-Ping fehlgeschlagen ({url}): {e}")
 
 
 # ─── Monatsbericht ───────────────────────────────────────────────────────────
